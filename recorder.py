@@ -493,6 +493,40 @@ class AlbumRecorder:
 
             boundaries = list(self._track_boundaries)
 
+        # ── Trim trailing silence ──────────────────────────────────────
+        TRIM_THRESHOLD = 0.008          # RMS below this = silence
+        TRIM_BLOCK     = SAMPLE_RATE * CHANNELS * 2  # 1-second blocks (16-bit stereo)
+        FADE_TAIL      = int(0.1 * SAMPLE_RATE * CHANNELS * 2)  # 0.1s fade-out buffer
+
+        original_len = len(pcm)
+        trim_pos = original_len
+        # Walk backwards in 1-second blocks
+        while trim_pos > TRIM_BLOCK:
+            block_start = trim_pos - TRIM_BLOCK
+            block = np.frombuffer(pcm[block_start:trim_pos], dtype=np.int16)
+            rms = float(np.sqrt(np.mean((block.astype(np.float32) / 32768.0) ** 2)))
+            if rms >= TRIM_THRESHOLD:
+                # This block has audio — keep everything up to here + fade tail
+                trim_pos = min(trim_pos + FADE_TAIL, original_len)
+                # Align to frame boundary (2 channels × 2 bytes = 4 bytes per frame)
+                trim_pos = trim_pos - (trim_pos % 4)
+                break
+            trim_pos = block_start
+        else:
+            trim_pos = original_len  # don't trim if everything is quiet (shouldn't happen)
+
+        if trim_pos < original_len:
+            trimmed_secs = (original_len - trim_pos) / (SAMPLE_RATE * CHANNELS * 2)
+            pcm = pcm[:trim_pos]
+            print(f"[album-rec] Trimmed {trimmed_secs:.1f}s trailing silence")
+
+            # Update last track boundary to match trimmed length
+            new_total = len(pcm) / (SAMPLE_RATE * CHANNELS * 2)
+            if boundaries and boundaries[-1]["end_secs"] is not None:
+                boundaries[-1]["end_secs"] = new_total
+                boundaries[-1]["end_byte"] = len(pcm)
+        # ──────────────────────────────────────────────────────────────
+
         duration = _pcm_duration(pcm)
         if duration < 30:  # less than 30 seconds — probably not a real side
             print(f"[album-rec] Recording too short ({duration:.1f}s) — discarding")
