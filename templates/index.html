@@ -793,6 +793,14 @@
         <h3>💿 Encoding FLAC…</h3>
         <p style="font-size:0.85rem;color:var(--muted)">Please wait…</p>
       </div>
+      <div id="album-rec-flip-prompt" style="display:none">
+        <h3 style="color:var(--green)">✓ Side <span id="album-rec-done-side">A</span> saved!</h3>
+        <p style="font-size:0.85rem;color:var(--muted);margin-bottom:0.6rem">Flip the record and press continue when ready.</p>
+        <div style="display:flex;gap:0.5rem;flex-wrap:wrap">
+          <button class="btn-start btn-small" onclick="startNextSideRecording()">⏺ Record Side <span id="album-rec-next-side-label">B</span></button>
+          <button class="btn-ghost btn-small" onclick="finishAlbumRecSession()">Done — No More Sides</button>
+        </div>
+      </div>
     </div>
 
     <div class="modal-actions">
@@ -1808,7 +1816,7 @@
   // ── Utility ───────────────────────────────────────────────────────────────
   // ── Album Recording (Full-Side FLAC) ─────────────────────────────────────
 
-  let _albumRecInterval = null, _albumRecStartTime = null, _albumRecSide = 'A';
+  let _albumRecInterval = null, _albumRecStartTime = null, _albumRecSide = 'A', _albumRecNextSide = null;
 
   function showToast(msg) {
     const el = document.getElementById('error-msg');
@@ -1823,6 +1831,7 @@
     document.getElementById('album-rec-setup').style.display = 'block';
     document.getElementById('album-rec-active').style.display = 'none';
     document.getElementById('album-rec-saving').style.display = 'none';
+    document.getElementById('album-rec-flip-prompt').style.display = 'none';
     document.getElementById('btn-album-rec').style.display = 'none';
     const tracks = window._modalTracks || [];
     const sides = [...new Set(tracks.map(t => t.side || 'A'))].sort();
@@ -1842,6 +1851,7 @@
 
   function hideAlbumRecPanel() {
     document.getElementById('album-rec-panel').style.display = 'none';
+    document.getElementById('album-rec-flip-prompt').style.display = 'none';
     document.getElementById('btn-album-rec').style.display = '';
   }
 
@@ -1918,6 +1928,37 @@
     hideAlbumRecPanel(); showToast('Recording cancelled');
   }
 
+  async function startNextSideRecording() {
+    // Called from flip prompt — start recording the next side directly
+    if (!currentAlbumId || !_albumRecNextSide) return;
+    _albumRecSide = _albumRecNextSide;
+    _albumRecNextSide = null;
+    document.getElementById('album-rec-flip-prompt').style.display = 'none';
+    document.getElementById('album-rec-active').style.display = 'block';
+    document.getElementById('album-rec-active-side').textContent = _albumRecSide;
+    document.getElementById('album-rec-timer').textContent = '00:00';
+    document.getElementById('album-rec-status-text').textContent = 'Starting…';
+    document.getElementById('album-rec-track-log').innerHTML = '';
+    var ns = String.fromCharCode(_albumRecSide.charCodeAt(0)+1);
+    document.getElementById('btn-album-rec-flip').textContent = '\u27F3 Flip \u2014 Side '+ns;
+    try {
+      var res = await fetch('/api/album-recording/start', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({album_id:currentAlbumId, side:_albumRecSide})
+      }).then(r=>r.json());
+      if (!res.ok) { showError(res.error||'Failed'); hideAlbumRecPanel(); return; }
+      _albumRecStartTime = Date.now();
+      _albumRecInterval = setInterval(updateAlbumRecTimer, 1000);
+      document.getElementById('album-rec-status-text').textContent = 'Side '+_albumRecSide+' \u2014 flip the record and drop the needle\u2026';
+    } catch(e) { showError('Failed: '+e.message); hideAlbumRecPanel(); }
+  }
+
+  function finishAlbumRecSession() {
+    // Called from flip prompt "Done" button — no more sides to record
+    hideAlbumRecPanel();
+    if (currentAlbumId) openAlbum(currentAlbumId);
+  }
+
   function onAlbumRecStatus(data) {
     var el = document.getElementById('album-rec-status-text');
     if (el && data.message) el.textContent = data.message;
@@ -1932,9 +1973,31 @@
         if (savingEl) savingEl.style.display = 'block';
       }
       if (data.message && data.message.indexOf('\u2713') >= 0) {
-        // Side saved successfully — hide panel, refresh modal
-        hideAlbumRecPanel();
-        if (currentAlbumId) openAlbum(currentAlbumId);
+        // Side saved — check if there's a next side to prompt for
+        var doneSide = _albumRecSide || 'A';
+        var nextSide = String.fromCharCode(doneSide.charCodeAt(0) + 1);
+        var tracks = window._modalTracks || [];
+        var sides = [...new Set(tracks.map(t => t.side || 'A'))].sort();
+        var hasNextSide = sides.indexOf(nextSide) >= 0;
+
+        // Refresh audio list in the background
+        if (currentAlbumId) loadAlbumAudio(currentAlbumId);
+
+        if (hasNextSide) {
+          // Show flip prompt instead of closing
+          document.getElementById('album-rec-saving').style.display = 'none';
+          document.getElementById('album-rec-active').style.display = 'none';
+          document.getElementById('album-rec-setup').style.display = 'none';
+          var flipPrompt = document.getElementById('album-rec-flip-prompt');
+          flipPrompt.style.display = 'block';
+          document.getElementById('album-rec-done-side').textContent = doneSide;
+          document.getElementById('album-rec-next-side-label').textContent = nextSide;
+          _albumRecNextSide = nextSide;
+        } else {
+          // Last side — close the panel
+          hideAlbumRecPanel();
+          if (currentAlbumId) openAlbum(currentAlbumId);
+        }
       }
     }
   }
