@@ -1,0 +1,1904 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Vinyl AirPlay</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:      #0f0f0f;
+      --surface: #1a1a1a;
+      --surface2:#222;
+      --border:  #2e2e2e;
+      --accent:  #e8611a;
+      --accent2: #c44f12;
+      --text:    #e8e8e8;
+      --muted:   #888;
+      --green:   #4caf50;
+      --red:     #f44336;
+      --blue:    #2196f3;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+
+    /* ── Tabs ── */
+    .tab-bar {
+      display: flex;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      position: sticky; top: 0; z-index: 10;
+    }
+    .tab-btn {
+      flex: 1; padding: 0.85rem 0.5rem;
+      background: none; border: none; border-bottom: 2px solid transparent;
+      color: var(--muted); font-size: 0.8rem; font-weight: 600;
+      text-transform: uppercase; letter-spacing: 0.06em;
+      cursor: pointer; transition: color 0.15s, border-color 0.15s;
+    }
+    .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+    .tab-pane { display: none; padding: 1rem; }
+    .tab-pane.active { display: block; }
+
+    header { text-align: center; padding: 1.5rem 0 1rem; }
+    header h1 { font-size: 1.5rem; font-weight: 600; }
+    header p  { color: var(--muted); font-size: 0.82rem; margin-top: 0.25rem; }
+
+    .card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 12px; padding: 1.25rem;
+      margin-bottom: 1rem; max-width: 480px; margin-left: auto; margin-right: auto;
+    }
+    .card h2 {
+      font-size: 0.72rem; font-weight: 600;
+      text-transform: uppercase; letter-spacing: 0.08em;
+      color: var(--muted); margin-bottom: 0.9rem;
+    }
+
+    /* ── Now Playing ── */
+    #now-playing-card { display: none; }
+    .np-inner {
+      display: flex; gap: 1rem; align-items: center;
+    }
+    .np-art {
+      width: 80px; height: 80px; border-radius: 8px;
+      object-fit: cover; background: var(--border); flex-shrink: 0;
+      border: 1px solid var(--border);
+    }
+    .np-art-placeholder {
+      width: 80px; height: 80px; border-radius: 8px;
+      background: var(--border); flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 2rem;
+    }
+    .np-info { flex: 1; min-width: 0; }
+    .np-title   { font-size: 1rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .np-artist  { font-size: 0.82rem; color: var(--muted); margin-top: 0.2rem; }
+    .np-album   { font-size: 0.78rem; color: var(--muted); margin-top: 0.1rem; font-style: italic; }
+    .np-badge   { display: inline-block; font-size: 0.7rem; background: var(--accent); color: #fff;
+                  border-radius: 4px; padding: 0.1rem 0.4rem; margin-top: 0.4rem; }
+    .np-scanning { color: var(--muted); font-size: 0.85rem; font-style: italic; }
+
+    /* ── Status dot ── */
+    .status-dot {
+      display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+      background: var(--muted); margin-right: 6px; vertical-align: middle;
+    }
+    .status-dot.on { background: var(--green); box-shadow: 0 0 6px var(--green); }
+
+    /* ── Buttons ── */
+    select, button, input[type=text], input[type=number], input[type=password], textarea {
+      width: 100%; padding: 0.7rem 1rem; border-radius: 8px;
+      border: 1px solid var(--border); background: var(--bg);
+      color: var(--text); font-size: 0.9rem; cursor: pointer; font-family: inherit;
+    }
+    select, input, textarea { cursor: text; }
+    button { font-weight: 600; transition: background 0.15s, transform 0.1s; cursor: pointer; }
+    button:active { transform: scale(0.98); }
+    .btn-scan    { background: transparent; color: var(--accent); border-color: var(--accent); margin-bottom: 0.75rem; }
+    .btn-scan:hover { background: rgba(232,97,26,0.08); }
+    .btn-start   { background: var(--accent); border-color: var(--accent); color: #fff; }
+    .btn-start:hover { background: var(--accent2); }
+    .btn-stop    { background: transparent; border-color: var(--red); color: var(--red); }
+    .btn-stop:hover { background: rgba(244,67,54,0.08); }
+    .btn-ghost   { background: transparent; border-color: var(--border); color: var(--muted); }
+    .btn-ghost:hover { color: var(--text); border-color: var(--muted); }
+    .btn-small   { width: auto; padding: 0.35rem 0.8rem; font-size: 0.8rem; }
+    .btn-blue    { background: var(--blue); border-color: var(--blue); color: #fff; }
+
+    /* ── Sliders ── */
+    .slider-row { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.6rem; }
+    .slider-row:last-child { margin-bottom: 0; }
+    .slider-row label { color: var(--muted); font-size: 0.82rem; width: 52px; flex-shrink: 0; }
+    .slider-row input[type=range] { flex: 1; accent-color: var(--accent); cursor: pointer; }
+    .slider-val { font-size: 0.82rem; width: 44px; text-align: right; font-variant-numeric: tabular-nums; }
+
+    /* ── Device list ── */
+    .device-list { margin-bottom: 0.75rem; }
+    .device-item {
+      display: flex; align-items: center; gap: 0.6rem;
+      padding: 0.5rem 0; border-bottom: 1px solid var(--border);
+      font-size: 0.9rem; cursor: pointer;
+    }
+    .device-item:last-child { border-bottom: none; }
+    .device-item input[type=checkbox] { accent-color: var(--accent); width: 16px; height: 16px; }
+    .device-empty { color: var(--muted); font-size: 0.85rem; text-align: center; padding: 0.5rem 0; }
+
+    /* ── Catalog ── */
+    .album-grid {
+      display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+      gap: 1rem; max-width: 480px; margin: 0 auto;
+    }
+    .album-card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 10px; overflow: hidden; cursor: pointer;
+      transition: border-color 0.15s;
+    }
+    .album-card:hover { border-color: var(--accent); }
+    .album-art {
+      width: 100%; aspect-ratio: 1; object-fit: cover;
+      background: var(--border); display: flex; align-items: center;
+      justify-content: center; font-size: 2.5rem; color: var(--muted);
+    }
+    .album-art img { width: 100%; height: 100%; object-fit: cover; }
+    .album-info { padding: 0.6rem 0.7rem; }
+    .album-info .title  { font-size: 0.82rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .album-info .artist { font-size: 0.75rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .album-info .meta   { font-size: 0.7rem; color: var(--muted); margin-top: 0.25rem; }
+
+    /* ── Album detail modal ── */
+    .modal-overlay {
+      display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.75);
+      z-index: 100; overflow-y: auto; padding: 1rem;
+    }
+    .modal-overlay.open { display: flex; align-items: flex-start; justify-content: center; }
+    .modal {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 14px; padding: 1.5rem; width: 100%; max-width: 440px;
+      margin-top: 2rem;
+    }
+    .modal-header { display: flex; align-items: flex-start; gap: 1rem; margin-bottom: 1rem; }
+    .modal-art {
+      width: 90px; height: 90px; border-radius: 8px; object-fit: cover;
+      background: var(--border); flex-shrink: 0; border: 1px solid var(--border);
+    }
+    .modal-title   { font-size: 1rem; font-weight: 700; }
+    .modal-artist  { font-size: 0.85rem; color: var(--muted); margin-top: 0.2rem; }
+    .modal-meta    { font-size: 0.78rem; color: var(--muted); margin-top: 0.3rem; }
+    .track-list    { margin: 0.75rem 0; }
+    .track-row {
+      display: flex; align-items: center; gap: 0.5rem;
+      padding: 0.4rem 0; border-bottom: 1px solid var(--border); font-size: 0.85rem;
+    }
+    .track-row.drag-over { background: var(--accent-dim, rgba(255,120,0,0.12)); border-radius: 6px; }
+    .track-row[draggable] { cursor: grab; }
+    .track-row[draggable]:active { cursor: grabbing; opacity: 0.7; }
+    .drag-handle { color: var(--muted); font-size: 1rem; cursor: grab; padding: 0 0.3rem; flex-shrink: 0; user-select: none; }
+    #modal-tracks.reorder-mode .track-row { background: var(--surface, #1e1e2e); border-radius:6px; margin-bottom:2px; padding: 0.4rem 0.5rem; }
+
+    .track-row:last-child { border-bottom: none; }
+    .track-num { color: var(--muted); width: 28px; flex-shrink: 0; font-size: 0.78rem; }
+    .modal-actions { display: flex; gap: 0.5rem; margin-top: 1rem; flex-wrap: wrap; }
+
+    /* ── Manual entry form ── */
+    .form-row { margin-bottom: 0.75rem; }
+    .form-row label { display: block; font-size: 0.78rem; color: var(--muted); margin-bottom: 0.3rem; }
+    .form-row input, .form-row select, .form-row textarea { margin: 0; }
+    .form-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
+
+    /* ── Error bar ── */
+    #error-msg {
+      display: none; background: rgba(244,67,54,0.1); border: 1px solid var(--red);
+      color: var(--red); border-radius: 8px; padding: 0.7rem 1rem;
+      font-size: 0.85rem; margin-bottom: 1rem; max-width: 480px;
+      margin-left: auto; margin-right: auto;
+    }
+
+    /* ── History ── */
+    .history-row {
+      display: flex; align-items: center; gap: 0.75rem;
+      padding: 0.5rem 0; border-bottom: 1px solid var(--border); font-size: 0.85rem;
+    }
+    .history-row:last-child { border-bottom: none; }
+    .history-art {
+      width: 40px; height: 40px; border-radius: 6px;
+      object-fit: cover; background: var(--border); flex-shrink: 0;
+    }
+    .history-art-ph { width:40px;height:40px;border-radius:6px;background:var(--border);
+      flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:1.2rem; }
+    .history-info .track { font-weight: 600; }
+    .history-info .album { color: var(--muted); font-size: 0.78rem; }
+    .history-time { color: var(--muted); font-size: 0.75rem; margin-left: auto; white-space: nowrap; }
+    .rec-row {
+      display: flex; align-items: center; gap: 0.6rem;
+      padding: 0.5rem 0; border-bottom: 1px solid var(--border); font-size: 0.85rem;
+    }
+    .rec-row:last-child { border-bottom: none; }
+    .rec-row .name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .rec-row .size { color: var(--muted); font-size: 0.75rem; flex-shrink: 0; }
+  </style>
+</head>
+<body>
+
+<!-- Tab Bar -->
+<div class="tab-bar">
+  <button class="tab-btn active" onclick="showTab('stream')">Stream</button>
+  <button class="tab-btn"        onclick="showTab('catalog')">Catalog</button>
+  <button class="tab-btn"        onclick="showTab('history')">History</button>
+  <button class="tab-btn"        onclick="showTab('recordings')">Recordings</button>
+  <button class="tab-btn"        onclick="showTab('settings')">Settings</button>
+</div>
+
+<!-- ═══════════════════════ STREAM TAB ═══════════════════════ -->
+<div id="tab-stream" class="tab-pane active">
+
+  <header>
+    <h1>🎵 Vinyl AirPlay</h1>
+    <p>Stream your record player to any room</p>
+  </header>
+
+  <div id="error-msg"></div>
+
+  <!-- Now Playing -->
+  <div class="card" id="now-playing-card">
+    <h2>Now Playing</h2>
+    <div class="np-inner" id="np-inner">
+      <div class="np-art-placeholder">🎵</div>
+      <div class="np-info">
+        <div class="np-scanning">Listening for record…</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Status -->
+  <div class="card">
+    <h2>Status</h2>
+    <span class="status-dot" id="dot"></span>
+    <span id="status-text">Connecting…</span>
+  </div>
+
+  <!-- Audio Input -->
+  <div class="card">
+    <h2>Audio Input</h2>
+    <select id="audio-select"><option value="">Loading…</option></select>
+  </div>
+
+  <!-- Devices -->
+  <div class="card">
+    <h2>AirPlay Devices</h2>
+    <button class="btn-scan" id="btn-scan" onclick="scanDevices()">⟳ Scan for Devices</button>
+    <div class="device-list" id="device-list">
+      <div class="device-empty">Press scan to find devices</div>
+    </div>
+  </div>
+
+  <!-- Volume -->
+  <div class="card">
+    <h2>Volume</h2>
+    <div class="slider-row">
+      <label>Volume</label>
+      <input type="range" id="volume" min="0" max="100" value="80"
+             oninput="document.getElementById('vol-val').textContent=this.value+'%'"
+             onchange="sendVolume()">
+      <span class="slider-val" id="vol-val">80%</span>
+    </div>
+  </div>
+
+  <!-- EQ -->
+  <div class="card">
+    <h2>Equaliser</h2>
+    <div class="slider-row">
+      <label>Bass</label>
+      <input type="range" id="bass" min="-12" max="12" step="1" value="0"
+             oninput="updateEQLabel('bass',this.value)" onchange="sendEQ()">
+      <span class="slider-val" id="bass-val">0 dB</span>
+    </div>
+    <div class="slider-row">
+      <label>Treble</label>
+      <input type="range" id="treble" min="-12" max="12" step="1" value="0"
+             oninput="updateEQLabel('treble',this.value)" onchange="sendEQ()">
+      <span class="slider-val" id="treble-val">0 dB</span>
+    </div>
+    <div style="margin-top:0.75rem">
+      <button class="btn-ghost btn-small" onclick="resetEQ()">Reset EQ</button>
+    </div>
+  </div>
+
+  <!-- Controls -->
+  <div class="card">
+    <h2>Controls</h2>
+    <button class="btn-start" id="btn-start" onclick="startStream()">▶ Start Streaming</button>
+    <br><br>
+    <button class="btn-stop" id="btn-stop" onclick="stopStream()" style="display:none">■ Stop</button>
+  </div>
+
+</div><!-- /tab-stream -->
+
+<!-- ═══════════════════════ CATALOG TAB ═══════════════════════ -->
+<div id="tab-catalog" class="tab-pane">
+
+  <div style="max-width:480px;margin:1rem auto;display:flex;gap:0.5rem;flex-wrap:wrap">
+    <button class="btn-ghost btn-small" onclick="loadCatalog()">↻ Refresh</button>
+    <button class="btn-start btn-small" onclick="showAddForm()">+ Add Record</button>
+    <button class="btn-blue  btn-small" onclick="showLearnPanel()">🎓 Learn Fingerprints</button>
+  </div>
+
+  <div class="album-grid" id="album-grid">
+    <div class="device-empty" style="grid-column:1/-1">Loading catalog…</div>
+  </div>
+
+  <!-- Learn Mode Panel -->
+  <div class="card" id="learn-panel" style="display:none;max-width:480px;margin:1rem auto">
+
+    <!-- Step 1: Setup -->
+    <div id="learn-step-setup">
+      <h2>🎓 Learn Album Fingerprints</h2>
+      <p style="font-size:0.82rem;color:var(--muted);margin-bottom:0.75rem;line-height:1.5">
+        Play the record — this will automatically detect each track, fingerprint it in full,
+        and slice it into windows for local matching. No need to press anything per track.<br>
+        <strong style="color:var(--text)">No AirPlay streaming required</strong> — audio capture runs independently.
+      </p>
+      <div class="form-row" style="margin-bottom:0.5rem">
+        <label>Album</label>
+        <input type="text" id="learn-album-input" list="learn-album-list"
+               placeholder="Search artist or album…"
+               autocomplete="off"
+               oninput="onLearnAlbumInput(this.value)"
+               style="background:var(--surface,#1e1e2e);border:1px solid var(--border);
+                      color:var(--text);padding:0.4rem 0.6rem;border-radius:8px;
+                      font-size:0.85rem;width:100%;box-sizing:border-box">
+        <datalist id="learn-album-list"></datalist>
+        <input type="hidden" id="learn-album-id">
+      </div>
+      <div class="form-row" style="margin-bottom:0.75rem">
+        <label>Tracks on this side / pass</label>
+        <div style="display:flex;align-items:center;gap:0.75rem">
+          <input type="number" id="learn-track-count" value="5" min="1" max="30"
+                 style="width:70px;background:var(--card);border:1px solid var(--border);
+                        color:var(--text);padding:0.4rem 0.6rem;border-radius:8px;font-size:0.85rem">
+          <span style="font-size:0.8rem;color:var(--muted)">
+            e.g. 5 for Side A, then flip and do Side B
+          </span>
+        </div>
+      </div>
+      <!-- Also save as MP3 option -->
+      <label class="device-item" style="margin-bottom:0.75rem;gap:0.75rem;border:none;padding:0.5rem 0">
+        <input type="checkbox" id="learn-also-record"
+               style="accent-color:var(--accent);width:16px;height:16px;flex-shrink:0">
+        <span>
+          <strong style="font-size:0.85rem">Also save as MP3</strong>
+          <span style="display:block;font-size:0.75rem;color:var(--muted)">
+            Each captured track fingerprinted and saved as 320kbps MP3 with tags + artwork in one pass
+          </span>
+        </span>
+      </label>
+
+      <!-- Level meter -->
+      <div style="margin-bottom:0.75rem">
+        <div style="font-size:0.75rem;color:var(--muted);margin-bottom:0.3rem">Input level — confirm audio is coming through before starting</div>
+        <div style="background:var(--border);border-radius:4px;height:8px;overflow:hidden">
+          <div id="learn-level-bar" style="height:100%;width:0%;background:var(--green);transition:width 0.08s;border-radius:4px"></div>
+        </div>
+      </div>
+
+      <div style="display:flex;gap:0.5rem;flex-wrap:wrap">
+        <button class="btn-start btn-small" onclick="startLearnSession()">▶ Start Learning</button>
+        <button class="btn-ghost btn-small" onclick="hideLearnPanel()">Cancel</button>
+      </div>
+    </div>
+
+    <!-- Step 2: Active listening -->
+    <div id="learn-step-active" style="display:none">
+      <h2>🎓 Learning…</h2>
+      <div id="learn-progress-bar-wrap" style="background:var(--border);border-radius:4px;height:6px;margin-bottom:0.75rem">
+        <div id="learn-progress-bar" style="height:100%;width:0%;background:var(--accent);border-radius:4px;transition:width 0.4s"></div>
+      </div>
+      <div id="learn-status-text" style="font-size:0.9rem;margin-bottom:0.5rem;font-weight:600"></div>
+      <div id="learn-next-track" style="font-size:0.8rem;color:var(--muted);margin-bottom:0.75rem"></div>
+      <div id="learn-track-list" style="font-size:0.82rem;max-height:180px;overflow-y:auto;margin-bottom:0.75rem"></div>
+      <button class="btn-stop btn-small" onclick="stopLearnSession()">■ Stop</button>
+    </div>
+
+    <!-- Step 3: Paused — flip/swap prompt -->
+    <div id="learn-step-paused" style="display:none">
+      <h2>⏸ Flip or Swap Record</h2>
+      <div id="learn-pause-message" style="font-size:0.88rem;margin-bottom:0.75rem;line-height:1.5"></div>
+      <div class="form-row" style="margin-bottom:0.75rem">
+        <label>Tracks on next side / pass</label>
+        <input type="number" id="learn-continue-count" value="5" min="1" max="30"
+               style="width:70px;background:var(--card);border:1px solid var(--border);
+                      color:var(--text);padding:0.4rem 0.6rem;border-radius:8px;font-size:0.85rem">
+      </div>
+      <div style="display:flex;gap:0.5rem;flex-wrap:wrap">
+        <button class="btn-start btn-small" onclick="continueLearnSession()">▶ Continue</button>
+        <button class="btn-ghost btn-small" onclick="finishLearnSession()">✓ Done</button>
+      </div>
+    </div>
+
+    <!-- Step 4: Done -->
+    <div id="learn-step-done" style="display:none">
+      <h2>✓ Learning Complete</h2>
+      <div id="learn-done-message" style="font-size:0.88rem;margin-bottom:0.75rem;line-height:1.5"></div>
+      <button class="btn-ghost btn-small" onclick="hideLearnPanel()">Close</button>
+    </div>
+
+  </div>
+
+  <!-- Add Record Form -->
+  <div class="card" id="add-form" style="display:none;max-width:480px;margin:1rem auto">
+
+    <!-- Step 1: Search -->
+    <div id="add-step-search">
+      <h2>Add Record — Search</h2>
+      <div class="form-cols" style="margin-bottom:0.5rem">
+        <div class="form-row">
+          <label>Artist</label>
+          <input type="text" id="s-artist" placeholder="Pearl Jam" onkeydown="if(event.key==='Enter')doSearch()">
+        </div>
+        <div class="form-row">
+          <label>Album</label>
+          <input type="text" id="s-album" placeholder="Ten" onkeydown="if(event.key==='Enter')doSearch()">
+        </div>
+      </div>
+      <div style="display:flex;gap:0.5rem;margin-bottom:0.75rem">
+        <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap">
+          <button class="btn-start btn-small" id="btn-search" onclick="doSearch()">Search</button>
+          <div style="display:flex;gap:0;border:1px solid var(--border);border-radius:6px;overflow:hidden;font-size:0.8rem">
+            <button id="src-mb" onclick="setSource('mb')"
+              style="padding:0.3rem 0.7rem;border:none;cursor:pointer;background:var(--accent);color:#fff">MusicBrainz</button>
+            <button id="src-discogs" onclick="setSource('discogs')"
+              style="padding:0.3rem 0.7rem;border:none;cursor:pointer;background:var(--surface);color:var(--text)">Discogs</button>
+          </div>
+        </div>
+        <button class="btn-ghost btn-small" onclick="showManualStep()">Enter Manually Instead</button>
+        <button class="btn-ghost btn-small" onclick="hideAddForm()">Cancel</button>
+      </div>
+      <div id="search-results"></div>
+    </div>
+
+    <!-- Step 2: Confirm tracks from MusicBrainz -->
+    <div id="add-step-confirm" style="display:none">
+      <h2>Confirm Track Listing</h2>
+      <div id="confirm-album-header" style="margin-bottom:0.75rem"></div>
+      <div id="confirm-tracks" style="margin-bottom:0.75rem;max-height:320px;overflow-y:auto"></div>
+      <div style="display:flex;gap:0.5rem;flex-wrap:wrap">
+        <button class="btn-start btn-small" onclick="saveRelease()">Save to Catalog</button>
+        <button class="btn-ghost btn-small" onclick="backToSearch()">← Back</button>
+        <button class="btn-ghost btn-small" onclick="hideAddForm()">Cancel</button>
+      </div>
+    </div>
+
+    <!-- Step 3: Manual entry fallback -->
+    <div id="add-step-manual" style="display:none">
+      <h2>Add Record Manually</h2>
+      <div class="form-cols">
+        <div class="form-row">
+          <label>Album Title *</label>
+          <input type="text" id="m-album-title" placeholder="Abbey Road">
+        </div>
+        <div class="form-row">
+          <label>Artist *</label>
+          <input type="text" id="m-artist" placeholder="The Beatles">
+        </div>
+      </div>
+      <div class="form-cols">
+        <div class="form-row">
+          <label>Year</label>
+          <input type="number" id="m-year" placeholder="1969" min="1900" max="2099">
+        </div>
+        <div class="form-row">
+          <label>Genre</label>
+          <input type="text" id="m-genre" placeholder="Rock">
+        </div>
+      </div>
+      <div class="form-cols">
+        <div class="form-row">
+          <label>Label</label>
+          <input type="text" id="m-label" placeholder="Epic Records">
+        </div>
+        <div class="form-row">
+          <label>Notes</label>
+          <input type="text" id="m-notes" placeholder="UK pressing, 1991">
+        </div>
+      </div>
+      <div class="form-row" style="margin-top:0.25rem">
+        <label>Side A Tracks (one per line)</label>
+        <textarea id="m-tracks-a" rows="5" style="resize:vertical;font-size:0.85rem"
+                  placeholder="Once&#10;Even Flow&#10;Alive&#10;Why Go&#10;Black"></textarea>
+      </div>
+      <div class="form-row">
+        <label>Side B Tracks (one per line)</label>
+        <textarea id="m-tracks-b" rows="5" style="resize:vertical;font-size:0.85rem"
+                  placeholder="Jeremy&#10;Oceans&#10;Porch&#10;Garden&#10;Deep&#10;Release"></textarea>
+      </div>
+      <div style="display:flex;gap:0.5rem;margin-top:0.5rem;flex-wrap:wrap">
+        <button class="btn-start btn-small" onclick="submitManual()">Save to Catalog</button>
+        <button class="btn-ghost btn-small" onclick="backToSearch()">← Back to Search</button>
+        <button class="btn-ghost btn-small" onclick="hideAddForm()">Cancel</button>
+      </div>
+    </div>
+
+  </div>
+
+</div><!-- /tab-catalog -->
+
+<!-- ═══════════════════════ HISTORY TAB ═══════════════════════ -->
+<div id="tab-history" class="tab-pane">
+  <div class="card" style="max-width:480px;margin:1rem auto">
+    <h2>Recently Played</h2>
+    <div id="history-list">
+      <div class="device-empty">No plays recorded yet</div>
+    </div>
+  </div>
+</div>
+
+
+<!-- ═══════════════════════ RECORDINGS TAB ═══════════════════════ -->
+<div id="tab-recordings" class="tab-pane">
+
+
+  <!-- Recordings List -->
+  <div class="card" style="max-width:480px;margin:1rem auto">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.9rem">
+      <h2 style="margin:0">Saved MP3s</h2>
+      <div style="display:flex;gap:0.5rem">
+        <button class="btn-ghost btn-small" onclick="loadRecordings()">↻</button>
+        <a id="btn-dl-all" href="/api/recordings/zip/all" class="btn-ghost btn-small"
+           style="text-decoration:none;padding:0.35rem 0.8rem;border-radius:8px;
+                  border:1px solid var(--border);color:var(--muted);font-size:0.8rem;
+                  font-weight:600;display:inline-block">
+          ⬇ Download All
+        </a>
+      </div>
+    </div>
+    <div id="recordings-list">
+      <div class="device-empty">No recordings yet</div>
+    </div>
+  </div>
+
+</div>
+<!-- ═══════════════════════ SETTINGS TAB ═══════════════════════ -->
+<div id="tab-settings" class="tab-pane">
+
+  <!-- ── Auto-Stream Card ── -->
+  <div class="card" style="max-width:480px;margin:1rem auto">
+    <h2>Auto-Stream</h2>
+    <p style="font-size:0.82rem;color:var(--muted);margin-bottom:0.75rem;line-height:1.5">
+      When enabled, the Pi listens for audio from the turntable and automatically
+      starts streaming to the default device when a record plays.
+    </p>
+
+    <!-- Enable toggle -->
+    <label class="device-item" style="gap:0.75rem;border:none;padding:0.4rem 0;margin-bottom:0.75rem">
+      <input type="checkbox" id="auto-stream-enabled"
+             style="accent-color:var(--accent);width:16px;height:16px;flex-shrink:0"
+             onchange="saveAutoStreamSettings()">
+      <span>
+        <strong style="font-size:0.85rem">Enable auto-stream</strong>
+        <span style="display:block;font-size:0.75rem;color:var(--muted)">
+          Automatically starts streaming when the turntable is detected playing.
+        </span>
+      </span>
+    </label>
+
+    <!-- Default device picker -->
+    <div class="form-row" style="margin-bottom:0.5rem">
+      <label style="font-size:0.82rem">Default device</label>
+      <div style="display:flex;gap:0.5rem;align-items:center">
+        <select id="auto-stream-device-select"
+                onchange="saveAutoStreamSettings()"
+                style="flex:1;background:var(--surface,#1e1e2e);border:1px solid var(--border);
+                       color:var(--text);padding:0.4rem 0.6rem;border-radius:8px;font-size:0.85rem">
+          <option value="">— Select a device —</option>
+        </select>
+        <button class="btn-ghost btn-small" onclick="scanAutoStreamDevices()" title="Scan for AirPlay devices">↺</button>
+      </div>
+    </div>
+    <div id="auto-stream-status" style="font-size:0.78rem;color:var(--muted);margin-top:0.25rem"></div>
+  </div>
+
+  <div class="card" style="max-width:480px;margin:1rem auto">
+    <h2>Discogs API Token</h2>
+    <p style="font-size:0.82rem;color:var(--muted);margin-bottom:0.75rem;line-height:1.5">
+      Optional but recommended — increases Discogs rate limits from 25 to 60 requests/min
+      and enables cover art downloads. Get a free personal access token at
+      <a href="https://www.discogs.com/settings/developers" target="_blank"
+         style="color:var(--accent)">discogs.com/settings/developers</a>.
+    </p>
+    <div class="form-row">
+      <label>Token</label>
+      <input type="password" id="discogs-token" placeholder="Paste your Discogs token here">
+    </div>
+    <div style="display:flex;gap:0.5rem;align-items:center;margin-top:0.25rem">
+      <button class="btn-start btn-small" style="width:auto" onclick="saveDiscogsToken()">Save Token</button>
+      <span id="discogs-saved" style="display:none;color:var(--green);font-size:0.82rem">✓ Saved</span>
+    </div>
+  </div>
+
+  <div class="card" style="max-width:480px;margin:1rem auto">
+    <h2>AcoustID Client Key</h2>
+    <p style="font-size:0.82rem;color:var(--muted);margin-bottom:0.75rem;line-height:1.5">
+      Required for first-time record identification via the public AcoustID service.
+      Create a free (non-commercial) application key at
+      <a href="https://acoustid.org/webservice" target="_blank"
+         style="color:var(--accent)">acoustid.org/webservice</a>.
+      After a record is identified once, it is saved locally and this key is no longer needed
+      for that record.
+    </p>
+    <!-- Enable/disable toggle -->
+    <label class="device-item" style="gap:0.75rem;border:none;padding:0.5rem 0;margin-bottom:0.5rem">
+      <input type="checkbox" id="acoustid-enabled"
+             style="accent-color:var(--accent);width:16px;height:16px;flex-shrink:0"
+             onchange="saveSettings()">
+      <span>
+        <strong style="font-size:0.85rem">Enable AcoustID lookup</strong>
+        <span style="display:block;font-size:0.75rem;color:var(--muted)">
+          Query AcoustID for unrecognised records. Off by default — only needed before
+          fingerprints are learned. Adds CPU load every 30s while streaming.
+        </span>
+      </span>
+    </label>
+    <div class="form-row">
+      <label>API Token</label>
+      <input type="password" id="acoustid-key" placeholder="Paste your AcoustID client key here">
+    </div>
+    <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;margin-top:0.25rem">
+      <button class="btn-start btn-small" style="width:auto" onclick="saveSettings()">Save Key</button>
+      <button class="btn-ghost btn-small" onclick="testAcoustID()">Test Key</button>
+      <span id="settings-saved"  style="display:none;color:var(--green);font-size:0.82rem">✓ Saved</span>
+      <span id="settings-testing" style="display:none;color:var(--muted);font-size:0.82rem">Testing…</span>
+      <span id="settings-result" style="display:none;font-size:0.82rem"></span>
+    </div>
+  </div>
+
+  <div class="card" style="max-width:480px;margin:1rem auto">
+    <h2>Hidden Devices</h2>
+    <p style="font-size:0.82rem;color:var(--muted);margin-bottom:0.75rem;line-height:1.5">
+      Devices checked here are hidden from the streaming list. Scan first to see all available devices.
+    </p>
+    <div id="hidden-device-list">
+      <div class="device-empty">Scan for devices to manage visibility</div>
+    </div>
+    <button class="btn-ghost btn-small" style="margin-top:0.75rem" onclick="scanForHidden()">⟳ Scan Devices</button>
+  </div>
+
+  <div class="card" style="max-width:480px;margin:1rem auto">
+    <h2>About Recognition</h2>
+    <p style="font-size:0.82rem;color:var(--muted);line-height:1.6">
+      When streaming, Vinyl AirPlay samples ~20 seconds of audio on an overlapping window (~every 12 seconds)
+      and generates an acoustic fingerprint using Chromaprint — the same engine
+      used by services like Last.fm.<br><br>
+      It first checks your <strong>local catalog</strong>. If the record is already
+      known, it matches instantly with no internet connection. If it's a new record
+      and you have an AcoustID client key, it queries
+      <a href="https://acoustid.org" target="_blank" style="color:var(--accent)">AcoustID</a>
+      (Chromaprint-based fingerprint lookup). Only the fingerprint (not raw audio) is sent.
+      After that, the match + metadata are stored locally, so the lookup never repeats.
+    </p>
+  </div>
+</div>
+
+<!-- ═══════════════════════ ALBUM DETAIL MODAL ═══════════════════════ -->
+<div class="modal-overlay" id="album-modal" onclick="closeModal(event)">
+  <div class="modal">
+    <div class="modal-header">
+      <img id="modal-art" class="modal-art" src="" alt="" onerror="this.style.display='none'">
+      <div>
+        <div class="modal-title"  id="modal-title"></div>
+        <div class="modal-artist" id="modal-artist"></div>
+        <div class="modal-meta"   id="modal-meta"></div>
+      </div>
+    </div>
+    <div class="track-list" id="modal-tracks"></div>
+    <div class="modal-actions">
+      <label class="btn-start btn-small" style="cursor:pointer;display:inline-block;padding:0.35rem 0.8rem;font-size:0.8rem;background:var(--accent);color:#fff;border-radius:8px;font-weight:600">
+        📷 Upload Photo
+        <input type="file" accept="image/*" style="display:none" onchange="uploadArtwork(event)">
+      </label>
+      <button class="btn-blue  btn-small" onclick="learnAlbum()" id="btn-learn">🎵 Learn — This is Playing</button>
+      <button class="btn-ghost btn-small" onclick="clearAlbumFingerprints()" id="btn-clear-fp" title="Clear all learned fingerprints so the album can be re-learned from scratch">🗑 Clear Fingerprints</button>
+      <button class="btn-ghost btn-small" onclick="toggleReorderMode()" id="btn-reorder">⇅ Reorder Tracks</button>
+      <button class="btn-ghost btn-small" onclick="closeModalDirect()">Close</button>
+      <button class="btn-stop  btn-small" onclick="deleteAlbum()">Delete</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  let ws;
+  let eqTimeout = null;
+  let currentAlbumId = null;
+
+  // ── Tabs ─────────────────────────────────────────────────────────────────
+
+  function showTab(name) {
+    document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.getElementById('tab-' + name).classList.add('active');
+    const idx = ['stream','catalog','history','recordings','settings'].indexOf(name);
+    document.querySelectorAll('.tab-btn')[idx].classList.add('active');
+    if (name === 'catalog')    { loadCatalog(); populateLearnAlbumSelect(); }
+    if (name === 'history')    loadHistory();
+    if (name === 'recordings') { loadRecordings(); loadRecAlbums(); }
+    if (name === 'settings')    renderHiddenDevices();
+  }
+
+  // ── WebSocket ─────────────────────────────────────────────────────────────
+
+  function connectWS() {
+    ws = new WebSocket(`ws://${location.host}/ws`);
+    ws.onmessage = e => handleEvent(JSON.parse(e.data));
+    ws.onclose   = () => setTimeout(connectWS, 2000);
+  }
+
+  function handleEvent(data) {
+    if (data.event === 'status')     setStatus(data.streaming, data.message, data.devices);
+    if (data.event === 'error')      showError(data.message);
+    if (data.event === 'now_playing')     renderNowPlaying(data);
+    if (data.event === 'recording_status') onRecordingStatus(data);
+    if (data.event === 'learn_audio_detected') onLearnAudioDetected(data);
+    if (data.event === 'learn_end_of_side')    onLearnEndOfSide(data);
+    if (data.event === 'auto_stream_starting') showToast('📻 ' + (data.message || 'Auto-stream starting…'));
+    if (data.event === 'learn_update')  onLearnUpdate(data);
+    if (data.event === 'learn_paused')  onLearnPaused(data);
+    if (data.event === 'learn_done')    onLearnDone(data);
+    if (data.event === 'recording_saved')  onRecordingSaved(data);
+    if (data.eq) applyEQValues(data.eq.bass, data.eq.treble, data.eq.volume);
+  }
+
+  // ── Status ────────────────────────────────────────────────────────────────
+
+  function setStatus(streaming, message, devices) {
+    document.getElementById('dot').className = 'status-dot' + (streaming ? ' on' : '');
+    let statusMsg = message || (streaming ? 'Streaming' : 'Idle');
+    if (streaming && devices && devices.length) {
+      statusMsg = 'Streaming to ' + devices.join(', ');
+    }
+    document.getElementById('status-text').textContent = statusMsg;
+    document.getElementById('btn-start').style.display = streaming ? 'none' : 'block';
+    document.getElementById('btn-stop').style.display  = streaming ? 'block' : 'none';
+
+    const npCard = document.getElementById('now-playing-card');
+    if (streaming) {
+      npCard.style.display = 'block';
+      if (!document.getElementById('np-track-title')) renderNowPlayingScanning();
+    } else {
+      npCard.style.display = 'none';
+    }
+  }
+
+  function showError(msg) {
+    const el = document.getElementById('error-msg');
+    el.textContent = '⚠ ' + msg;
+    el.style.display = 'block';
+    setTimeout(() => el.style.display = 'none', 6000);
+  }
+
+  // ── Now Playing ───────────────────────────────────────────────────────────
+
+  function renderNowPlayingScanning() {
+    document.getElementById('np-inner').innerHTML = `
+      <div class="np-art-placeholder">🎵</div>
+      <div class="np-info">
+        <div class="np-scanning">Listening for record…</div>
+      </div>`;
+  }
+
+  function renderNowPlaying(data) {
+    const inner = document.getElementById('np-inner');
+    if (!data.track_title) {
+      renderNowPlayingScanning();
+      return;
+    }
+    const artHtml = data.artwork_url
+      ? `<img class="np-art" src="${data.artwork_url}?t=${Date.now()}" alt="Album art">`
+      : `<div class="np-art-placeholder">💿</div>`;
+    const side = data.side ? `Side ${data.side}` : '';
+    const num  = data.track_number ? `Track ${data.track_number}` : '';
+    const badge = [side, num].filter(Boolean).join(' · ');
+    inner.innerHTML = `
+      ${artHtml}
+      <div class="np-info">
+        <div class="np-title" id="np-track-title">${esc(data.track_title)}</div>
+        <div class="np-artist">${esc(data.track_artist || data.album_artist || '')}</div>
+        <div class="np-album">${esc(data.album_title || '')}${data.year ? ' (' + data.year + ')' : ''}</div>
+        ${badge ? `<span class="np-badge">${esc(badge)}</span>` : ''}
+      </div>`;
+  }
+
+  // ── Device Scan ───────────────────────────────────────────────────────────
+
+  async function scanDevices() {
+    const btn = document.getElementById('btn-scan');
+    btn.textContent = '⟳ Scanning…'; btn.disabled = true;
+    try {
+      const data = await fetch('/api/scan').then(r => r.json());
+      renderDevices(data.devices);
+    } catch(e) { showError('Scan failed: ' + e.message); }
+    finally { btn.textContent = '⟳ Scan for Devices'; btn.disabled = false; }
+  }
+
+  function renderDevices(devices) {
+    const list = document.getElementById('device-list');
+    const visible = devices.filter(d => !d.hidden);
+    if (!visible.length) {
+      const allHidden = devices.length > 0;
+      list.innerHTML = `<div class="device-empty">${allHidden ? 'All devices hidden — unhide in Settings' : 'No devices found'}</div>`;
+      return;
+    }
+    list.innerHTML = visible.map(d => {
+      const paired = d.paired !== false;  // treat missing as paired (HomePods)
+      const needsPairing = d.needs_pairing && !paired;
+      return `
+      <label class="device-item" style="opacity:${needsPairing ? '0.6' : '1'}">
+        <input type="checkbox" name="device" value="${esc(d.id)}" data-name="${esc(d.name)}"
+               ${needsPairing ? 'disabled title="Pair this device first"' : ''}>
+        <span style="flex:1">
+          ${esc(d.name)}
+          ${needsPairing
+            ? '<span style="font-size:0.72rem;color:var(--red);margin-left:0.4rem">⚠ Not paired</span>'
+            : (d.needs_pairing
+                ? '<span style="font-size:0.72rem;color:var(--green);margin-left:0.4rem">✓ Paired</span>'
+                : '')}
+        </span>
+        <span style="color:var(--muted);font-size:0.78rem">${esc(d.address)}</span>
+        ${needsPairing
+          ? `<button class="btn-ghost btn-small" style="margin-left:0.5rem;padding:0.2rem 0.6rem;font-size:0.75rem"
+               onclick="event.preventDefault();startPairing('${esc(d.id)}','${esc(d.name)}')">Pair</button>`
+          : ''}
+      </label>`;
+    }).join('');
+  }
+
+  // ── Audio Devices ─────────────────────────────────────────────────────────
+
+  async function loadAudioDevices() {
+    const data = await fetch('/api/audio-devices').then(r => r.json());
+    document.getElementById('audio-select').innerHTML = data.devices.map(d =>
+      `<option value="${d.index}">${esc(d.name)}</option>`).join('');
+  }
+
+  // ── EQ & Volume ───────────────────────────────────────────────────────────
+
+  function updateEQLabel(band, value) {
+    const sign = value > 0 ? '+' : '';
+    document.getElementById(`${band}-val`).textContent = `${sign}${value} dB`;
+  }
+
+  function applyEQValues(bass, treble, volume) {
+    document.getElementById('bass').value   = bass;
+    document.getElementById('treble').value = treble;
+    updateEQLabel('bass', bass); updateEQLabel('treble', treble);
+    if (volume !== undefined) {
+      document.getElementById('volume').value = volume;
+      document.getElementById('vol-val').textContent = volume + '%';
+    }
+  }
+
+  function sendEQ() {
+    clearTimeout(eqTimeout);
+    eqTimeout = setTimeout(async () => {
+      const bass   = parseInt(document.getElementById('bass').value);
+      const treble = parseInt(document.getElementById('treble').value);
+      await fetch('/api/eq', { method:'POST', headers:{'Content-Type':'application/json'},
+                               body: JSON.stringify({bass, treble}) });
+    }, 200);
+  }
+
+  function resetEQ() { applyEQValues(0, 0); sendEQ(); }
+
+  async function sendVolume() {
+    const volume = parseInt(document.getElementById('volume').value);
+    await fetch('/api/volume', { method:'POST', headers:{'Content-Type':'application/json'},
+                                 body: JSON.stringify({volume}) });
+  }
+
+  // ── Stream Controls ───────────────────────────────────────────────────────
+
+  async function startStream() {
+    const checked = [...document.querySelectorAll('input[name=device]:checked')];
+    if (!checked.length) { showError('Select at least one device first.'); return; }
+    document.getElementById('error-msg').style.display = 'none';
+    await fetch('/api/start', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        devices:            checked.map(el => ({id:el.value, name:el.dataset.name})),
+        volume:             parseInt(document.getElementById('volume').value),
+        audio_device_index: parseInt(document.getElementById('audio-select').value),
+      })
+    });
+  }
+
+  async function stopStream() {
+    await fetch('/api/stop', {method:'POST'});
+  }
+
+
+
+  // ── Learn Session ─────────────────────────────────────────────────────────
+
+  let _learnLog = [];  // learned track names for the session log
+
+  function showLearnPanel() {
+    populateLearnAlbumSelect();
+    document.getElementById('learn-panel').style.display = 'block';
+    showLearnStep('setup');
+    document.getElementById('learn-panel').scrollIntoView({behavior:'smooth', block:'nearest'});
+  }
+
+  function hideLearnPanel() {
+    document.getElementById('learn-panel').style.display = 'none';
+    document.getElementById('learn-album-input').value = '';
+    document.getElementById('learn-album-id').value    = '';
+    _learnLog = [];
+  }
+
+  function showLearnStep(name) {
+    ['setup','active','paused','done'].forEach(s =>
+      document.getElementById('learn-step-' + s).style.display = s === name ? 'block' : 'none'
+    );
+  }
+
+  let _learnAlbums = [];  // cache for lookup by label
+
+  async function populateLearnAlbumSelect() {
+    try {
+      const data = await fetch('/api/catalog').then(r => r.json());
+      _learnAlbums = (data.albums || []).map(a => ({
+        id:    a.id,
+        label: `${a.artist} — ${a.title}${a.year ? ' (' + a.year + ')' : ''}`,
+      }));
+      const dl = document.getElementById('learn-album-list');
+      dl.innerHTML = _learnAlbums
+        .map(a => `<option value="${esc(a.label)}" data-id="${a.id}">`)
+        .join('');
+    } catch(e) { console.warn('populateLearnAlbumSelect failed:', e); }
+  }
+
+  function onLearnAlbumInput(val) {
+    // Resolve typed/selected label back to an album ID
+    const match = _learnAlbums.find(a => a.label.toLowerCase() === val.toLowerCase());
+    document.getElementById('learn-album-id').value = match ? match.id : '';
+  }
+
+  async function startLearnSession() {
+    const albumId    = parseInt(document.getElementById('learn-album-id').value);
+    const trackCount = parseInt(document.getElementById('learn-track-count').value) || 1;
+    if (!albumId) { showError('Please select an album — type to search.'); return; }
+
+    // Show starting state immediately
+    document.getElementById('learn-status-text').textContent = '⏳ Starting audio capture…';
+    showLearnStep('active');
+
+    const res = await fetch('/api/learn/start', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({album_id: albumId, track_count: trackCount,
+                            also_record: document.getElementById('learn-also-record').checked})
+    }).then(r => r.json());
+
+    if (!res.ok) { showLearnStep('setup'); showError(res.error); return; }
+
+    _learnLog = [];
+    showLearnStep('active');
+    document.getElementById('learn-status-text').textContent = `⏳ Waiting for audio… drop the needle when ready`;
+    document.getElementById('learn-next-track').textContent  = res.first_track || '';
+    document.getElementById('learn-progress-bar').style.width = '0%';
+    document.getElementById('learn-track-list').innerHTML = '';
+  }
+
+  async function stopLearnSession() {
+    await fetch('/api/learn/stop', {method:'POST'});
+    showLearnStep('setup');
+  }
+
+  async function continueLearnSession() {
+    const moreCount = parseInt(document.getElementById('learn-continue-count').value) || 1;
+    const res = await fetch('/api/learn/continue', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({track_count: moreCount})
+    }).then(r => r.json());
+    if (!res.ok) { showError(res.error); return; }
+    showLearnStep('active');
+  }
+
+  function finishLearnSession() {
+    fetch('/api/learn/stop', {method:'POST'});
+    showLearnStep('done');
+    document.getElementById('learn-done-message').textContent =
+      `Session complete — ${_learnLog.length} track(s) learned this session.`;
+  }
+
+  function onLearnEndOfSide(data) {
+    // End-of-side auto-detected: final track flushed, show paused/flip prompt
+    clearInterval(_learnLevelInterval); _learnLevelInterval = null;
+    const remaining = data.track_count - data.learned;
+    if (remaining > 0) {
+      // More tracks to go — show flip prompt
+      document.getElementById('learn-pause-message').innerHTML =
+        `✓ Learned <strong>${data.learned}</strong> of <strong>${data.track_count}</strong> tracks.<br>
+         End of side detected — flip the record and press Continue.`;
+      document.getElementById('learn-continue-count').value = remaining;
+      showLearnStep('paused');
+    } else {
+      // All done
+      document.getElementById('learn-done-message').textContent =
+        `All ${data.learned} tracks learned successfully.`;
+      showLearnStep('done');
+    }
+  }
+
+  function onLearnAudioDetected(data) {
+    // Startup gate opened — first track is now being captured
+    const trackNum = data.learned + 1;
+    document.getElementById('learn-status-text').textContent =
+      `⏺ Track ${trackNum} of ${data.track_count} — recording…`;
+    document.getElementById('learn-next-track').textContent =
+      data.next_track ? `Capturing: ${data.next_track}` : '';
+  }
+
+  function onLearnUpdate(data) {
+    if (!document.getElementById('learn-step-active').style.display === 'none') return;
+    showLearnStep('active');
+    const pct = Math.round((data.learned / data.track_count) * 100);
+    document.getElementById('learn-progress-bar').style.width = pct + '%';
+    document.getElementById('learn-status-text').textContent  = data.message || '';
+    document.getElementById('learn-next-track').textContent   =
+      data.next_track ? `Next: ${data.next_track}` : '';
+
+    // Append to session log — use learned_track (what just finished), not next_track
+    if (data.learned > _learnLog.length) {
+      _learnLog.push(data.learned_track || `Track ${data.learned}`);
+      const logEl = document.getElementById('learn-track-list');
+      logEl.innerHTML = _learnLog.map((name, i) =>
+        `<div style="padding:0.2rem 0;color:var(--green)">✓ Track ${i+1}: ${esc(name)}</div>`
+      ).join('');
+      logEl.scrollTop = logEl.scrollHeight;  // auto-scroll to latest
+    }
+  }
+
+  function onLearnPaused(data) {
+    showLearnStep('paused');
+    document.getElementById('learn-pause-message').innerHTML =
+      `<strong>${data.learned} track(s) learned</strong><br>${esc(data.message || '')}` +
+      (data.remaining_in_album > 0
+        ? `<br><span style="color:var(--muted)">${data.remaining_in_album} tracks still unlearned on this album.</span>`
+        : '<br><span style="color:var(--green)">All tracks on this album are now learned!</span>');
+    // Pre-fill continue count with remaining if it's a small number
+    if (data.remaining_in_album > 0 && data.remaining_in_album <= 10) {
+      document.getElementById('learn-continue-count').value = data.remaining_in_album;
+    }
+  }
+
+  function onLearnDone(data) {
+    showLearnStep('done');
+    document.getElementById('learn-done-message').textContent =
+      data.message || `${data.learned || 0} track(s) learned.`;
+  }
+
+  // ── Recording ─────────────────────────────────────────────────────────────
+  // Recording is now driven through the Learn Session (🎓 Learn Fingerprints).
+  // These stubs handle server-side events and the saved files list.
+
+  function onRecordingStatus(data) { /* managed by learn session */ }
+
+  function onRecordingSaved(data) {
+    loadRecordings();  // refresh the saved files list in the Recordings tab
+  }
+
+
+  // ── Recording Album Selector ──────────────────────────────────────────────
+
+  async function loadRecAlbums() {
+    const sel = document.getElementById('rec-album-select');
+    try {
+      const data = await fetch('/api/catalog').then(r => r.json());
+      // Keep the "auto" option, rebuild the rest
+      sel.innerHTML = '<option value="">— Use Now Playing (auto) —</option>';
+      (data.albums || []).forEach(a => {
+        const opt = document.createElement('option');
+        opt.value = a.id;
+        opt.textContent = `${a.artist} — ${a.title}${a.year ? ' (' + a.year + ')' : ''}`;
+        sel.appendChild(opt);
+      });
+    } catch(e) { console.warn('loadRecAlbums failed:', e); }
+  }
+
+  function getRecAlbumId() {
+    const sel = document.getElementById('rec-album-select');
+    return sel ? (sel.value || null) : null;
+  }
+
+  async function loadRecordings() {
+    const data = await fetch('/api/recordings').then(r => r.json());
+    const list = document.getElementById('recordings-list');
+    if (!data.recordings.length) {
+      list.innerHTML = '<div class="device-empty">No recordings yet — use 🎓 Learn Fingerprints with "Also save as MP3" checked</div>';
+      return;
+    }
+    list.innerHTML = data.recordings.map(r => `
+      <div class="rec-row">
+        <span class="name" title="${esc(r.filename)}">${esc(r.filename)}</span>
+        <span class="size">${r.size_mb} MB</span>
+        <a href="/api/recordings/${encodeURIComponent(r.filename)}"
+           download="${esc(r.filename)}"
+           style="color:var(--accent);font-size:0.8rem;text-decoration:none;flex-shrink:0">⬇</a>
+        <button class="btn-stop btn-small" style="flex-shrink:0"
+                onclick="deleteRec('${esc(r.filename)}')">✕</button>
+      </div>`).join('');
+  }
+
+  async function deleteRec(filename) {
+    if (!confirm(`Delete ${filename}?`)) return;
+    await fetch(`/api/recordings/${encodeURIComponent(filename)}`, {method:'DELETE'});
+    loadRecordings();
+  }
+
+
+  // ── Device Visibility ──────────────────────────────────────────────────────
+
+  async function scanForHidden() {
+    const btn = event.target;
+    btn.textContent = '⟳ Scanning…'; btn.disabled = true;
+    try {
+      const data = await fetch('/api/scan').then(r => r.json());
+      renderDevices(data.devices);        // also refresh stream tab list
+      renderHiddenDevices(data.devices);
+    } catch(e) { showError('Scan failed: ' + e.message); }
+    finally { btn.textContent = '⟳ Scan Devices'; btn.disabled = false; }
+  }
+
+  function renderHiddenDevices(devices) {
+    // If called without args, use whatever was last scanned
+    if (!devices) {
+      fetch('/api/scan').then(r => r.json()).then(d => renderHiddenDevices(d.devices));
+      return;
+    }
+    const list = document.getElementById('hidden-device-list');
+    if (!devices.length) {
+      list.innerHTML = '<div class="device-empty">No devices found — press Scan</div>';
+      return;
+    }
+    list.innerHTML = devices.map(d => `
+      <label class="device-item" style="gap:0.75rem">
+        <input type="checkbox" ${d.hidden ? 'checked' : ''}
+               onchange="toggleHidden('${d.id}', this.checked)"
+               style="accent-color:var(--red);width:16px;height:16px;flex-shrink:0">
+        <span style="flex:1">${esc(d.name)}</span>
+        <span style="color:var(--muted);font-size:0.75rem">${d.address}</span>
+      </label>`).join('');
+  }
+
+  async function toggleHidden(deviceId, hide) {
+    await fetch(`/api/devices/${encodeURIComponent(deviceId)}/hide`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({hidden: hide})
+    });
+    // Refresh stream tab device list with updated hidden state
+    fetch('/api/scan').then(r => r.json()).then(d => renderDevices(d.devices));
+  }
+
+  // ── Catalog ───────────────────────────────────────────────────────────────
+
+  async function loadCatalog() {
+    const grid = document.getElementById('album-grid');
+    grid.innerHTML = '<div class="device-empty" style="grid-column:1/-1">Loading…</div>';
+    const data = await fetch('/api/catalog').then(r => r.json());
+    if (!data.albums.length) {
+      grid.innerHTML = '<div class="device-empty" style="grid-column:1/-1">No records cataloged yet.<br>Play a record and it will be recognized automatically.</div>';
+      return;
+    }
+    grid.innerHTML = data.albums.map(a => {
+      const art = a.user_artwork_path || a.artwork_path;
+      const artHtml = art
+        ? `<img src="/artwork/${art.split('/').pop()}?t=${Date.now()}" style="width:100%;height:100%;object-fit:cover">`
+        : `<span>💿</span>`;
+      return `
+        <div class="album-card" onclick="openAlbum(${a.id})">
+          <div class="album-art">${artHtml}</div>
+          <div class="album-info">
+            <div class="title">${esc(a.title)}</div>
+            <div class="artist">${esc(a.artist)}</div>
+            <div class="meta">${a.year || ''} · ${a.play_count || 0} plays</div>
+          </div>
+        </div>`;
+    }).join('');
+  }
+
+  async function openAlbum(albumId) {
+    currentAlbumId = albumId;
+    const [catData, tracksData] = await Promise.all([
+      fetch('/api/catalog').then(r => r.json()),
+      fetch(`/api/catalog/${albumId}/tracks`).then(r => r.json()),
+    ]);
+    const album = catData.albums.find(a => a.id === albumId);
+    if (!album) return;
+
+    const art = album.user_artwork_path || album.artwork_path;
+    document.getElementById('modal-art').src    = art ? `/artwork/${art.split('/').pop()}?t=${Date.now()}` : '';
+    document.getElementById('modal-title').textContent  = album.title;
+    document.getElementById('modal-artist').textContent = album.artist;
+    document.getElementById('modal-meta').textContent   =
+      [album.year, album.genre, album.label].filter(Boolean).join(' · ');
+
+    tracksData.tracks.sort((a,b) => (a.side||'').localeCompare(b.side||'') || parseInt(a.track_number||0) - parseInt(b.track_number||0));
+    // Store for reorder mode
+    window._modalTracks = tracksData.tracks.slice();
+    renderModalTracks(window._modalTracks, false);
+
+    document.getElementById('album-modal').classList.add('open');
+  }
+
+  // ── Track Reorder ──────────────────────────────────────────────────────────
+
+  let _reorderMode = false;
+
+  function renderModalTracks(tracks, reorderMode) {
+    const container = document.getElementById('modal-tracks');
+    container.classList.toggle('reorder-mode', reorderMode);
+
+    if (!tracks.length) {
+      container.innerHTML = '<div class="device-empty">No tracks recorded</div>';
+      return;
+    }
+
+    container.innerHTML = tracks.map((t, i) => {
+      const learned   = (t.fingerprint_count || 0) > 0;
+      const badge     = learned
+        ? `<span title="${t.fingerprint_count} fingerprint windows" style="color:var(--green);font-size:0.72rem;margin-left:0.4rem">✓ ${t.fingerprint_count}fp</span>`
+        : `<span style="color:var(--muted);font-size:0.72rem;margin-left:0.4rem">unlearned</span>`;
+      const clearBtn  = (!reorderMode && learned)
+        ? `<button onclick="clearTrackFingerprints(${t.id}, event)"
+               title="Clear fingerprints for this track"
+               style="margin-left:0.5rem;background:none;border:none;cursor:pointer;color:var(--muted);font-size:0.8rem;padding:0 0.2rem">✕</button>`
+        : '';
+      const plays     = (!reorderMode && t.play_count)
+        ? `<span style="color:var(--muted);font-size:0.72rem;margin-left:auto">${t.play_count}▶</span>` : '';
+      const handle    = reorderMode
+        ? `<span class="drag-handle" title="Drag to reorder">⠿</span>` : '';
+      const numLabel  = reorderMode
+        ? `<span class="track-num" style="color:var(--muted);min-width:1.8rem">${i+1}</span>`
+        : `<span class="track-num">${esc(t.side||'')}${esc(t.track_number||'')}</span>`;
+
+      return `<div class="track-row" data-id="${t.id}" data-idx="${i}"
+                   style="align-items:center"
+                   ${reorderMode ? 'draggable="true"' : ''}>
+        ${handle}${numLabel}
+        <span style="flex:1">${esc(t.title)}${badge}</span>
+        ${plays}${clearBtn}
+      </div>`;
+    }).join('');
+
+    if (reorderMode) _attachDragHandlers(container);
+  }
+
+  function _attachDragHandlers(container) {
+    let dragSrc = null;
+
+    container.querySelectorAll('.track-row').forEach(row => {
+      row.addEventListener('dragstart', e => {
+        dragSrc = row;
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', row.dataset.idx);
+        setTimeout(() => row.style.opacity = '0.4', 0);
+      });
+      row.addEventListener('dragend', () => {
+        row.style.opacity = '';
+        container.querySelectorAll('.track-row').forEach(r => r.classList.remove('drag-over'));
+      });
+      row.addEventListener('dragover', e => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        container.querySelectorAll('.track-row').forEach(r => r.classList.remove('drag-over'));
+        row.classList.add('drag-over');
+      });
+      row.addEventListener('drop', e => {
+        e.preventDefault();
+        if (!dragSrc || dragSrc === row) return;
+        // Reorder the _modalTracks array
+        const fromIdx = parseInt(dragSrc.dataset.idx);
+        const toIdx   = parseInt(row.dataset.idx);
+        const moved   = window._modalTracks.splice(fromIdx, 1)[0];
+        window._modalTracks.splice(toIdx, 0, moved);
+        renderModalTracks(window._modalTracks, true);
+      });
+    });
+  }
+
+  function toggleReorderMode() {
+    _reorderMode = !_reorderMode;
+    const btn = document.getElementById('btn-reorder');
+
+    if (_reorderMode) {
+      btn.textContent  = '✓ Save Order';
+      btn.style.background = 'var(--accent)';
+      btn.style.color      = '#fff';
+      renderModalTracks(window._modalTracks, true);
+    } else {
+      // Save
+      btn.textContent      = '↺ Saving…';
+      btn.disabled         = true;
+      const ids = window._modalTracks.map(t => t.id);
+      fetch(`/api/catalog/${currentAlbumId}/reorder`, {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({track_ids: ids})
+      }).then(r => r.json()).then(res => {
+        btn.textContent      = '⇅ Reorder Tracks';
+        btn.style.background = '';
+        btn.style.color      = '';
+        btn.disabled         = false;
+        if (res.ok) {
+          showToast('✓ Track order saved');
+          openAlbum(currentAlbumId);  // refresh with new numbers from server
+        } else {
+          showError(res.error || 'Reorder failed');
+          renderModalTracks(window._modalTracks, false);
+        }
+      });
+    }
+  }
+
+  async function clearTrackFingerprints(trackId, e) {
+    e.stopPropagation();
+    if (!confirm('Clear fingerprints for this track? It will be marked unlearned.')) return;
+    const res = await fetch(`/api/catalog/track/${trackId}/fingerprints`, {method:'DELETE'}).then(r=>r.json());
+    if (res.ok) {
+      showToast(`✓ ${res.message}`);
+      openAlbumModal(currentAlbumId);  // refresh track list
+    } else {
+      showError(res.error || 'Failed to clear fingerprints');
+    }
+  }
+
+  // ── Auto-Stream Settings ─────────────────────────────────────────────────
+
+  let _autoStreamDevices = [];
+
+  async function scanAutoStreamDevices() {
+    const sel = document.getElementById('auto-stream-device-select');
+    sel.innerHTML = '<option value="">Scanning…</option>';
+    try {
+      const data = await fetch('/api/scan').then(r => r.json());
+      _autoStreamDevices = (data.devices || []).filter(d => !d.hidden);
+      const saved = _autoStreamDeviceFromSettings();
+      sel.innerHTML = '<option value="">— Select a device —</option>' +
+        _autoStreamDevices.map(d =>
+          `<option value="${esc(d.id)}" data-name="${esc(d.name)}" data-address="${esc(d.address||'')}"
+            ${saved && saved.id === d.id ? 'selected' : ''}>${esc(d.name)}</option>`
+        ).join('');
+    } catch(e) {
+      sel.innerHTML = '<option value="">Scan failed — retry</option>';
+    }
+  }
+
+  function _autoStreamDeviceFromSettings() {
+    return window._savedAutoStreamDevice || null;
+  }
+
+  async function saveAutoStreamSettings() {
+    const enabled = document.getElementById('auto-stream-enabled').checked;
+    const sel     = document.getElementById('auto-stream-device-select');
+    const opt     = sel.options[sel.selectedIndex];
+    const device  = opt && opt.value
+      ? { id: opt.value, name: opt.dataset.name, address: opt.dataset.address }
+      : null;
+
+    window._savedAutoStreamDevice = device;
+
+    const statusEl = document.getElementById('auto-stream-status');
+    statusEl.style.color = 'var(--muted)';
+    statusEl.textContent = 'Saving…';
+
+    await fetch('/api/settings', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ auto_stream_enabled: enabled, auto_stream_device: device })
+    });
+
+    statusEl.style.color = 'var(--green)';
+    statusEl.textContent = enabled
+      ? `✓ Auto-stream enabled → ${device ? device.name : 'no device set'}`
+      : '✓ Auto-stream disabled';
+    setTimeout(() => { statusEl.textContent = ''; }, 3000);
+  }
+
+  async function clearAlbumFingerprints() {
+    if (!currentAlbumId) return;
+    if (!confirm('Clear ALL fingerprints for this album? Every track will be marked unlearned.')) return;
+    const res = await fetch(`/api/catalog/${currentAlbumId}/fingerprints`, {method:'DELETE'}).then(r=>r.json());
+    if (res.ok) {
+      showToast(`✓ ${res.message}`);
+      openAlbumModal(currentAlbumId);  // refresh track list
+    } else {
+      showError(res.error || 'Failed to clear fingerprints');
+    }
+  }
+
+  function closeModal(e) {
+    if (e.target === document.getElementById('album-modal')) closeModalDirect();
+  }
+  function closeModalDirect() {
+    document.getElementById('album-modal').classList.remove('open');
+    currentAlbumId = null;
+  }
+
+  async function uploadArtwork(e) {
+    if (!currentAlbumId || !e.target.files[0]) return;
+    const form = new FormData();
+    form.append('file', e.target.files[0]);
+    const res  = await fetch(`/api/catalog/${currentAlbumId}/artwork`, {
+      method: 'POST', body: form
+    }).then(r => r.json());
+    if (res.ok) {
+      document.getElementById('modal-art').src = res.artwork_url + '?t=' + Date.now();
+      loadCatalog();
+    } else { showError(res.error || 'Upload failed'); }
+  }
+
+  async function learnAlbum() {
+    if (!currentAlbumId) return;
+    const btn = document.getElementById('btn-learn');
+    btn.textContent = 'Learning…'; btn.disabled = true;
+    try {
+      const res = await fetch(`/api/catalog/${currentAlbumId}/learn`, {method:'POST'}).then(r => r.json());
+      if (res.ok) {
+        const done = res.message.startsWith('All');
+        btn.textContent = done ? '✓ All Learned!' : '✓ ' + res.message.split('.')[0];
+        btn.style.background = done ? 'var(--green)' : 'var(--accent)';
+        setTimeout(() => {
+          btn.textContent = '🎵 Learn — This is Playing';
+          btn.style.background = '';
+          btn.disabled = false;
+        }, 4000);
+      } else {
+        showError(res.error || 'Learn failed');
+        btn.textContent = '🎵 Learn — This is Playing';
+        btn.disabled = false;
+      }
+    } catch(e) {
+      showError('Learn failed: ' + e.message);
+      btn.textContent = '🎵 Learn — This is Playing';
+      btn.disabled = false;
+    }
+  }
+
+  async function deleteAlbum() {
+    if (!currentAlbumId) return;
+    if (!confirm('Delete this album from your catalog?')) return;
+    await fetch(`/api/catalog/${currentAlbumId}`, {method:'DELETE'});
+    closeModalDirect();
+    loadCatalog();
+  }
+
+  // ── Add Record Flow ──────────────────────────────────────────────────────────
+
+  let _pendingRelease = null;
+
+  function showAddForm() {
+    document.getElementById('add-form').style.display = 'block';
+    showStep('search');
+    document.getElementById('search-results').innerHTML = '';
+    document.getElementById('s-artist').focus();
+  }
+  function hideAddForm() {
+    document.getElementById('add-form').style.display = 'none';
+    _pendingRelease = null;
+  }
+  function showStep(name) {
+    ['search','confirm','manual'].forEach(s =>
+      document.getElementById('add-step-' + s).style.display = s === name ? 'block' : 'none'
+    );
+  }
+  function backToSearch() { showStep('search'); }
+  function showManualStep() { showStep('manual'); }
+
+  let _searchSource = 'mb';
+  function setSource(src) {
+    _searchSource = src;
+    document.getElementById('src-mb').style.background      = src === 'mb'      ? 'var(--accent)' : 'var(--surface)';
+    document.getElementById('src-mb').style.color           = src === 'mb'      ? '#fff'          : 'var(--text)';
+    document.getElementById('src-discogs').style.background = src === 'discogs' ? 'var(--accent)' : 'var(--surface)';
+    document.getElementById('src-discogs').style.color      = src === 'discogs' ? '#fff'          : 'var(--text)';
+  }
+
+  async function doSearch() {
+    const artist = document.getElementById('s-artist').value.trim();
+    const album  = document.getElementById('s-album').value.trim();
+    if (!artist && !album) { showError('Enter an artist or album to search.'); return; }
+    const btn = document.getElementById('btn-search');
+    const sourceName = _searchSource === 'discogs' ? 'Discogs' : 'MusicBrainz';
+    btn.textContent = 'Searching…'; btn.disabled = true;
+    const el = document.getElementById('search-results');
+    el.innerHTML = `<div class="device-empty">Searching ${sourceName}…</div>`;
+    try {
+      const url = _searchSource === 'discogs'
+        ? `/api/catalog/search/discogs?artist=${encodeURIComponent(artist)}&album=${encodeURIComponent(album)}`
+        : `/api/catalog/search?artist=${encodeURIComponent(artist)}&album=${encodeURIComponent(album)}`;
+      const data = await fetch(url).then(r => r.json());
+      if (!data.releases.length) {
+        el.innerHTML = `<div class="device-empty">No results on ${sourceName} — try different spelling, switch source, or <a href="#" onclick="showManualStep();return false" style="color:var(--accent)">enter manually</a>.</div>`;
+        return;
+      }
+      el.innerHTML = data.releases.map(r => `
+        <div class="device-item" style="flex-direction:column;align-items:flex-start;padding:0.6rem 0"
+             onclick="selectRelease('${esc(r.id)}', '${r.source || 'mb'}')">
+          <div style="font-weight:600;font-size:0.9rem">${esc(r.title)}</div>
+          <div style="font-size:0.78rem;color:var(--muted)">
+            ${esc(r.artist)}${r.date ? ' · ' + r.date.slice(0,4) : ''}${r.country ? ' · ' + r.country : ''}${r.label ? ' · ' + esc(r.label) : ''}${r.tracks ? ' · ' + r.tracks + ' tracks' : ''}${r.format ? ' · ' + esc(r.format) : ''}${r.catno ? ' · ' + esc(r.catno) : ''}
+          </div>
+        </div>`).join('');
+    } catch(e) {
+      el.innerHTML = `<div class="device-empty" style="color:var(--red)">Search failed: ${esc(e.message)}</div>`;
+    } finally {
+      btn.textContent = 'Search'; btn.disabled = false;
+    }
+  }
+
+  async function selectRelease(releaseId, source) {
+    document.getElementById('search-results').innerHTML = '<div class="device-empty">Loading track listing…</div>';
+    try {
+      const url = source === 'discogs'
+        ? `/api/catalog/release/discogs/${releaseId}`
+        : `/api/catalog/release/${releaseId}`;
+      const data = await fetch(url).then(r => r.json());
+      if (!data.ok) { showError(data.error || 'Failed to load release'); return; }
+      _pendingRelease = data.release;
+      const r = data.release;
+      // Build header
+      document.getElementById('confirm-album-header').innerHTML = `
+        <div style="font-weight:700;font-size:1rem">${esc(r.title)}</div>
+        <div style="font-size:0.82rem;color:var(--muted)">${esc(r.artist)}${r.year?' · '+r.year:''}${r.label?' · '+esc(r.label):''}${r.country?' · '+r.country:''}</div>`;
+      // Group by side
+      const sides = {};
+      (r.tracks||[]).forEach(t => { if(!sides[t.side]) sides[t.side]=[]; sides[t.side].push(t); });
+      Object.keys(sides).forEach(s => sides[s].sort((a,b) => parseInt(a.track_number||0) - parseInt(b.track_number||0)));
+      let html = '';
+      Object.keys(sides).sort().forEach(side => {
+        html += `<div style="font-size:0.72rem;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin:0.6rem 0 0.3rem">Side ${side}</div>`;
+        sides[side].forEach(t => {
+          const dur = t.duration_secs ? Math.floor(t.duration_secs/60)+':'+String(t.duration_secs%60).padStart(2,'0') : '';
+          html += `<div class="track-row"><span class="track-num">${esc(t.track_number||'')}</span><span style="flex:1">${esc(t.title)}</span><span style="color:var(--muted);font-size:0.75rem">${dur}</span></div>`;
+        });
+      });
+      document.getElementById('confirm-tracks').innerHTML = html;
+      showStep('confirm');
+    } catch(e) { showError('Failed to load: ' + e.message); }
+  }
+
+  async function saveRelease() {
+    if (!_pendingRelease) return;
+    const res = await fetch('/api/catalog/release', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({release: _pendingRelease})
+    }).then(r => r.json());
+    if (res.ok) { hideAddForm(); loadCatalog(); }
+    else { showError(res.error || 'Failed to save'); }
+  }
+
+  // ── Manual Entry (fallback) ───────────────────────────────────────────────
+
+  function showManualForm() { showAddForm(); }  // legacy compat
+
+  async function submitManual() {
+    const albumTitle  = document.getElementById('m-album-title').value.trim();
+    const albumArtist = document.getElementById('m-artist').value.trim();
+    if (!albumTitle || !albumArtist) { showError('Album title and artist are required.'); return; }
+    const tracksA = document.getElementById('m-tracks-a').value
+      .split('\n').map(s=>s.trim()).filter(Boolean)
+      .map((title,i) => ({title, side:'A', track_number:String(i+1)}));
+    const tracksB = document.getElementById('m-tracks-b').value
+      .split('\n').map(s=>s.trim()).filter(Boolean)
+      .map((title,i) => ({title, side:'B', track_number:String(i+1)}));
+    const tracks = [...tracksA, ...tracksB];
+    if (!tracks.length) { showError('Enter at least one track name.'); return; }
+    const body = {
+      album_title:  albumTitle,
+      album_artist: albumArtist,
+      year:         parseInt(document.getElementById('m-year').value) || null,
+      genre:        document.getElementById('m-genre').value.trim() || null,
+      label:        document.getElementById('m-label').value.trim() || null,
+      notes:        document.getElementById('m-notes').value.trim() || null,
+      tracks,
+    };
+    const res = await fetch('/api/catalog/manual', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(body)
+    }).then(r => r.json());
+    if (res.ok) { hideAddForm(); loadCatalog(); }
+    else { showError(res.error || 'Failed to save'); }
+  }
+
+
+  // ── History ───────────────────────────────────────────────────────────────
+
+  async function loadHistory() {
+    const data = await fetch('/api/catalog/history').then(r => r.json());
+    const list = document.getElementById('history-list');
+    if (!data.plays.length) {
+      list.innerHTML = '<div class="device-empty">No plays recorded yet</div>'; return;
+    }
+    list.innerHTML = data.plays.map(p => {
+      const art = p.user_artwork_path || p.artwork_path;
+      const artHtml = art
+        ? `<img class="history-art" src="/artwork/${art.split('/').pop()}">`
+        : `<div class="history-art-ph">💿</div>`;
+      const when = new Date(p.played_at + 'Z').toLocaleString();
+      return `
+        <div class="history-row">
+          ${artHtml}
+          <div class="history-info">
+            <div class="track">${esc(p.track_title)}</div>
+            <div class="album">${esc(p.artist)} — ${esc(p.album_title)}</div>
+          </div>
+          <span class="history-time">${when}</span>
+        </div>`;
+    }).join('');
+  }
+
+  // ── Settings ──────────────────────────────────────────────────────────────
+
+  async function saveDiscogsToken() {
+    const token = document.getElementById('discogs-token').value.trim();
+    await fetch('/api/settings', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({discogs_token: token})
+    });
+    const saved = document.getElementById('discogs-saved');
+    saved.style.display = 'block';
+    setTimeout(() => saved.style.display = 'none', 2000);
+  }
+
+  async function saveSettings() {
+    const key     = document.getElementById('acoustid-key').value.trim();
+    const enabled = document.getElementById('acoustid-enabled').checked;
+    await fetch('/api/settings', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({acoustid_key: key, acoustid_enabled: enabled})
+    });
+    const saved = document.getElementById('settings-saved');
+    saved.style.display = 'block';
+    setTimeout(() => saved.style.display = 'none', 2000);
+  }
+
+  async function testAcoustID() {
+    // Save first so the test uses whatever is currently in the box
+    await saveSettings();
+    const testing = document.getElementById('settings-testing');
+    const result  = document.getElementById('settings-result');
+    testing.style.display = 'inline'; result.style.display = 'none';
+    try {
+      const r    = await fetch('/api/test-acoustid');
+      const text = await r.text();
+      let data;
+      try { data = JSON.parse(text); }
+      catch { throw new Error("Server returned non-JSON: " + text.slice(0, 100)); }
+      result.textContent   = data.ok ? '✓ ' + data.message : '✗ ' + data.error;
+      result.style.color   = data.ok ? 'var(--green)' : 'var(--red)';
+      result.style.display = 'inline';
+    } catch(e) {
+      result.textContent   = '✗ ' + e.message;
+      result.style.color   = 'var(--red)';
+      result.style.display = 'inline';
+    } finally {
+      testing.style.display = 'none';
+    }
+  }
+
+  // ── Utility ───────────────────────────────────────────────────────────────
+
+  function esc(s) {
+    if (!s) return '';
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+                    .replace(/"/g,'&quot;');
+  }
+
+  // ── Device Pairing ───────────────────────────────────────────────────────
+
+  let _pairingDeviceId = null;
+
+  function _showPairModal(show) {
+    const el = document.getElementById('pair-modal');
+    el.style.display = show ? 'flex' : 'none';
+  }
+
+  async function startPairing(deviceId, deviceName) {
+    _pairingDeviceId = deviceId;
+    document.getElementById('pair-title').textContent = `Pair: ${deviceName}`;
+    document.getElementById('pair-msg').textContent =
+      'Starting pairing… look for a PIN on the device screen.';
+    document.getElementById('pair-pin-step').style.display = 'none';
+    document.getElementById('pair-progress').style.display = 'none';
+    document.getElementById('pair-result').style.display = 'none';
+    _showPairModal(true);
+
+    // Try RAOP first
+    try {
+      const res = await fetch(`/api/devices/${encodeURIComponent(deviceId)}/pair/start`,
+        {method:'POST', headers:{'Content-Type':'application/json'},
+         body: JSON.stringify({protocol: 'raop'})}).then(r => r.json());
+
+      if (!res.ok) {
+        showPairResult(false, res.error || 'Failed to start pairing');
+        return;
+      }
+
+      if (res.device_provides_pin) {
+        document.getElementById('pair-msg').textContent =
+          'A PIN is now showing on the device screen. Enter it below:';
+        document.getElementById('pair-pin-input').value = '';
+        document.getElementById('pair-pin-step').style.display = 'block';
+        setTimeout(() => document.getElementById('pair-pin-input').focus(), 100);
+      } else {
+        // Device doesn't show a PIN — we might need to provide one (rare)
+        document.getElementById('pair-msg').textContent =
+          'Enter a PIN of your choice (4 digits) — it will be shown on the device:';
+        document.getElementById('pair-pin-input').value = '';
+        document.getElementById('pair-pin-step').style.display = 'block';
+        setTimeout(() => document.getElementById('pair-pin-input').focus(), 100);
+      }
+    } catch(e) {
+      showPairResult(false, e.message);
+    }
+  }
+
+  async function submitPairingPin() {
+    const pin = document.getElementById('pair-pin-input').value.trim();
+    if (!pin || pin.length !== 4) {
+      alert('Please enter the 4-digit PIN shown on the device');
+      return;
+    }
+    document.getElementById('pair-pin-step').style.display = 'none';
+    document.getElementById('pair-progress').style.display = 'block';
+    document.getElementById('pair-progress-text').textContent = 'Verifying PIN…';
+
+    try {
+      const res = await fetch(
+        `/api/devices/${encodeURIComponent(_pairingDeviceId)}/pair/pin`,
+        {method:'POST', headers:{'Content-Type':'application/json'},
+         body: JSON.stringify({pin})}).then(r => r.json());
+
+      document.getElementById('pair-progress').style.display = 'none';
+
+      if (!res.ok) {
+        showPairResult(false, res.error || 'Pairing failed');
+        return;
+      }
+
+      // If more protocols need pairing, chain them
+      if (res.remaining_protocols && res.remaining_protocols.length) {
+        document.getElementById('pair-msg').textContent =
+          `RAOP paired ✓ — now pairing ${res.remaining_protocols[0].toUpperCase()}…`;
+        await _pairNextProtocol(res.remaining_protocols[0]);
+      } else {
+        showPairResult(true, res.message || 'Device paired successfully!');
+        // Refresh device list to reflect new paired state
+        fetch('/api/scan').then(r => r.json()).then(d => renderDevices(d.devices));
+      }
+    } catch(e) {
+      document.getElementById('pair-progress').style.display = 'none';
+      showPairResult(false, e.message);
+    }
+  }
+
+  async function _pairNextProtocol(protocol) {
+    try {
+      const res = await fetch(
+        `/api/devices/${encodeURIComponent(_pairingDeviceId)}/pair/start`,
+        {method:'POST', headers:{'Content-Type':'application/json'},
+         body: JSON.stringify({protocol})}).then(r => r.json());
+
+      if (!res.ok) {
+        showPairResult(false, res.error);
+        return;
+      }
+      document.getElementById('pair-msg').textContent =
+        `Enter the PIN for ${protocol.toUpperCase()} shown on screen:`;
+      document.getElementById('pair-pin-input').value = '';
+      document.getElementById('pair-pin-step').style.display = 'block';
+      setTimeout(() => document.getElementById('pair-pin-input').focus(), 100);
+    } catch(e) {
+      showPairResult(false, e.message);
+    }
+  }
+
+  function showPairResult(success, msg) {
+    document.getElementById('pair-result-text').textContent = msg;
+    document.getElementById('pair-result-text').style.color =
+      success ? 'var(--green)' : 'var(--red)';
+    document.getElementById('pair-result').style.display = 'block';
+    document.getElementById('pair-pin-step').style.display = 'none';
+    document.getElementById('pair-progress').style.display = 'none';
+    if (success) {
+      fetch('/api/scan').then(r => r.json()).then(d => renderDevices(d.devices));
+    }
+  }
+
+  async function cancelPairing() {
+    if (_pairingDeviceId) {
+      await fetch(`/api/devices/${encodeURIComponent(_pairingDeviceId)}/pair/cancel`,
+        {method:'POST'}).catch(() => {});
+    }
+    closePairModal();
+  }
+
+  function closePairModal() {
+    _pairingDeviceId = null;
+    _showPairModal(false);
+  }
+
+  // ── Init ──────────────────────────────────────────────────────────────────
+
+  async function init() {
+    await loadAudioDevices();
+    const data = await fetch('/api/status').then(r => r.json());
+    setStatus(data.streaming, data.streaming ? 'Streaming' : 'Idle', data.active_devices);
+    if (data.eq) applyEQValues(data.eq.bass, data.eq.treble, data.eq.volume);
+    if (data.now_playing?.track_title) renderNowPlaying(data.now_playing);
+    if (data.settings?.acoustid_key || data.settings?.audd_key)
+      document.getElementById('acoustid-key').value = data.settings.acoustid_key || data.settings.audd_key;
+    if ('acoustid_enabled' in (data.settings || {}))
+      document.getElementById('acoustid-enabled').checked = data.settings.acoustid_enabled;
+    if (data.settings?.discogs_token)
+      document.getElementById('discogs-token').value = data.settings.discogs_token;
+    if (data.settings?.auto_stream_enabled !== undefined) {
+      document.getElementById('auto-stream-enabled').checked = data.settings.auto_stream_enabled;
+      if (data.settings.auto_stream_device) {
+        window._savedAutoStreamDevice = data.settings.auto_stream_device;
+        // Scan and pre-select saved device
+        scanAutoStreamDevices();
+      }
+      const statusEl = document.getElementById('auto-stream-status');
+      if (data.settings.auto_stream_enabled && data.settings.auto_stream_device) {
+        statusEl.textContent = `Auto-streaming to: ${data.settings.auto_stream_device.name}`;
+      }
+    }
+    connectWS();
+  }
+
+  init();
+</script>
+  <!-- ── Pairing Modal ──────────────────────────────────────────────────── -->
+  <div id="pair-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.75);
+       z-index:1000;display:none;align-items:center;justify-content:center">
+    <div style="background:var(--card);border-radius:12px;padding:1.5rem;width:min(400px,90vw);
+                border:1px solid var(--border)">
+      <h3 id="pair-title" style="margin:0 0 0.75rem">Pair Device</h3>
+      <p id="pair-msg" style="font-size:0.85rem;color:var(--muted);margin:0 0 1rem;line-height:1.5"></p>
+
+      <!-- PIN entry step -->
+      <div id="pair-pin-step" style="display:none">
+        <p style="font-size:0.85rem;margin:0 0 0.75rem">
+          Enter the PIN shown on the device screen:
+        </p>
+        <input id="pair-pin-input" type="text" inputmode="numeric" maxlength="4"
+               placeholder="1234"
+               style="width:100%;box-sizing:border-box;font-size:1.5rem;text-align:center;
+                      letter-spacing:0.4em;padding:0.5rem;border-radius:6px;
+                      background:var(--surface);border:1px solid var(--border);color:var(--text);"
+               onkeydown="if(event.key==='Enter')submitPairingPin()">
+        <div style="display:flex;gap:0.5rem;margin-top:0.75rem">
+          <button class="btn-start btn-small" style="flex:1" onclick="submitPairingPin()">
+            Submit PIN
+          </button>
+          <button class="btn-ghost btn-small" onclick="cancelPairing()">Cancel</button>
+        </div>
+      </div>
+
+      <!-- Progress / result -->
+      <div id="pair-progress" style="display:none;color:var(--muted);font-size:0.85rem">
+        <span id="pair-progress-text">Working…</span>
+      </div>
+      <div id="pair-result" style="display:none">
+        <p id="pair-result-text" style="font-size:0.85rem;margin:0 0 0.75rem"></p>
+        <button class="btn-start btn-small" onclick="closePairModal()">Done</button>
+      </div>
+    </div>
+  </div>
+
+</body>
+</html>
