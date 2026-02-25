@@ -386,6 +386,7 @@ class AlbumRecorder:
 
         # Startup gate — same idea as RecordingBuffer: don't count silence
         self._audio_started = False
+        self.on_audio_detected = None  # callback when first audio arrives
 
         ALBUM_AUDIO_DIR.mkdir(exist_ok=True)
         print(f"[album-rec] Started: {album_info.get('artist')} - "
@@ -416,6 +417,9 @@ class AlbumRecorder:
             if rms >= 0.006:  # same as SILENCE_RATIO_MIN
                 self._audio_started = True
                 print("[album-rec] Audio detected — recording")
+                if self.on_audio_detected:
+                    try: self.on_audio_detected()
+                    except Exception: pass
             else:
                 return  # skip pre-needle silence
 

@@ -1329,6 +1329,17 @@ async def album_recording_start(body: dict):
     # Create the album recorder
     state.album_recorder = rec.AlbumRecorder(album_id, side, album_info)
 
+    # Notify UI when audio is first detected
+    _loop = asyncio.get_event_loop()
+    _aid, _side = album_id, side
+    def _on_album_audio_detected():
+        asyncio.run_coroutine_threadsafe(
+            broadcast("album_recording_status", {
+                "recording": True, "album_id": _aid, "side": _side,
+                "message": f"\u23fa Recording Side {_side} \u2014 audio detected",
+            }), _loop)
+    state.album_recorder.on_audio_detected = _on_album_audio_detected
+
     # Get the tracks for this side so we can track progress
     all_tracks = cat.get_album_tracks(album_id)
     side_tracks = [t for t in all_tracks if (t.get("side") or "A") == side]
@@ -1438,6 +1449,17 @@ async def album_recording_flip(body: dict):
     }
 
     state.album_recorder = rec.AlbumRecorder(album_id, new_side, album_info)
+
+    # Notify UI when audio is first detected on new side
+    _loop2 = asyncio.get_event_loop()
+    _aid2, _side2 = album_id, new_side
+    def _on_album_audio_detected_flip():
+        asyncio.run_coroutine_threadsafe(
+            broadcast("album_recording_status", {
+                "recording": True, "album_id": _aid2, "side": _side2,
+                "message": f"\u23fa Recording Side {_side2} \u2014 audio detected",
+            }), _loop2)
+    state.album_recorder.on_audio_detected = _on_album_audio_detected_flip
 
     # Get tracks for new side
     all_tracks = cat.get_album_tracks(album_id)
