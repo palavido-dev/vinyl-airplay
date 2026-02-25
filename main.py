@@ -1311,6 +1311,28 @@ async def download_recording(filename: str):
 
 # ── Album Recording (Full-Side Capture) ──────────────────────────────────────
 
+def _drain_learn_session():
+    """Safely stop the learn session, allowing any pending fingerprint work to finish.
+
+    Sets state.learn_session = None immediately (prevents new submissions),
+    then queues deactivation through the learn_executor so it runs AFTER
+    any already-submitted on_track_captured calls complete.
+    """
+    session = state.learn_session
+    state.learn_session = None          # block new submissions
+    if session:
+        # Queue deactivation AFTER pending fingerprints
+        def _deactivate():
+            session.active = False
+            print("[learn] Session ended (drained)")
+        if hasattr(state, 'learn_executor') and state.learn_executor:
+            state.learn_executor.submit(_deactivate)
+        else:
+            session.active = False
+    if state.recogniser:
+        state.recogniser.set_learning_mode(False)
+
+
 async def _auto_finalize_album_side():
     """Called when RecordingBuffer detects end-of-side silence during album recording.
     Encodes the current side to FLAC and notifies the UI."""
@@ -1322,12 +1344,8 @@ async def _auto_finalize_album_side():
     side = ar.side
     state.album_recorder = None  # detach so no more PCM is fed
 
-    # Stop learn session for this side
-    if state.learn_session:
-        state.learn_session.active = False
-        state.learn_session = None
-    if state.recogniser:
-        state.recogniser.set_learning_mode(False)
+    # Stop learn session — drain executor so last track gets fingerprinted
+    _drain_learn_session()
 
     await broadcast("album_recording_status", {
         "recording": False,
@@ -1477,12 +1495,8 @@ async def album_recording_flip(body: dict):
     album_id = state.album_recorder.album_id
     loop = asyncio.get_event_loop()
 
-    # Stop learn session for this side
-    if state.learn_session:
-        state.learn_session.active = False
-        state.learn_session = None
-    if state.recogniser:
-        state.recogniser.set_learning_mode(False)
+    # Stop learn session — drain executor so last track gets fingerprinted
+    _drain_learn_session()
     if state.rec_buffer and state.rec_buffer.is_active:
         state.rec_buffer.stop()
 
@@ -1586,12 +1600,8 @@ async def album_recording_stop():
     state.album_recorder = None
     album_id = ar.album_id
 
-    # Stop learn session
-    if state.learn_session:
-        state.learn_session.active = False
-        state.learn_session = None
-    if state.recogniser:
-        state.recogniser.set_learning_mode(False)
+    # Stop learn session — drain executor so last track gets fingerprinted
+    _drain_learn_session()
     if state.rec_buffer and state.rec_buffer.is_active:
         state.rec_buffer.stop()
 
