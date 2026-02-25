@@ -608,6 +608,7 @@
                   font-weight:600;display:inline-block">
           ⬇ Download All
         </a>
+        <button class="btn-stop btn-small" onclick="deleteAllRecordings()">🗑 Delete All</button>
       </div>
     </div>
     <div id="recordings-list">
@@ -1222,7 +1223,7 @@
       list.innerHTML = '<div class="device-empty">No recordings yet — use 🎓 Learn Fingerprints with "Also save as MP3" checked</div>';
       return;
     }
-    list.innerHTML = data.recordings.map(r => `
+    list.innerHTML = data.recordings.map((r, i) => `
       <div class="rec-row">
         <span class="name" title="${esc(r.filename)}">${esc(r.filename)}</span>
         <span class="size">${r.size_mb} MB</span>
@@ -1230,7 +1231,8 @@
            download="${esc(r.filename)}"
            style="color:var(--accent);font-size:0.8rem;text-decoration:none;flex-shrink:0">⬇</a>
         <button class="btn-stop btn-small" style="flex-shrink:0"
-                onclick="deleteRec('${esc(r.filename)}')">✕</button>
+                data-filename="${esc(r.filename)}"
+                onclick="deleteRec(this.dataset.filename)">✕</button>
       </div>`).join('');
   }
 
@@ -1238,6 +1240,18 @@
     if (!confirm(`Delete ${filename}?`)) return;
     await fetch(`/api/recordings/${encodeURIComponent(filename)}`, {method:'DELETE'});
     loadRecordings();
+  }
+
+  async function deleteAllRecordings() {
+    const data = await fetch('/api/recordings').then(r => r.json());
+    const count = (data.recordings || []).length;
+    if (!count) { showToast('No recordings to delete'); return; }
+    if (!confirm(`Delete all ${count} recording(s)? This cannot be undone.`)) return;
+    for (const r of data.recordings) {
+      await fetch(`/api/recordings/${encodeURIComponent(r.filename)}`, {method:'DELETE'});
+    }
+    loadRecordings();
+    showToast(`Deleted ${count} recording(s)`);
   }
 
 
