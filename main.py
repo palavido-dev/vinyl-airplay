@@ -376,11 +376,22 @@ async def _auto_stream_watcher():
                 cooldown  = COOLDOWN_SECS
                 continue
 
+            # Also skip while listen mode or album recording has the device open
+            if state.listen_task or (state.album_recorder and state.album_recorder.is_active):
+                sustained = 0.0
+                cooldown  = COOLDOWN_SECS
+                continue
+
             if cooldown > 0:
                 cooldown = max(0.0, cooldown - POLL_SECS)
                 continue
 
             # Open device, read one chunk, close immediately — never holds it open
+            # Re-check right before open (race condition: listen/album may have started)
+            if state.listen_task or (state.album_recorder and state.album_recorder.is_active):
+                sustained = 0.0
+                cooldown = COOLDOWN_SECS
+                continue
             audio_idx = state.settings.get("audio_device_index")
             try:
                 with sd.InputStream(device=audio_idx, samplerate=44100,
@@ -389,7 +400,10 @@ async def _auto_stream_watcher():
                     data, _ = stream.read(POLL_FRAMES)
                 rms = float(np.sqrt(np.mean(data[:, :2] ** 2)))
             except Exception as e:
-                print(f"[auto-stream] Read error: {e}")
+                # Suppress noisy errors when something else has the device
+                if not (state.listen_task or state.is_streaming
+                        or (state.album_recorder and state.album_recorder.is_active)):
+                    print(f"[auto-stream] Read error: {e}")
                 await asyncio.sleep(5.0)
                 continue
 
@@ -539,6 +553,11 @@ async def _run_stream_inner(targets, audio_device_index, volume):
 
     def _on_end_of_side():
         """Fires after END_OF_SIDE_SECS of silence — final track flushed, gate re-armed."""
+        # Auto-finalize album recording if active
+        if state.album_recorder and state.album_recorder.is_active:
+            asyncio.run_coroutine_threadsafe(
+                _auto_finalize_album_side(), main_loop)
+
         if state.learn_session and state.learn_session.active:
             s = state.learn_session
             asyncio.run_coroutine_threadsafe(
@@ -1292,6 +1311,65 @@ async def download_recording(filename: str):
 
 # ── Album Recording (Full-Side Capture) ──────────────────────────────────────
 
+async def _auto_finalize_album_side():
+    """Called when RecordingBuffer detects end-of-side silence during album recording.
+    Encodes the current side to FLAC and notifies the UI."""
+    ar = state.album_recorder
+    if not ar or not ar.is_active:
+        return
+
+    album_id = ar.album_id
+    side = ar.side
+    state.album_recorder = None  # detach so no more PCM is fed
+
+    # Stop learn session for this side
+    if state.learn_session:
+        state.learn_session.active = False
+        state.learn_session = None
+    if state.recogniser:
+        state.recogniser.set_learning_mode(False)
+
+    await broadcast("album_recording_status", {
+        "recording": False,
+        "album_id": album_id,
+        "side": side,
+        "message": f"End of Side {side} detected — encoding FLAC…",
+    })
+
+    loop = asyncio.get_event_loop()
+    path, duration, boundaries = await loop.run_in_executor(None, ar.finish)
+
+    if path:
+        file_size = path.stat().st_size
+        cat.save_album_audio(album_id, side, str(path), duration, file_size)
+
+        for b in boundaries:
+            if b["track_id"] and b["end_secs"] is not None:
+                cat.update_track_timestamps(b["track_id"], b["start_secs"], b["end_secs"])
+
+        await broadcast("album_recording_side_saved", {
+            "album_id": album_id,
+            "side": side,
+            "duration_secs": round(duration, 1),
+            "size_mb": round(file_size / (1024 * 1024), 1),
+            "tracks_captured": len(boundaries),
+        })
+        await broadcast("album_recording_status", {
+            "recording": False,
+            "album_id": album_id,
+            "side": side,
+            "message": f"✓ Side {side} saved — {duration:.0f}s, "
+                       f"{file_size / (1024*1024):.1f} MB. Flip and record next side when ready.",
+        })
+        print(f"[album-rec] Auto-finalized Side {side}: {duration:.0f}s, "
+              f"{file_size / (1024*1024):.1f} MB")
+    else:
+        await broadcast("album_recording_status", {
+            "recording": False,
+            "message": "Side too short or encoding failed",
+        })
+
+
 @app.post("/api/album-recording/start")
 async def album_recording_start(body: dict):
     """
@@ -1810,6 +1888,11 @@ async def _start_listen_mode():
         asyncio.run_coroutine_threadsafe(broadcast("audio_detected", {}), loop)
 
     def _on_end_of_side():
+        # Auto-finalize album recording if active
+        if state.album_recorder and state.album_recorder.is_active:
+            asyncio.run_coroutine_threadsafe(
+                _auto_finalize_album_side(), loop)
+
         if state.learn_session:
             asyncio.run_coroutine_threadsafe(
                 broadcast("learn_end_of_side", {

@@ -504,9 +504,9 @@
           <button class="btn-start btn-small" id="btn-search" onclick="doSearch()">Search</button>
           <div style="display:flex;gap:0;border:1px solid var(--border);border-radius:6px;overflow:hidden;font-size:0.8rem">
             <button id="src-mb" onclick="setSource('mb')"
-              style="padding:0.3rem 0.7rem;border:none;cursor:pointer;background:var(--accent);color:#fff">MusicBrainz</button>
+              style="padding:0.3rem 0.7rem;border:none;cursor:pointer;background:var(--surface);color:var(--text)">MusicBrainz</button>
             <button id="src-discogs" onclick="setSource('discogs')"
-              style="padding:0.3rem 0.7rem;border:none;cursor:pointer;background:var(--surface);color:var(--text)">Discogs</button>
+              style="padding:0.3rem 0.7rem;border:none;cursor:pointer;background:var(--accent);color:#fff">Discogs</button>
           </div>
         </div>
         <button class="btn-ghost btn-small" onclick="showManualStep()">Enter Manually Instead</button>
@@ -1613,7 +1613,7 @@
   function backToSearch() { showStep('search'); }
   function showManualStep() { showStep('manual'); }
 
-  let _searchSource = 'mb';
+  let _searchSource = 'discogs';
   function setSource(src) {
     _searchSource = src;
     document.getElementById('src-mb').style.background      = src === 'mb'      ? 'var(--accent)' : 'var(--surface)';
@@ -1921,6 +1921,22 @@
   function onAlbumRecStatus(data) {
     var el = document.getElementById('album-rec-status-text');
     if (el && data.message) el.textContent = data.message;
+    // Server auto-stopped the recording (end-of-side detected)
+    if (data.recording === false) {
+      clearInterval(_albumRecInterval); _albumRecInterval = null;
+      // If saving panel is not already shown, show it briefly
+      var activeEl = document.getElementById('album-rec-active');
+      var savingEl = document.getElementById('album-rec-saving');
+      if (activeEl && activeEl.style.display !== 'none') {
+        activeEl.style.display = 'none';
+        if (savingEl) savingEl.style.display = 'block';
+      }
+      if (data.message && data.message.indexOf('\u2713') >= 0) {
+        // Side saved successfully — hide panel, refresh modal
+        hideAlbumRecPanel();
+        if (currentAlbumId) openAlbum(currentAlbumId);
+      }
+    }
   }
 
   function onAlbumRecSideSaved(data) {
