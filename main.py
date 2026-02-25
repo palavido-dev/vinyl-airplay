@@ -1704,6 +1704,15 @@ async def delete_album_audio_route(album_id: int):
     return {"ok": True, "deleted": count}
 
 
+@app.delete("/api/album-audio/{album_id}/{audio_id}")
+async def delete_album_audio_single(album_id: int, audio_id: int):
+    """Delete a single recorded audio file (one side)."""
+    ok = cat.delete_album_audio_by_id(audio_id)
+    if not ok:
+        return {"ok": False, "error": "Audio not found"}
+    return {"ok": True}
+
+
 
 # ── Learn Session ─────────────────────────────────────────────────────────────
 

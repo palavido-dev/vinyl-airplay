@@ -493,10 +493,40 @@ class AlbumRecorder:
 
             boundaries = list(self._track_boundaries)
 
-        # ── Trim trailing silence ──────────────────────────────────────
+        # ── Trim leading silence (before needle audio) ────────────────
         TRIM_THRESHOLD = 0.008          # RMS below this = silence
         TRIM_BLOCK     = SAMPLE_RATE * CHANNELS * 2  # 1-second blocks (16-bit stereo)
-        FADE_TAIL      = int(0.1 * SAMPLE_RATE * CHANNELS * 2)  # 0.1s fade-out buffer
+        FADE_TAIL      = int(0.1 * SAMPLE_RATE * CHANNELS * 2)  # 0.1s buffer
+
+        lead_pos = 0
+        pcm_len = len(pcm)
+        while lead_pos + TRIM_BLOCK <= pcm_len:
+            block = np.frombuffer(pcm[lead_pos:lead_pos + TRIM_BLOCK], dtype=np.int16)
+            rms = float(np.sqrt(np.mean((block.astype(np.float32) / 32768.0) ** 2)))
+            if rms >= TRIM_THRESHOLD:
+                # Found audio — back up a small buffer so we don't clip the attack
+                lead_pos = max(0, lead_pos - FADE_TAIL)
+                lead_pos = lead_pos - (lead_pos % 4)  # frame-align
+                break
+            lead_pos += TRIM_BLOCK
+        else:
+            lead_pos = 0  # don't trim if everything is quiet
+
+        if lead_pos > 0:
+            lead_trimmed_secs = lead_pos / (SAMPLE_RATE * CHANNELS * 2)
+            pcm = pcm[lead_pos:]
+            print(f"[album-rec] Trimmed {lead_trimmed_secs:.1f}s leading silence")
+
+            # Shift all track boundaries back by the trimmed amount
+            for b in boundaries:
+                b["start_byte"] = max(0, b["start_byte"] - lead_pos)
+                if b["end_byte"] is not None:
+                    b["end_byte"] = max(0, b["end_byte"] - lead_pos)
+                b["start_secs"] = max(0.0, b["start_secs"] - lead_trimmed_secs)
+                if b["end_secs"] is not None:
+                    b["end_secs"] = max(0.0, b["end_secs"] - lead_trimmed_secs)
+
+        # ── Trim trailing silence ──────────────────────────────────────
 
         original_len = len(pcm)
         trim_pos = original_len

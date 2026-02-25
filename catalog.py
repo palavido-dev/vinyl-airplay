@@ -1665,6 +1665,29 @@ def delete_album_audio(album_id: int) -> int:
         db.close()
 
 
+def delete_album_audio_by_id(audio_id: int) -> bool:
+    """Delete a single album audio record and its file. Returns True if deleted."""
+    db = get_db()
+    try:
+        row = db.execute(
+            "SELECT file_path FROM album_audio WHERE id = ?", (audio_id,)
+        ).fetchone()
+        if not row:
+            return False
+        p = Path(row["file_path"])
+        if p.exists():
+            p.unlink()
+        db.execute("DELETE FROM album_audio WHERE id = ?", (audio_id,))
+        db.commit()
+        print(f"[catalog] Deleted album audio id={audio_id}: {p.name}")
+        return True
+    except Exception as e:
+        print(f"[catalog] delete_album_audio_by_id failed: {e}")
+        return False
+    finally:
+        db.close()
+
+
 # ── Background Recogniser ─────────────────────────────────────────────────────
 
 class Recogniser:

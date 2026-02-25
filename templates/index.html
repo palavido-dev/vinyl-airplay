@@ -238,6 +238,17 @@
       width: 28px; height: 28px; font-size: 0.75rem; cursor: pointer;
       display: flex; align-items: center; justify-content: center; flex-shrink: 0;
     }
+    .album-audio-stop {
+      background: var(--red); color: #FFF8EF; border: none; border-radius: 50%;
+      width: 28px; height: 28px; font-size: 0.65rem; cursor: pointer;
+      display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+    }
+    .album-audio-delete {
+      background: none; border: none; color: var(--muted); cursor: pointer;
+      font-size: 0.8rem; padding: 0.2rem 0.4rem; border-radius: 4px; flex-shrink: 0;
+      opacity: 0.5; transition: opacity 0.15s;
+    }
+    .album-audio-delete:hover { opacity: 1; color: var(--red); }
 
     /* ── Manual entry form ── */
     .form-row { margin-bottom: 0.75rem; }
@@ -2008,6 +2019,7 @@
   }
 
   let _audioPlayer = null;
+  let _audioPlayingId = null;
 
   async function loadAlbumAudio(albumId) {
     try {
@@ -2019,20 +2031,100 @@
       list.innerHTML = data.audio.map(function(a) {
         var dur = a.duration_secs ? Math.floor(a.duration_secs/60)+':'+String(Math.floor(a.duration_secs%60)).padStart(2,'0') : '?';
         var sz = a.file_size ? (a.file_size/(1024*1024)).toFixed(1)+' MB' : '';
-        return '<div class="album-audio-row">'
-          +'<button class="album-audio-play" onclick="playAlbumAudio('+albumId+','+a.id+')" title="Play">\u25B6</button>'
+        var isPlaying = _audioPlayingId === a.id;
+        return '<div class="album-audio-row" id="audio-row-'+a.id+'">'
+          +'<button class="album-audio-play" data-album="'+albumId+'" data-audio="'+a.id+'" onclick="toggleAlbumAudio(this)" title="'+(isPlaying?'Pause':'Play')+'">'+(isPlaying?'\u275A\u275A':'\u25B6')+'</button>'
+          +'<button class="album-audio-stop" data-audio="'+a.id+'" onclick="stopAlbumAudio()" title="Stop" style="display:'+(isPlaying?'flex':'none')+'">\u25A0</button>'
           +'<span style="font-weight:600">Side '+(a.side||'?')+'</span>'
           +'<span style="color:var(--muted)">'+dur+'</span>'
           +'<span style="color:var(--muted);margin-left:auto">'+sz+'</span>'
+          +'<button class="album-audio-delete" data-album="'+albumId+'" data-audio="'+a.id+'" onclick="deleteAlbumAudio(this)" title="Delete side">\u2715</button>'
           +'</div>';
       }).join('');
     } catch(e) { console.warn('loadAlbumAudio failed:', e); }
   }
 
-  function playAlbumAudio(albumId, audioId) {
-    if (_audioPlayer) { _audioPlayer.pause(); _audioPlayer = null; }
+  function toggleAlbumAudio(btn) {
+    var albumId = parseInt(btn.dataset.album);
+    var audioId = parseInt(btn.dataset.audio);
+
+    // If already playing this audio — toggle pause/resume
+    if (_audioPlayer && _audioPlayingId === audioId) {
+      if (_audioPlayer.paused) {
+        _audioPlayer.play();
+        btn.textContent = '\u275A\u275A'; btn.title = 'Pause';
+        _showStopBtn(audioId, true);
+      } else {
+        _audioPlayer.pause();
+        btn.textContent = '\u25B6'; btn.title = 'Play';
+      }
+      return;
+    }
+
+    // Stop any existing playback
+    stopAlbumAudio();
+
+    // Start new playback
     _audioPlayer = new Audio('/api/album-audio/'+albumId+'/play/'+audioId);
+    _audioPlayingId = audioId;
     _audioPlayer.play();
+    btn.textContent = '\u275A\u275A'; btn.title = 'Pause';
+    _showStopBtn(audioId, true);
+
+    // When audio ends naturally, reset UI
+    _audioPlayer.addEventListener('ended', function() {
+      _resetAudioUI();
+    });
+  }
+
+  function stopAlbumAudio() {
+    if (_audioPlayer) {
+      _audioPlayer.pause();
+      _audioPlayer.currentTime = 0;
+      _audioPlayer = null;
+    }
+    _resetAudioUI();
+  }
+
+  function _resetAudioUI() {
+    var oldId = _audioPlayingId;
+    _audioPlayingId = null;
+    if (oldId) {
+      var row = document.getElementById('audio-row-'+oldId);
+      if (row) {
+        var playBtn = row.querySelector('.album-audio-play');
+        if (playBtn) { playBtn.textContent = '\u25B6'; playBtn.title = 'Play'; }
+        _showStopBtn(oldId, false);
+      }
+    }
+  }
+
+  function _showStopBtn(audioId, show) {
+    var row = document.getElementById('audio-row-'+audioId);
+    if (!row) return;
+    var stopBtn = row.querySelector('.album-audio-stop');
+    if (stopBtn) stopBtn.style.display = show ? 'flex' : 'none';
+  }
+
+  async function deleteAlbumAudio(btn) {
+    var albumId = parseInt(btn.dataset.album);
+    var audioId = parseInt(btn.dataset.audio);
+    var row = btn.closest('.album-audio-row');
+    var side = row ? row.querySelector('span[style*="font-weight"]').textContent : 'this recording';
+    if (!confirm('Delete '+side+'?')) return;
+
+    // Stop playback if we're deleting the currently playing audio
+    if (_audioPlayingId === audioId) stopAlbumAudio();
+
+    try {
+      var res = await fetch('/api/album-audio/'+albumId+'/'+audioId, {method:'DELETE'}).then(r=>r.json());
+      if (res.ok) {
+        showToast(side+' deleted');
+        loadAlbumAudio(albumId);
+      } else {
+        showError(res.error || 'Delete failed');
+      }
+    } catch(e) { showError('Delete failed: '+e.message); }
   }
 
 
