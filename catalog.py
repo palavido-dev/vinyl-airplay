@@ -47,6 +47,7 @@ MIN_VOTES           = 2           # minimum votes required to declare a match
 ARTWORK_SIZE        = 600         # px — artwork stored at this square size
 DB_PATH             = Path("catalog.db")
 ARTWORK_DIR         = Path("artwork")
+ALBUM_AUDIO_DIR     = Path("album_audio")
 MB_APP              = "VinylAirPlay/1.0 (local)"  # MusicBrainz user-agent
 
 
@@ -99,9 +100,21 @@ CREATE TABLE IF NOT EXISTS plays (
     played_at   TEXT    DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS album_audio (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    album_id    INTEGER REFERENCES albums(id) ON DELETE CASCADE,
+    side        TEXT,               -- 'A', 'B', 'C', 'D', or NULL for full album
+    file_path   TEXT NOT NULL,      -- relative path: album_audio/Artist - Album - SideA.flac
+    format      TEXT DEFAULT 'flac',
+    duration_secs REAL,
+    file_size   INTEGER,            -- bytes
+    created_at  TEXT DEFAULT (datetime('now'))
+);
+
 CREATE INDEX IF NOT EXISTS idx_plays_album  ON plays(album_id);
 CREATE INDEX IF NOT EXISTS idx_plays_track  ON plays(track_id);
 CREATE INDEX IF NOT EXISTS idx_tracks_album ON tracks(album_id);
+CREATE INDEX IF NOT EXISTS idx_album_audio  ON album_audio(album_id);
 """
 
 
@@ -113,11 +126,26 @@ def get_db() -> sqlite3.Connection:
 
 def init_db():
     ARTWORK_DIR.mkdir(exist_ok=True)
+    ALBUM_AUDIO_DIR.mkdir(exist_ok=True)
     db = get_db()
     db.executescript(SCHEMA)
+    # Migrations for existing databases — add columns if missing
+    _migrate_db(db)
     db.commit()
     db.close()
     purge_oversized_fingerprints()
+
+
+def _migrate_db(db: sqlite3.Connection):
+    """Add new columns/tables to existing databases without breaking anything."""
+    # Check if tracks table has start_secs/end_secs columns
+    cols = {row[1] for row in db.execute("PRAGMA table_info(tracks)").fetchall()}
+    if "start_secs" not in cols:
+        db.execute("ALTER TABLE tracks ADD COLUMN start_secs REAL")
+        print("[catalog] Migration: added tracks.start_secs")
+    if "end_secs" not in cols:
+        db.execute("ALTER TABLE tracks ADD COLUMN end_secs REAL")
+        print("[catalog] Migration: added tracks.end_secs")
 
 
 # ── Fingerprint Buffer ────────────────────────────────────────────────────────
@@ -1544,6 +1572,95 @@ def delete_album(album_id: int):
     try:
         db.execute("DELETE FROM albums WHERE id = ?", (album_id,))
         db.commit()
+    finally:
+        db.close()
+
+
+# ── Album Audio (Full-Side Recordings) ───────────────────────────────────────
+
+def save_album_audio(album_id: int, side: str, file_path: str,
+                     duration_secs: float, file_size: int,
+                     fmt: str = "flac") -> Optional[int]:
+    """Save a full-side audio file record to the database. Returns row ID."""
+    db = get_db()
+    try:
+        # Remove any existing audio for this album+side (re-recording replaces)
+        db.execute(
+            "DELETE FROM album_audio WHERE album_id = ? AND side = ?",
+            (album_id, side)
+        )
+        cur = db.execute("""
+            INSERT INTO album_audio
+                (album_id, side, file_path, format, duration_secs, file_size)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (album_id, side, file_path, fmt, duration_secs, file_size))
+        db.commit()
+        print(f"[catalog] Saved album audio: album {album_id} side {side} "
+              f"({duration_secs:.0f}s, {file_size / (1024*1024):.1f} MB)")
+        return cur.lastrowid
+    except Exception as e:
+        print(f"[catalog] save_album_audio failed: {e}")
+        db.rollback()
+        return None
+    finally:
+        db.close()
+
+
+def get_album_audio(album_id: int) -> list[dict]:
+    """Get all audio files for an album, ordered by side."""
+    db = get_db()
+    try:
+        rows = db.execute("""
+            SELECT * FROM album_audio
+            WHERE album_id = ?
+            ORDER BY side
+        """, (album_id,)).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        db.close()
+
+
+def get_album_audio_by_id(audio_id: int) -> Optional[dict]:
+    """Get a single album audio record by its ID."""
+    db = get_db()
+    try:
+        row = db.execute("SELECT * FROM album_audio WHERE id = ?", (audio_id,)).fetchone()
+        return dict(row) if row else None
+    finally:
+        db.close()
+
+
+def update_track_timestamps(track_id: int, start_secs: float, end_secs: float):
+    """Set the start/end offsets for a track within its side's audio file."""
+    db = get_db()
+    try:
+        db.execute(
+            "UPDATE tracks SET start_secs = ?, end_secs = ? WHERE id = ?",
+            (start_secs, end_secs, track_id)
+        )
+        db.commit()
+    except Exception as e:
+        print(f"[catalog] update_track_timestamps failed: {e}")
+    finally:
+        db.close()
+
+
+def delete_album_audio(album_id: int) -> int:
+    """Delete all audio files and DB records for an album. Returns files deleted."""
+    db = get_db()
+    try:
+        rows = db.execute(
+            "SELECT file_path FROM album_audio WHERE album_id = ?", (album_id,)
+        ).fetchall()
+        count = 0
+        for r in rows:
+            p = Path(r["file_path"])
+            if p.exists():
+                p.unlink()
+                count += 1
+        db.execute("DELETE FROM album_audio WHERE album_id = ?", (album_id,))
+        db.commit()
+        return count
     finally:
         db.close()
 

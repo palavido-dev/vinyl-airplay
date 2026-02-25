@@ -170,6 +170,7 @@ class AppState:
         self.rec_pending: list = []          # finished recordings awaiting save
         self.rec_album_id: Optional[int] = None  # manually chosen album for tagging
         self.learn_session: Optional["LearnSession"] = None
+        self.album_recorder: Optional[rec.AlbumRecorder] = None  # full-side capture
 
 
 state = AppState()
@@ -277,6 +278,9 @@ def make_callback(streams, eq, fp_buffer):
         # so inter-track gaps trigger recogniser reset even when not recording
         if state.rec_buffer:
             state.rec_buffer.put(raw_pcm)
+        # Feed album recorder (full-side capture) with raw pre-EQ audio
+        if state.album_recorder and state.album_recorder.is_active:
+            state.album_recorder.put(raw_pcm)
         # Apply EQ + volume for the actual stream output
         audio = eq.process(audio_in)
         pcm   = (audio*32767).astype(np.int16).tobytes()
@@ -1286,6 +1290,320 @@ async def download_recording(filename: str):
                         filename=path.name)
 
 
+# ── Album Recording (Full-Side Capture) ──────────────────────────────────────
+
+@app.post("/api/album-recording/start")
+async def album_recording_start(body: dict):
+    """
+    Start recording a full album side to FLAC.
+    body: { album_id: int, side: str ("A", "B", etc.) }
+    Requires streaming or listen mode to be active.
+    """
+    album_id = body.get("album_id")
+    side = body.get("side", "A").upper()
+
+    if not album_id:
+        return {"ok": False, "error": "album_id required"}
+
+    if state.album_recorder and state.album_recorder.is_active:
+        return {"ok": False, "error": "Album recording already in progress — stop it first"}
+
+    # Auto-start audio capture if not already running
+    if not _ensure_audio_active():
+        await _start_listen_mode()
+        await asyncio.sleep(0.5)
+
+    # Get album info for metadata
+    albums = cat.get_all_albums()
+    album = next((a for a in albums if a["id"] == album_id), None)
+    if not album:
+        return {"ok": False, "error": f"Album {album_id} not found"}
+
+    album_info = {
+        "artist": album["artist"],
+        "title":  album["title"],
+        "year":   album.get("year"),
+        "genre":  album.get("genre"),
+    }
+
+    # Create the album recorder
+    state.album_recorder = rec.AlbumRecorder(album_id, side, album_info)
+
+    # Get the tracks for this side so we can track progress
+    all_tracks = cat.get_album_tracks(album_id)
+    side_tracks = [t for t in all_tracks if (t.get("side") or "A") == side]
+
+    # Mark first track
+    if side_tracks:
+        state.album_recorder.mark_first_track(side_tracks[0]["id"])
+
+    # Also start a learn session so fingerprints get learned automatically
+    # (reuses existing learn infrastructure)
+    if not state.learn_session and state.rec_buffer and _ensure_audio_active():
+        loop = asyncio.get_event_loop()
+        session = LearnSession(album_id, len(side_tracks), loop, also_record=False)
+        if session.pending_tracks:
+            state.learn_session = session
+            if state.recogniser:
+                state.recogniser.set_learning_mode(True)
+
+            def _on_learn_track_ready(pcm, dur):
+                if state.learn_session and state.learn_session.active:
+                    state.learn_executor.submit(state.learn_session.on_track_captured, pcm)
+                # Also mark track boundary in album recorder
+                if state.album_recorder and state.album_recorder.is_active:
+                    next_id = state.learn_session.next_track_id() if state.learn_session else None
+                    state.album_recorder.mark_track_boundary(next_id)
+
+            state.rec_buffer._on_track_ready = _on_learn_track_ready
+            state.rec_buffer.start(auto_split=True)
+
+    await broadcast("album_recording_status", {
+        "recording": True,
+        "album_id": album_id,
+        "side": side,
+        "album_name": f"{album['artist']} — {album['title']}",
+        "side_tracks": len(side_tracks),
+        "message": f"Recording Side {side} — drop the needle when ready",
+    })
+
+    return {
+        "ok": True,
+        "album_id": album_id,
+        "side": side,
+        "side_tracks": len(side_tracks),
+    }
+
+
+@app.post("/api/album-recording/flip")
+async def album_recording_flip(body: dict):
+    """
+    Finish current side and start recording the next side.
+    body: { side: str ("B", "C", etc.) }
+    """
+    if not state.album_recorder or not state.album_recorder.is_active:
+        return {"ok": False, "error": "No album recording in progress"}
+
+    # Finish current side
+    album_id = state.album_recorder.album_id
+    loop = asyncio.get_event_loop()
+
+    # Stop learn session for this side
+    if state.learn_session:
+        state.learn_session.active = False
+        state.learn_session = None
+    if state.recogniser:
+        state.recogniser.set_learning_mode(False)
+    if state.rec_buffer and state.rec_buffer.is_active:
+        state.rec_buffer.stop()
+
+    # Encode the current side in background
+    ar = state.album_recorder
+    state.album_recorder = None
+
+    async def _finish_and_start_next():
+        # Encode current side
+        path, duration, boundaries = await loop.run_in_executor(None, ar.finish)
+        if path:
+            file_size = path.stat().st_size
+            cat.save_album_audio(album_id, ar.side, str(path), duration, file_size)
+
+            # Save track timestamps
+            for b in boundaries:
+                if b["track_id"] and b["end_secs"] is not None:
+                    cat.update_track_timestamps(b["track_id"], b["start_secs"], b["end_secs"])
+
+            await broadcast("album_recording_side_saved", {
+                "album_id": album_id,
+                "side": ar.side,
+                "duration_secs": round(duration, 1),
+                "size_mb": round(file_size / (1024 * 1024), 1),
+                "tracks_captured": len(boundaries),
+            })
+
+    asyncio.create_task(_finish_and_start_next())
+
+    # Start new side
+    new_side = body.get("side", "B").upper()
+    albums = cat.get_all_albums()
+    album = next((a for a in albums if a["id"] == album_id), None)
+    if not album:
+        return {"ok": False, "error": "Album not found"}
+
+    album_info = {
+        "artist": album["artist"],
+        "title":  album["title"],
+        "year":   album.get("year"),
+        "genre":  album.get("genre"),
+    }
+
+    state.album_recorder = rec.AlbumRecorder(album_id, new_side, album_info)
+
+    # Get tracks for new side
+    all_tracks = cat.get_album_tracks(album_id)
+    side_tracks = [t for t in all_tracks if (t.get("side") or "A") == new_side]
+
+    if side_tracks:
+        state.album_recorder.mark_first_track(side_tracks[0]["id"])
+
+    # Restart learn session for new side
+    if state.rec_buffer and (state.is_streaming or state.listen_task):
+        session = LearnSession(album_id, len(side_tracks), loop, also_record=False)
+        if session.pending_tracks:
+            state.learn_session = session
+            if state.recogniser:
+                state.recogniser.set_learning_mode(True)
+
+            def _on_learn_track_ready(pcm, dur):
+                if state.learn_session and state.learn_session.active:
+                    state.learn_executor.submit(state.learn_session.on_track_captured, pcm)
+                if state.album_recorder and state.album_recorder.is_active:
+                    next_id = state.learn_session.next_track_id() if state.learn_session else None
+                    state.album_recorder.mark_track_boundary(next_id)
+
+            state.rec_buffer._on_track_ready = _on_learn_track_ready
+            state.rec_buffer.start(auto_split=True)
+
+    await broadcast("album_recording_status", {
+        "recording": True,
+        "album_id": album_id,
+        "side": new_side,
+        "album_name": f"{album['artist']} — {album['title']}",
+        "side_tracks": len(side_tracks),
+        "message": f"Recording Side {new_side} — flip the record and drop the needle",
+    })
+
+    return {"ok": True, "side": new_side, "side_tracks": len(side_tracks)}
+
+
+@app.post("/api/album-recording/stop")
+async def album_recording_stop():
+    """Stop the current album recording, encode to FLAC, and save."""
+    if not state.album_recorder:
+        return {"ok": False, "error": "No album recording in progress"}
+
+    ar = state.album_recorder
+    state.album_recorder = None
+    album_id = ar.album_id
+
+    # Stop learn session
+    if state.learn_session:
+        state.learn_session.active = False
+        state.learn_session = None
+    if state.recogniser:
+        state.recogniser.set_learning_mode(False)
+    if state.rec_buffer and state.rec_buffer.is_active:
+        state.rec_buffer.stop()
+
+    loop = asyncio.get_event_loop()
+    path, duration, boundaries = await loop.run_in_executor(None, ar.finish)
+
+    if not path:
+        await broadcast("album_recording_status", {
+            "recording": False,
+            "message": "Recording too short or encoding failed",
+        })
+        return {"ok": False, "error": "Recording too short or encoding failed"}
+
+    file_size = path.stat().st_size
+    cat.save_album_audio(album_id, ar.side, str(path), duration, file_size)
+
+    # Save track timestamps
+    for b in boundaries:
+        if b["track_id"] and b["end_secs"] is not None:
+            cat.update_track_timestamps(b["track_id"], b["start_secs"], b["end_secs"])
+
+    await broadcast("album_recording_status", {
+        "recording": False,
+        "album_id": album_id,
+        "message": f"Side {ar.side} saved — {duration:.0f}s, "
+                   f"{file_size / (1024*1024):.1f} MB",
+    })
+    await broadcast("album_recording_side_saved", {
+        "album_id": album_id,
+        "side": ar.side,
+        "duration_secs": round(duration, 1),
+        "size_mb": round(file_size / (1024 * 1024), 1),
+        "tracks_captured": len(boundaries),
+    })
+
+    return {
+        "ok": True,
+        "side": ar.side,
+        "duration_secs": round(duration, 1),
+        "size_mb": round(file_size / (1024 * 1024), 1),
+        "tracks_captured": len(boundaries),
+        "file_path": str(path),
+    }
+
+
+@app.get("/api/album-recording/status")
+async def album_recording_status():
+    """Get current album recording status."""
+    if not state.album_recorder or not state.album_recorder.is_active:
+        return {"recording": False}
+    ar = state.album_recorder
+    return {
+        "recording": True,
+        "album_id": ar.album_id,
+        "side": ar.side,
+        "elapsed_secs": round(ar.elapsed_secs, 1),
+        "tracks_captured": ar.track_count,
+    }
+
+
+@app.post("/api/album-recording/cancel")
+async def album_recording_cancel():
+    """Cancel the current album recording without saving."""
+    if state.album_recorder:
+        state.album_recorder.cancel()
+        state.album_recorder = None
+    if state.learn_session:
+        state.learn_session.active = False
+        state.learn_session = None
+    if state.recogniser:
+        state.recogniser.set_learning_mode(False)
+    if state.rec_buffer and state.rec_buffer.is_active:
+        state.rec_buffer.stop()
+    await broadcast("album_recording_status", {
+        "recording": False,
+        "message": "Album recording cancelled",
+    })
+    return {"ok": True}
+
+
+# ── Album Audio Serving ──────────────────────────────────────────────────────
+
+@app.get("/api/album-audio/{album_id}")
+async def get_album_audio(album_id: int):
+    """List all recorded audio files for an album."""
+    audio = cat.get_album_audio(album_id)
+    return {"audio": audio}
+
+
+@app.get("/api/album-audio/{album_id}/play/{audio_id}")
+async def play_album_audio(album_id: int, audio_id: int, request: Request):
+    """
+    Serve a recorded album audio file (FLAC) for playback.
+    Supports HTTP Range requests for seeking.
+    """
+    from starlette.responses import Response
+    audio = cat.get_album_audio_by_id(audio_id)
+    if not audio or audio["album_id"] != album_id:
+        return HTMLResponse("Not found", 404)
+    path = Path(audio["file_path"])
+    if not path.exists():
+        return HTMLResponse("File missing", 404)
+    return FileResponse(str(path), media_type="audio/flac", filename=path.name)
+
+
+@app.delete("/api/album-audio/{album_id}")
+async def delete_album_audio_route(album_id: int):
+    """Delete all recorded audio for an album."""
+    count = cat.delete_album_audio(album_id)
+    return {"ok": True, "deleted": count}
+
+
 
 # ── Learn Session ─────────────────────────────────────────────────────────────
 
@@ -1461,7 +1779,8 @@ async def _start_listen_mode():
         if state.learn_session and state.learn_session.active:
             state.learn_executor.submit(state.learn_session.on_track_captured, pcm)
 
-    def _on_level(rms, db):
+    def _on_level(rms):
+        db = 20 * np.log10(rms + 1e-9)
         asyncio.run_coroutine_threadsafe(
             broadcast("level", {"rms": round(rms, 5), "db": round(db, 1)}), loop)
 
