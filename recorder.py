@@ -39,7 +39,7 @@ SILENCE_RATIO_MIN = 0.006           # absolute floor — never treat above this 
 SIGNAL_ADAPT_RATE = 0.002           # EMA rate for signal level tracker (slow — ~500 chunks)
 SILENCE_MIN_SECS  = 1.5             # silence must last this long to split track
                                     # reduced from 2.0 — some albums have short inter-track gaps
-END_OF_SIDE_SECS  = 8.0             # silence this long = end of side — auto-flush final track
+END_OF_SIDE_SECS  = 20.0            # silence this long = end of side — auto-flush final track
                                     # _split_track trims to silence_start+pad so no long silence
                                     # is appended to the file
 SILENCE_PAD_SECS  = 0.5            # keep this much silence at end of track (natural fade)
