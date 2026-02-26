@@ -1452,6 +1452,9 @@ def clear_track_fingerprints(track_id: int) -> int:
     db = get_db()
     try:
         cur = db.execute("DELETE FROM fingerprints WHERE track_id = ?", (track_id,))
+        # Reset measured duration — it's a product of the recording, like fingerprints.
+        # Prevents bad splits from poisoning expected_track_secs on re-learning.
+        db.execute("UPDATE tracks SET duration_secs = 0 WHERE id = ? AND duration_secs > 0", (track_id,))
         db.commit()
         _refresh_fingerprint_cache(db, force=True)
         print(f"[catalog] Cleared {cur.rowcount} fingerprints for track {track_id}")
@@ -1468,6 +1471,9 @@ def clear_album_fingerprints(album_id: int) -> int:
             DELETE FROM fingerprints
             WHERE track_id IN (SELECT id FROM tracks WHERE album_id = ?)
         """, (album_id,))
+        # Reset measured durations — they're products of the recording, like fingerprints.
+        # Prevents bad splits from poisoning expected_track_secs on re-learning.
+        db.execute("UPDATE tracks SET duration_secs = 0 WHERE album_id = ?", (album_id,))
         db.commit()
         _refresh_fingerprint_cache(db, force=True)
         print(f"[catalog] Cleared {cur.rowcount} fingerprints for album {album_id}")
