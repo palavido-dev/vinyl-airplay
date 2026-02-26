@@ -1470,10 +1470,13 @@ async def album_recording_start(body: dict):
                 if state.album_recorder and state.album_recorder.is_active:
                     next_id = state.learn_session.next_track_id() if state.learn_session else None
                     state.album_recorder.mark_track_boundary(next_id)
+                # Decrement remaining tracks so end-of-side threshold adjusts
+                if state.rec_buffer and state.rec_buffer.remaining_tracks > 0:
+                    state.rec_buffer.remaining_tracks -= 1
 
             state.rec_buffer._on_track_ready = _on_learn_track_ready
             state.rec_buffer.expected_track_secs = session.next_track_expected_secs()
-            state.rec_buffer.remaining_tracks = len(session.pending_tracks)
+            state.rec_buffer.remaining_tracks = len(side_tracks)
             state.rec_buffer.start(auto_split=True)
 
     await broadcast("album_recording_status", {
@@ -1586,10 +1589,12 @@ async def album_recording_flip(body: dict):
                 if state.album_recorder and state.album_recorder.is_active:
                     next_id = state.learn_session.next_track_id() if state.learn_session else None
                     state.album_recorder.mark_track_boundary(next_id)
+                if state.rec_buffer and state.rec_buffer.remaining_tracks > 0:
+                    state.rec_buffer.remaining_tracks -= 1
 
             state.rec_buffer._on_track_ready = _on_learn_track_ready
             state.rec_buffer.expected_track_secs = session.next_track_expected_secs()
-            state.rec_buffer.remaining_tracks = len(session.pending_tracks)
+            state.rec_buffer.remaining_tracks = len(side_tracks)
             state.rec_buffer.start(auto_split=True)
 
     await broadcast("album_recording_status", {
@@ -1762,6 +1767,7 @@ class LearnSession:
         self.also_record = also_record   # also save each track as MP3
         self._loop       = loop
         self._rec_buffer = None          # set externally to update expected_track_secs
+        self._learned_durations = []     # durations of tracks learned this session
 
         # Get the ordered list of unlearned tracks for this album
         all_tracks = cat.get_album_tracks(album_id)
@@ -1794,6 +1800,16 @@ class LearnSession:
         if self.pending_tracks:
             return float(self.pending_tracks[0].get("duration_secs") or 0)
         return 0.0
+
+    def estimated_track_secs(self) -> float:
+        """Return the median duration of tracks learned this session, or 0 if none yet."""
+        if not self._learned_durations:
+            return 0.0
+        s = sorted(self._learned_durations)
+        mid = len(s) // 2
+        if len(s) % 2 == 0:
+            return (s[mid - 1] + s[mid]) / 2
+        return s[mid]
 
     def on_track_captured(self, pcm: bytes):
         """Called when a complete track's PCM is ready. Fingerprints and saves it."""
@@ -1840,6 +1856,9 @@ class LearnSession:
         # Save the actual recorded duration to the track (backfills missing Discogs data)
         cat.update_track_duration(track_id, duration)
 
+        # Track this duration for session-based estimation
+        self._learned_durations.append(duration)
+
         # Capture the name of the track we just learned BEFORE advancing the pointer
         just_learned_name = self.next_track_name()
 
@@ -1879,8 +1898,16 @@ class LearnSession:
 
         # Update expected duration for the next track on the RecordingBuffer
         if self._rec_buffer:
-            self._rec_buffer.expected_track_secs = self.next_track_expected_secs()
-            self._rec_buffer.remaining_tracks = len(self.pending_tracks)
+            expected = self.next_track_expected_secs()
+            is_estimate = False
+            if expected == 0 and self._learned_durations:
+                # No Discogs duration — use median of tracks learned this session
+                expected = self.estimated_track_secs()
+                is_estimate = True
+                print(f"[learn] No Discogs duration for next track — using session"
+                      f" estimate: {expected:.0f}s (median of {len(self._learned_durations)} learned)")
+            self._rec_buffer.expected_track_secs = expected
+            self._rec_buffer.expected_is_estimate = is_estimate
 
         track_name = self.next_track_name() if self.pending_tracks else "—"
         print(f"[learn] ✓ Track learned ({self.learned}/{self.track_count}): "
@@ -2041,6 +2068,8 @@ async def learn_start(body: dict):
         """Run fpcalc in background thread so it never blocks the audio callback."""
         if state.learn_session and state.learn_session.active:
             state.learn_executor.submit(state.learn_session.on_track_captured, pcm)
+        if state.rec_buffer and state.rec_buffer.remaining_tracks > 0:
+            state.rec_buffer.remaining_tracks -= 1
     state.rec_buffer._on_track_ready = _on_learn_track_ready
     state.rec_buffer.expected_track_secs = session.next_track_expected_secs()
     state.rec_buffer.remaining_tracks = len(session.pending_tracks)

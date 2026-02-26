@@ -101,9 +101,10 @@ class RecordingBuffer:
         self._signal_level = 0.03          # initial estimate; refined once audio starts
         self._silence_log_countdown = 0    # rate-limit diagnostic prints
 
-        # Expected duration of the current track (from catalog metadata).
-        # When > 0, suppresses track splits until at least 50% of expected has elapsed.
+        # Expected duration of the current track (from catalog metadata or session estimate).
+        # When > 0, suppresses track splits until a percentage of expected has elapsed.
         self.expected_track_secs = 0.0
+        self.expected_is_estimate = False  # True = session median (use 60%), False = Discogs (use 45%)
 
         # Number of tracks remaining on this side (including current).
         # When > 0, uses a longer end-of-side threshold to avoid false triggers
@@ -125,6 +126,7 @@ class RecordingBuffer:
             self._silence_log_countdown = 0
             self._end_of_side_fired    = False
             self.expected_track_secs   = 0.0
+            self.expected_is_estimate  = False
         print(f"[recorder] Recording started (auto_split={auto_split})")
 
     def stop(self) -> Optional[bytes]:
@@ -214,9 +216,11 @@ class RecordingBuffer:
         # Compute dynamic threshold from current signal level estimate.
         # When we know expected track duration and are past it, boost the ratio
         # so vinyl surface noise in between-track gaps reliably registers as silence.
+        # Only boost for Discogs durations (precise) — session estimates are too rough
+        # and boosting on an inaccurate estimate can trap quiet passages.
         effective_ratio = SILENCE_RATIO  # 0.50 baseline
 
-        if self.expected_track_secs > 0:
+        if self.expected_track_secs > 0 and not self.expected_is_estimate:
             with self._lock:
                 accumulated_secs = self._total_bytes / (SAMPLE_RATE * CHANNELS * 2)
             overdue_pct = accumulated_secs / self.expected_track_secs
@@ -287,24 +291,22 @@ class RecordingBuffer:
                     accumulated_secs = self._silence_start_byte / (SAMPLE_RATE * CHANNELS * 2)
 
                 if self.expected_track_secs > 0:
-                    min_secs = self.expected_track_secs * 0.45  # allow 45% tolerance
+                    # Use a higher threshold for session estimates (less precise)
+                    # Discogs: 45% — tight, because the data is exact
+                    # Session estimate: 75% — aggressive, because it's a median of
+                    # learned tracks and we'd rather merge a short gap than split
+                    # a quiet passage. Still safe for short-track albums since the
+                    # median will be proportionally shorter.
+                    if self.expected_is_estimate:
+                        min_pct = 0.75
+                        source = "session est"
+                    else:
+                        min_pct = 0.45
+                        source = "expected"
+                    min_secs = self.expected_track_secs * min_pct
                     if accumulated_secs < min_secs:
                         print(f"[recorder] Suppressed split: {accumulated_secs:.0f}s captured"
-                              f" < {min_secs:.0f}s (45% of expected {self.expected_track_secs:.0f}s)"
-                              f" — treating as quiet passage")
-                        self._silence_secs       = 0.0
-                        self._silence_start_byte = 0
-                        return
-                elif self.remaining_tracks > 1:
-                    # No duration data available — use a conservative fallback.
-                    # The shortest vinyl tracks are ~90s; if we haven't accumulated
-                    # that much audio yet and more tracks remain on this side,
-                    # this is almost certainly a quiet passage, not a track gap.
-                    FALLBACK_MIN_SECS = 90
-                    if accumulated_secs < FALLBACK_MIN_SECS:
-                        print(f"[recorder] Suppressed split: {accumulated_secs:.0f}s captured"
-                              f" < {FALLBACK_MIN_SECS}s fallback (no duration data,"
-                              f" {self.remaining_tracks} tracks remain)"
+                              f" < {min_secs:.0f}s ({min_pct:.0%} of {source} {self.expected_track_secs:.0f}s)"
                               f" — treating as quiet passage")
                         self._silence_secs       = 0.0
                         self._silence_start_byte = 0
