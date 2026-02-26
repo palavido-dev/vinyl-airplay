@@ -104,6 +104,11 @@ class RecordingBuffer:
         # When > 0, suppresses track splits until at least 50% of expected has elapsed.
         self.expected_track_secs = 0.0
 
+        # Number of tracks remaining on this side (including current).
+        # When > 0, uses a longer end-of-side threshold to avoid false triggers
+        # on records with long inter-track gaps.
+        self.remaining_tracks = 0
+
     def start(self, auto_split: bool = True):
         with self._lock:
             self._chunks        = []
@@ -247,10 +252,18 @@ class RecordingBuffer:
                       f"  signal={self._signal_level:.5f}  silence={self._silence_secs:.1f}s{ratio_info}")
                 self._silence_log_countdown = 20  # log every ~20 chunks
             # End-of-side detection: long silence = needle lifted / run-out groove
+            # Use longer threshold when we know more tracks remain on this side,
+            # because some records have very long inter-track gaps (20s+).
+            # Real end-of-side (needle lift) produces indefinite silence, so
+            # waiting longer is fine — leading/trailing trim removes dead air.
+            eos_threshold = END_OF_SIDE_SECS
+            if self.remaining_tracks > 1:
+                eos_threshold = max(END_OF_SIDE_SECS, 45.0)
             if (not self._end_of_side_fired
-                    and self._silence_secs >= END_OF_SIDE_SECS):
+                    and self._silence_secs >= eos_threshold):
                 self._end_of_side_fired = True
-                print(f"[recorder] End-of-side detected ({self._silence_secs:.1f}s silence)"
+                print(f"[recorder] End-of-side detected ({self._silence_secs:.1f}s silence, "
+                      f"threshold={eos_threshold:.0f}s, remaining={self.remaining_tracks})"
                       f" — flushing final track (trimmed to music end)")
                 self._split_track()          # trims silence, hands off final track
                 self._audio_seen = False     # re-arm startup gate for next side

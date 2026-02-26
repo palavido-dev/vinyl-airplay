@@ -1473,6 +1473,7 @@ async def album_recording_start(body: dict):
 
             state.rec_buffer._on_track_ready = _on_learn_track_ready
             state.rec_buffer.expected_track_secs = session.next_track_expected_secs()
+            state.rec_buffer.remaining_tracks = len(session.pending_tracks)
             state.rec_buffer.start(auto_split=True)
 
     await broadcast("album_recording_status", {
@@ -1588,6 +1589,7 @@ async def album_recording_flip(body: dict):
 
             state.rec_buffer._on_track_ready = _on_learn_track_ready
             state.rec_buffer.expected_track_secs = session.next_track_expected_secs()
+            state.rec_buffer.remaining_tracks = len(session.pending_tracks)
             state.rec_buffer.start(auto_split=True)
 
     await broadcast("album_recording_status", {
@@ -1878,6 +1880,7 @@ class LearnSession:
         # Update expected duration for the next track on the RecordingBuffer
         if self._rec_buffer:
             self._rec_buffer.expected_track_secs = self.next_track_expected_secs()
+            self._rec_buffer.remaining_tracks = len(self.pending_tracks)
 
         track_name = self.next_track_name() if self.pending_tracks else "—"
         print(f"[learn] ✓ Track learned ({self.learned}/{self.track_count}): "
@@ -2040,6 +2043,7 @@ async def learn_start(body: dict):
             state.learn_executor.submit(state.learn_session.on_track_captured, pcm)
     state.rec_buffer._on_track_ready = _on_learn_track_ready
     state.rec_buffer.expected_track_secs = session.next_track_expected_secs()
+    state.rec_buffer.remaining_tracks = len(session.pending_tracks)
     state.rec_buffer.start(auto_split=True)
 
     first_track = session.next_track_name()
@@ -2073,6 +2077,7 @@ async def learn_continue(body: dict):
     if state.recogniser:
         state.recogniser.set_learning_mode(True)
     state.rec_buffer.expected_track_secs = session.next_track_expected_secs()
+    state.rec_buffer.remaining_tracks = len(session.pending_tracks)
     state.rec_buffer.start(auto_split=True)  # restart capture
 
     first_track = session.next_track_name()
