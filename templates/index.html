@@ -216,6 +216,76 @@
   .main-content::-webkit-scrollbar-thumb { background: var(--paper-dk); border-radius: 3px; }
   .track-list::-webkit-scrollbar { width: 4px; }
   .track-list::-webkit-scrollbar-thumb { background: var(--paper-dk); border-radius: 2px; }
+
+  /* ── On-Screen Keyboard ── */
+  .osk-overlay {
+    display: none; position: fixed; bottom: 0; left: 0; right: 0;
+    z-index: 500;
+    background: linear-gradient(180deg, #3E2723 0%, #2C1810 100%);
+    border-top: 2px solid var(--amber-dk);
+    box-shadow: 0 -4px 20px rgba(0,0,0,0.5);
+    padding: 0.4rem 0.3rem 0.5rem;
+    transition: transform 0.2s ease-out;
+    transform: translateY(100%);
+  }
+  .osk-overlay.open { display: block; transform: translateY(0); }
+  .osk-overlay.opening { display: block; }
+  .osk-input-preview {
+    display: flex; align-items: center; gap: 0.5rem;
+    padding: 0.25rem 0.6rem 0.35rem; margin-bottom: 0.3rem;
+  }
+  .osk-input-label {
+    font-size: 0.65rem; color: rgba(245,235,216,0.4);
+    text-transform: uppercase; letter-spacing: 0.06em;
+    flex-shrink: 0;
+  }
+  .osk-input-value {
+    flex: 1; font-size: 0.85rem; color: var(--amber);
+    font-family: var(--body-font); font-weight: 600;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    min-height: 1.2em;
+  }
+  .osk-row {
+    display: flex; justify-content: center; gap: 3px;
+    margin-bottom: 3px;
+  }
+  .osk-key {
+    min-width: 36px; height: 42px;
+    border-radius: 5px;
+    background: rgba(255,255,255,0.08);
+    border: 1px solid rgba(212,162,78,0.15);
+    color: var(--cream);
+    font-family: var(--body-font);
+    font-size: 0.9rem; font-weight: 500;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    padding: 0 0.2rem;
+    transition: background 0.08s;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .osk-key:active, .osk-key.active { background: rgba(212,162,78,0.3); }
+  .osk-key.wide { min-width: 52px; font-size: 0.75rem; }
+  .osk-key.wider { min-width: 68px; font-size: 0.75rem; }
+  .osk-key.space {
+    flex: 1; max-width: 320px;
+    font-size: 0.7rem; color: rgba(245,235,216,0.4);
+    letter-spacing: 0.1em; text-transform: uppercase;
+  }
+  .osk-key.done {
+    min-width: 72px;
+    background: var(--amber-dk); color: var(--walnut);
+    border-color: var(--amber);
+    font-weight: 700; font-size: 0.8rem;
+  }
+  .osk-key.done:active { background: var(--amber); }
+  .osk-key.shift-active {
+    background: rgba(212,162,78,0.2);
+    border-color: var(--amber);
+    color: var(--amber);
+  }
+  body.osk-active .frame { margin-bottom: 0; }
+  body.osk-active .main-content { padding-bottom: 0; }
 </style>
 </head>
 <body>
@@ -405,6 +475,18 @@
     <div class="settings-section"><h3>Discogs Token</h3><p style="font-size:0.75rem;color:var(--muted);margin-bottom:0.4rem;line-height:1.4">Optional — increases rate limits and enables cover art. <a href="https://www.discogs.com/settings/developers" target="_blank" style="color:var(--amber-dk)">Get token</a></p><div style="display:flex;gap:0.4rem;align-items:center"><input type="password" class="form-input" id="discogs-token" placeholder="Paste token" style="flex:1"><button class="btn btn-accent" onclick="saveDiscogsToken()">Save</button></div><span id="discogs-saved" style="display:none;color:var(--sage);font-size:0.75rem">✓ Saved</span></div>
     <button class="btn btn-ghost" onclick="hideSettings()" style="width:100%;margin-top:0.5rem">Close</button>
   </div>
+</div>
+<!-- On-Screen Keyboard -->
+<div class="osk-overlay" id="osk">
+  <div class="osk-input-preview">
+    <span class="osk-input-label" id="osk-label">Search</span>
+    <span class="osk-input-value" id="osk-value"></span>
+  </div>
+  <div class="osk-row" id="osk-row-num"></div>
+  <div class="osk-row" id="osk-row-1"></div>
+  <div class="osk-row" id="osk-row-2"></div>
+  <div class="osk-row" id="osk-row-3"></div>
+  <div class="osk-row" id="osk-row-bottom"></div>
 </div>
 <script>
 let ws,currentAlbumId=null,_catalogAlbums=[],_playerActive=false,_playerSource=null,_learnLog=[],_learnLevelInterval=null,_audioPlayer=null,_audioPlayingId=null,_reorderMode=false,_pendingRelease=null,_recTimerInterval=null;
@@ -622,6 +704,219 @@ async function init(){
   loadCatalog();
 }
 init();
+
+/* ── On-Screen Keyboard ── */
+(function(){
+  const NUM_ROW = ['1','2','3','4','5','6','7','8','9','0'];
+  const ROW1 = ['q','w','e','r','t','y','u','i','o','p'];
+  const ROW2 = ['a','s','d','f','g','h','j','k','l'];
+  const ROW3 = ['z','x','c','v','b','n','m'];
+  let _oskTarget = null;
+  let _oskShift = false;
+  let _oskVisible = false;
+
+  function makeKey(label, action, cls){
+    const k = document.createElement('button');
+    k.className = 'osk-key' + (cls ? ' '+cls : '');
+    k.textContent = label;
+    k.setAttribute('data-action', action || label);
+    k.addEventListener('touchstart', function(e){ e.preventDefault(); onKey(this); }, {passive:false});
+    k.addEventListener('mousedown', function(e){ e.preventDefault(); onKey(this); });
+    return k;
+  }
+
+  function buildKeyboard(){
+    const rn = document.getElementById('osk-row-num');
+    NUM_ROW.forEach(c => rn.appendChild(makeKey(c, c)));
+    rn.appendChild(makeKey('⌫', 'backspace', 'wide'));
+
+    const r1 = document.getElementById('osk-row-1');
+    ROW1.forEach(c => r1.appendChild(makeKey(c, c)));
+
+    const r2 = document.getElementById('osk-row-2');
+    r2.appendChild(makeKey('⇧', 'shift', 'wide'));
+    ROW2.forEach(c => r2.appendChild(makeKey(c, c)));
+    r2.appendChild(makeKey("'", "'"));
+
+    const r3 = document.getElementById('osk-row-3');
+    r3.appendChild(makeKey('123', 'symbols', 'wider'));
+    ROW3.forEach(c => r3.appendChild(makeKey(c, c)));
+    r3.appendChild(makeKey('.', '.'));
+    r3.appendChild(makeKey(',', ','));
+
+    const rb = document.getElementById('osk-row-bottom');
+    rb.appendChild(makeKey('-', '-'));
+    rb.appendChild(makeKey('space', ' ', 'space'));
+    rb.appendChild(makeKey('Done', 'done', 'done'));
+  }
+
+  const SYM_NUM = ['!','@','#','$','%','^','&','*','(',')'];
+  const SYM_R1  = ['-','+','=','_','/',':',';','(',')','\\'];
+  const SYM_R2  = ['~','`','|','{','}','[',']','"'];
+  let _symbolMode = false;
+
+  function setSymbolMode(on){
+    _symbolMode = on;
+    const rn = document.getElementById('osk-row-num');
+    const r1 = document.getElementById('osk-row-1');
+    const r2 = document.getElementById('osk-row-2');
+    const r3 = document.getElementById('osk-row-3');
+    const src = on ? SYM_NUM : NUM_ROW;
+    [...rn.children].forEach((k,i) => { if(i < src.length){ k.textContent = src[i]; k.setAttribute('data-action', src[i]); }});
+    const src1 = on ? SYM_R1 : ROW1;
+    [...r1.children].forEach((k,i) => { if(i < src1.length){ const c = on ? src1[i] : applyCase(src1[i]); k.textContent = c; k.setAttribute('data-action', on ? src1[i] : src1[i]); }});
+    const keys2 = [...r2.children].filter(k => k.getAttribute('data-action') !== 'shift');
+    const src2 = on ? SYM_R2 : ROW2;
+    keys2.forEach((k,i) => { if(i < src2.length){ const c = on ? src2[i] : applyCase(src2[i]); k.textContent = c; k.setAttribute('data-action', on ? src2[i] : src2[i]); } else { k.textContent = on ? '' : "'"; k.setAttribute('data-action', on ? '' : "'"); }});
+    const symBtn = [...r3.children].find(k => k.getAttribute('data-action') === 'symbols' || k.getAttribute('data-action') === 'abc');
+    if(symBtn){ symBtn.textContent = on ? 'abc' : '123'; symBtn.setAttribute('data-action', on ? 'abc' : 'symbols'); }
+    const letterKeys = [...r3.children].filter(k => { const a = k.getAttribute('data-action'); return ROW3.includes(a) || a === '.' || a === ','; });
+    const src3 = on ? ['?','!','.',','] : ROW3.concat(['.', ',']);
+    letterKeys.forEach((k,i) => { if(i < src3.length){ const c = on ? src3[i] : applyCase(src3[i]); k.textContent = c; k.setAttribute('data-action', src3[i]); } else { k.style.display = on ? 'none' : ''; }});
+  }
+
+  function applyCase(c){
+    return _oskShift ? c.toUpperCase() : c.toLowerCase();
+  }
+
+  function updateDisplay(){
+    const rows = [document.getElementById('osk-row-1'), document.getElementById('osk-row-2'), document.getElementById('osk-row-3')];
+    if(_symbolMode) return;
+    rows.forEach(row => {
+      [...row.children].forEach(k => {
+        const a = k.getAttribute('data-action');
+        if(a && a.length === 1 && a.match(/[a-z]/i)){
+          k.textContent = _oskShift ? a.toUpperCase() : a.toLowerCase();
+        }
+      });
+    });
+    const shiftBtn = document.querySelector('.osk-key[data-action="shift"]');
+    if(shiftBtn) shiftBtn.classList.toggle('shift-active', _oskShift);
+  }
+
+  function updatePreview(){
+    if(!_oskTarget) return;
+    document.getElementById('osk-value').textContent = _oskTarget.value || '';
+  }
+
+  function onKey(btn){
+    const action = btn.getAttribute('data-action');
+    if(!action || !_oskTarget) return;
+    btn.classList.add('active');
+    setTimeout(() => btn.classList.remove('active'), 120);
+
+    if(action === 'done'){
+      hideOSK(); return;
+    }
+    if(action === 'shift'){
+      _oskShift = !_oskShift; updateDisplay(); return;
+    }
+    if(action === 'symbols'){
+      setSymbolMode(true); return;
+    }
+    if(action === 'abc'){
+      setSymbolMode(false); updateDisplay(); return;
+    }
+    if(action === 'backspace'){
+      const s = _oskTarget.selectionStart, e = _oskTarget.selectionEnd;
+      if(s !== e){
+        _oskTarget.value = _oskTarget.value.slice(0, s) + _oskTarget.value.slice(e);
+        _oskTarget.selectionStart = _oskTarget.selectionEnd = s;
+      } else if(s > 0){
+        _oskTarget.value = _oskTarget.value.slice(0, s-1) + _oskTarget.value.slice(s);
+        _oskTarget.selectionStart = _oskTarget.selectionEnd = s-1;
+      }
+      fireInput(); updatePreview(); return;
+    }
+    // Regular character
+    const ch = (action.length === 1 && action.match(/[a-z]/i)) ? (_oskShift ? action.toUpperCase() : action) : action;
+    const s = _oskTarget.selectionStart, e = _oskTarget.selectionEnd;
+    _oskTarget.value = _oskTarget.value.slice(0, s) + ch + _oskTarget.value.slice(e);
+    _oskTarget.selectionStart = _oskTarget.selectionEnd = s + ch.length;
+    if(_oskShift && action.match(/[a-z]/i)){ _oskShift = false; updateDisplay(); }
+    fireInput(); updatePreview();
+  }
+
+  function fireInput(){
+    if(!_oskTarget) return;
+    _oskTarget.dispatchEvent(new Event('input', {bubbles:true}));
+    _oskTarget.dispatchEvent(new Event('change', {bubbles:true}));
+  }
+
+  function getLabel(el){
+    const p = el.closest('.form-row');
+    if(p){ const lbl = p.querySelector('label'); if(lbl) return lbl.textContent.replace(/[*:]/g,'').trim(); }
+    if(el.placeholder) return el.placeholder;
+    if(el.id === 'catalog-search') return 'Search';
+    return 'Input';
+  }
+
+  function showOSK(target){
+    if(_oskVisible && _oskTarget === target) return;
+    _oskTarget = target;
+    _oskShift = false; _symbolMode = false;
+    setSymbolMode(false); updateDisplay();
+    document.getElementById('osk-label').textContent = getLabel(target);
+    updatePreview();
+    const osk = document.getElementById('osk');
+    osk.classList.add('opening');
+    requestAnimationFrame(() => { osk.classList.add('open'); });
+    document.body.classList.add('osk-active');
+    _oskVisible = true;
+    // Shrink frame to make room
+    const oskH = osk.offsetHeight || 240;
+    document.querySelector('.frame').style.height = `calc(100dvh - 12px - ${oskH}px)`;
+    // Scroll input into view after a tick
+    setTimeout(() => {
+      target.scrollIntoView({behavior:'smooth', block:'center'});
+    }, 100);
+  }
+
+  function hideOSK(){
+    if(!_oskVisible) return;
+    const osk = document.getElementById('osk');
+    osk.classList.remove('open');
+    setTimeout(() => { osk.classList.remove('opening'); }, 200);
+    document.body.classList.remove('osk-active');
+    document.querySelector('.frame').style.height = '';
+    _oskVisible = false;
+    if(_oskTarget){ _oskTarget.blur(); }
+    _oskTarget = null;
+  }
+  window.hideOSK = hideOSK;
+
+  // Intercept focus on text inputs
+  function shouldShowOSK(el){
+    if(!el || !el.tagName) return false;
+    const tag = el.tagName.toLowerCase();
+    const type = (el.type||'').toLowerCase();
+    if(tag === 'textarea') return true;
+    if(tag === 'input' && ['text','search','password','email','url','tel','number'].includes(type)) return true;
+    return false;
+  }
+
+  document.addEventListener('focusin', function(e){
+    if(shouldShowOSK(e.target)){
+      // Prevent native keyboard on touch devices
+      e.target.setAttribute('readonly','');
+      setTimeout(() => {
+        e.target.removeAttribute('readonly');
+        showOSK(e.target);
+      }, 50);
+    }
+  });
+
+  // Hide on tap outside keyboard and inputs
+  document.addEventListener('touchstart', function(e){
+    if(!_oskVisible) return;
+    const osk = document.getElementById('osk');
+    if(osk.contains(e.target)) return;
+    if(shouldShowOSK(e.target)) return;
+    hideOSK();
+  }, {passive:true});
+
+  buildKeyboard();
+})();
 </script>
 </body>
 </html>
