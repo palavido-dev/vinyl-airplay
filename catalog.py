@@ -121,7 +121,6 @@ CREATE INDEX IF NOT EXISTS idx_album_audio  ON album_audio(album_id);
 def get_db() -> sqlite3.Connection:
     db = sqlite3.connect(DB_PATH, check_same_thread=False)
     db.row_factory = sqlite3.Row
-    db.execute("PRAGMA foreign_keys=ON")
     return db
 
 
@@ -133,25 +132,6 @@ def init_db():
     # Migrations for existing databases — add columns if missing
     _migrate_db(db)
     db.commit()
-
-    # Clean up orphaned rows from before foreign_keys=ON was enforced per-connection
-    orphan_fp = db.execute("""
-        DELETE FROM fingerprints WHERE track_id NOT IN (SELECT id FROM tracks)
-    """).rowcount
-    orphan_tracks = db.execute("""
-        DELETE FROM tracks WHERE album_id NOT IN (SELECT id FROM albums)
-    """).rowcount
-    orphan_audio = db.execute("""
-        DELETE FROM album_audio WHERE album_id NOT IN (SELECT id FROM albums)
-    """).rowcount
-    orphan_plays = db.execute("""
-        DELETE FROM plays WHERE track_id NOT IN (SELECT id FROM tracks)
-    """).rowcount
-    db.commit()
-    if orphan_fp or orphan_tracks or orphan_audio or orphan_plays:
-        print(f"[catalog] Cleaned up orphans: {orphan_fp} fingerprints, "
-              f"{orphan_tracks} tracks, {orphan_audio} audio, {orphan_plays} plays")
-
     db.close()
     purge_oversized_fingerprints()
 
@@ -389,16 +369,6 @@ def _refresh_fingerprint_cache(db: sqlite3.Connection, force: bool = False) -> N
         _FP_CACHE["matrix"]    = None
         _FP_CACHE["track_ids"] = None
     print(f"[catalog] Fingerprint cache refreshed: {len(parsed)} fingerprints")
-
-
-def force_refresh_fingerprint_cache():
-    """Force a complete rebuild of the in-memory fingerprint cache."""
-    db = get_db()
-    try:
-        _refresh_fingerprint_cache(db, force=True)
-    finally:
-        db.close()
-
 
 def match_local(fingerprint: list[int], duration: float = FINGERPRINT_SECS) -> Optional[dict]:
     """
@@ -857,9 +827,6 @@ def get_discogs_release(discogs_id: str, token: str = "") -> dict:
                 except Exception:
                     pass
 
-            print(f"[catalog] Discogs track {pos}: '{t.get('title','')}' "
-                  f"duration='{dur_str}' → {dur_secs}s")
-
             tracks.append({
                 "title":         t.get("title", ""),
                 "track_number":  num,
@@ -868,14 +835,10 @@ def get_discogs_release(discogs_id: str, token: str = "") -> dict:
                 "musicbrainz_track_id": None,
             })
 
-        # Cover art: use primary image if available, fall back to thumb
+        # Cover art: use primary image if available
         images    = data.get("images") or []
         art_url   = next((i["uri"] for i in images if i.get("type") == "primary"), None)
         art_url   = art_url or (images[0]["uri"] if images else None)
-        # Without Discogs auth, images may be empty — use thumb as fallback
-        if not art_url:
-            art_url = data.get("thumb") or None
-        print(f"[catalog] Discogs artwork: {len(images)} images, url={art_url or 'none'}")
 
         return {
             "ok": True,
@@ -1061,28 +1024,6 @@ def fetch_artwork(mb_release_id: str, album_id: int) -> Optional[str]:
 
     except Exception as e:
         print(f"[catalog] Artwork fetch failed: {e}")
-        return None
-
-
-def fetch_artwork_from_url(url: str, album_id: int, token: str = "") -> Optional[str]:
-    """
-    Download artwork from an arbitrary URL (e.g. Discogs image URL).
-    Saves as JPEG to artwork/ dir. Returns relative path or None.
-    """
-    if not url:
-        return None
-    try:
-        headers = {"User-Agent": MB_APP}
-        if token and "discogs" in url.lower():
-            headers["Authorization"] = f"Discogs token={token}"
-        req = urllib.request.Request(url, headers=headers)
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            data = resp.read()
-        path = _save_artwork(data, album_id, user=False)
-        print(f"[catalog] Artwork downloaded from URL: {url[:80]}")
-        return path
-    except Exception as e:
-        print(f"[catalog] Artwork URL fetch failed: {e}")
         return None
 
 
@@ -1464,7 +1405,13 @@ def get_all_albums() -> list[dict]:
             SELECT a.*,
                    COUNT(DISTINCT t.id)   as track_count,
                    COUNT(DISTINCT p.id)   as play_count,
-                   MAX(p.played_at)       as last_played
+                   MAX(p.played_at)       as last_played,
+                   (SELECT COUNT(*) FROM album_audio aa
+                    WHERE aa.album_id = a.id) as audio_count,
+                   (SELECT COUNT(DISTINCT f.track_id)
+                    FROM fingerprints f
+                    JOIN tracks t2 ON t2.id = f.track_id
+                    WHERE t2.album_id = a.id) as learned_count
             FROM albums a
             LEFT JOIN tracks t ON t.album_id = a.id
             LEFT JOIN plays  p ON p.album_id = a.id
@@ -1481,11 +1428,7 @@ def clear_track_fingerprints(track_id: int) -> int:
     db = get_db()
     try:
         cur = db.execute("DELETE FROM fingerprints WHERE track_id = ?", (track_id,))
-        # Reset measured duration — it's a product of the recording, like fingerprints.
-        # Prevents bad splits from poisoning expected_track_secs on re-learning.
-        db.execute("UPDATE tracks SET duration_secs = 0 WHERE id = ? AND duration_secs > 0", (track_id,))
         db.commit()
-        _refresh_fingerprint_cache(db, force=True)
         print(f"[catalog] Cleared {cur.rowcount} fingerprints for track {track_id}")
         return cur.rowcount
     finally:
@@ -1500,11 +1443,7 @@ def clear_album_fingerprints(album_id: int) -> int:
             DELETE FROM fingerprints
             WHERE track_id IN (SELECT id FROM tracks WHERE album_id = ?)
         """, (album_id,))
-        # Reset measured durations — they're products of the recording, like fingerprints.
-        # Prevents bad splits from poisoning expected_track_secs on re-learning.
-        db.execute("UPDATE tracks SET duration_secs = 0 WHERE album_id = ?", (album_id,))
         db.commit()
-        _refresh_fingerprint_cache(db, force=True)
         print(f"[catalog] Cleared {cur.rowcount} fingerprints for album {album_id}")
         return cur.rowcount
     finally:
@@ -1635,20 +1574,10 @@ def update_album_artwork(album_id: int, path: str, user: bool = True):
 
 
 def delete_album(album_id: int):
-    # Delete associated FLAC files first (before DB records)
-    delete_album_audio(album_id)
     db = get_db()
     try:
-        # Delete children in dependency order — plays lacks ON DELETE CASCADE
-        db.execute("""
-            DELETE FROM fingerprints
-            WHERE track_id IN (SELECT id FROM tracks WHERE album_id = ?)
-        """, (album_id,))
-        db.execute("DELETE FROM plays WHERE album_id = ?", (album_id,))
-        db.execute("DELETE FROM tracks WHERE album_id = ?", (album_id,))
         db.execute("DELETE FROM albums WHERE id = ?", (album_id,))
         db.commit()
-        _refresh_fingerprint_cache(db, force=True)
     finally:
         db.close()
 
@@ -1718,21 +1647,6 @@ def update_track_timestamps(track_id: int, start_secs: float, end_secs: float):
         db.commit()
     except Exception as e:
         print(f"[catalog] update_track_timestamps failed: {e}")
-    finally:
-        db.close()
-
-
-def update_track_duration(track_id: int, duration_secs: float):
-    """Update a track's duration from actual recorded length."""
-    db = get_db()
-    try:
-        db.execute(
-            "UPDATE tracks SET duration_secs = ? WHERE id = ?",
-            (round(duration_secs), track_id)
-        )
-        db.commit()
-    except Exception as e:
-        print(f"[catalog] update_track_duration failed: {e}")
     finally:
         db.close()
 
