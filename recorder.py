@@ -267,9 +267,23 @@ class RecordingBuffer:
             # waiting longer is fine — leading/trailing trim removes dead air.
             eos_threshold = END_OF_SIDE_SECS
             if self.remaining_tracks > 1:
-                eos_threshold = max(END_OF_SIDE_SECS, 45.0)
+                eos_threshold = max(END_OF_SIDE_SECS, 90.0)
             if (not self._end_of_side_fired
                     and self._silence_secs >= eos_threshold):
+                # Before firing end-of-side, check if accumulated audio makes sense.
+                # If we have expected duration data and haven't reached the minimum,
+                # this is likely a long quiet passage, not the actual end of side.
+                if self.expected_track_secs > 0 and self.remaining_tracks > 1:
+                    with self._lock:
+                        accumulated_secs = self._silence_start_byte / (SAMPLE_RATE * CHANNELS * 2)
+                    min_pct = 0.75 if self.expected_is_estimate else 0.45
+                    min_secs = self.expected_track_secs * min_pct
+                    if accumulated_secs < min_secs:
+                        print(f"[recorder] End-of-side suppressed: {accumulated_secs:.0f}s captured"
+                              f" < {min_secs:.0f}s — not a real end-of-side, resetting silence")
+                        self._silence_secs = 0.0
+                        self._silence_start_byte = 0
+                        return  # skip end-of-side, keep recording
                 self._end_of_side_fired = True
                 print(f"[recorder] End-of-side detected ({self._silence_secs:.1f}s silence, "
                       f"threshold={eos_threshold:.0f}s, remaining={self.remaining_tracks})"
