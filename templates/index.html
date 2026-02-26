@@ -4,61 +4,79 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Vinyl AirPlay</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
     :root {
-      --bg:      #0f0f0f;
-      --surface: #1a1a1a;
-      --surface2:#222;
-      --border:  #2e2e2e;
-      --accent:  #e8611a;
-      --accent2: #c44f12;
-      --text:    #e8e8e8;
-      --muted:   #888;
-      --green:   #4caf50;
-      --red:     #f44336;
-      --blue:    #2196f3;
+      --bg:      #F5EDE0;
+      --surface: #FFF8EF;
+      --surface2:#EDE4D4;
+      --border:  #D4C4AA;
+      --accent:  #F57F5B;
+      --accent2: #DD5341;
+      --text:    #3B2A1A;
+      --muted:   #8B7355;
+      --green:   #4A9E98;
+      --red:     #DD5341;
+      --blue:    #4A9E98;
+      --gold:    #E8A832;
+      --brown:   #794A3A;
     }
 
     body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-family: 'Outfit', -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       background: var(--bg);
       color: var(--text);
       min-height: 100vh;
+    }
+    body::after {
+      content: ''; position: fixed; inset: 0; pointer-events: none; z-index: 9999;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
+      background-repeat: repeat; background-size: 256px 256px;
+      opacity: 0.5;
     }
 
     /* ── Tabs ── */
     .tab-bar {
       display: flex;
-      background: var(--surface);
-      border-bottom: 1px solid var(--border);
+      background: var(--brown);
+      border-bottom: 3px solid #5C3529;
       position: sticky; top: 0; z-index: 10;
     }
     .tab-btn {
       flex: 1; padding: 0.85rem 0.5rem;
-      background: none; border: none; border-bottom: 2px solid transparent;
-      color: var(--muted); font-size: 0.8rem; font-weight: 600;
-      text-transform: uppercase; letter-spacing: 0.06em;
+      background: none; border: none; border-bottom: 3px solid transparent;
+      color: rgba(255,255,255,0.55); font-size: 0.8rem; font-weight: 600;
+      text-transform: uppercase; letter-spacing: 0.1em;
       cursor: pointer; transition: color 0.15s, border-color 0.15s;
     }
-    .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+    .tab-btn.active { color: #FACA78; border-bottom-color: #FACA78; }
     .tab-pane { display: none; padding: 1rem; }
     .tab-pane.active { display: block; }
 
     header { text-align: center; padding: 1.5rem 0 1rem; }
-    header h1 { font-size: 1.5rem; font-weight: 600; }
+    header h1 {
+      font-family: 'Space Mono', monospace;
+      font-size: 1.4rem; font-weight: 700; letter-spacing: 0.04em;
+      background: linear-gradient(135deg, var(--brown) 0%, var(--accent2) 100%);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
     header p  { color: var(--muted); font-size: 0.82rem; margin-top: 0.25rem; }
 
     .card {
       background: var(--surface); border: 1px solid var(--border);
       border-radius: 12px; padding: 1.25rem;
       margin-bottom: 1rem; max-width: 480px; margin-left: auto; margin-right: auto;
+      box-shadow: 0 2px 8px rgba(120,74,58,0.1);
     }
     .card h2 {
-      font-size: 0.72rem; font-weight: 600;
-      text-transform: uppercase; letter-spacing: 0.08em;
-      color: var(--muted); margin-bottom: 0.9rem;
+      font-family: 'Space Mono', monospace;
+      font-size: 0.72rem; font-weight: 700;
+      text-transform: uppercase; letter-spacing: 0.1em;
+      color: var(--brown); margin-bottom: 0.9rem;
     }
 
     /* ── Now Playing ── */
@@ -81,7 +99,7 @@
     .np-title   { font-size: 1rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .np-artist  { font-size: 0.82rem; color: var(--muted); margin-top: 0.2rem; }
     .np-album   { font-size: 0.78rem; color: var(--muted); margin-top: 0.1rem; font-style: italic; }
-    .np-badge   { display: inline-block; font-size: 0.7rem; background: var(--accent); color: #fff;
+    .np-badge   { display: inline-block; font-size: 0.7rem; background: var(--brown); color: #FFF8EF;
                   border-radius: 4px; padding: 0.1rem 0.4rem; margin-top: 0.4rem; }
     .np-scanning { color: var(--muted); font-size: 0.85rem; font-style: italic; }
 
@@ -90,7 +108,7 @@
       display: inline-block; width: 8px; height: 8px; border-radius: 50%;
       background: var(--muted); margin-right: 6px; vertical-align: middle;
     }
-    .status-dot.on { background: var(--green); box-shadow: 0 0 6px var(--green); }
+    .status-dot.on { background: var(--green); box-shadow: 0 0 8px rgba(74,158,152,0.4); }
 
     /* ── Buttons ── */
     select, button, input[type=text], input[type=number], input[type=password], textarea {
@@ -98,19 +116,20 @@
       border: 1px solid var(--border); background: var(--bg);
       color: var(--text); font-size: 0.9rem; cursor: pointer; font-family: inherit;
     }
+    input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px rgba(245,127,91,0.15); }
     select, input, textarea { cursor: text; }
     button { font-weight: 600; transition: background 0.15s, transform 0.1s; cursor: pointer; }
     button:active { transform: scale(0.98); }
-    .btn-scan    { background: transparent; color: var(--accent); border-color: var(--accent); margin-bottom: 0.75rem; }
-    .btn-scan:hover { background: rgba(232,97,26,0.08); }
-    .btn-start   { background: var(--accent); border-color: var(--accent); color: #fff; }
+    .btn-scan    { background: transparent; color: var(--brown); border-color: var(--brown); margin-bottom: 0.75rem; }
+    .btn-scan:hover { background: rgba(121,74,58,0.08); }
+    .btn-start   { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
     .btn-start:hover { background: var(--accent2); }
     .btn-stop    { background: transparent; border-color: var(--red); color: var(--red); }
     .btn-stop:hover { background: rgba(244,67,54,0.08); }
-    .btn-ghost   { background: transparent; border-color: var(--border); color: var(--muted); }
+    .btn-ghost   { background: transparent; border-color: var(--border); color: var(--brown); }
     .btn-ghost:hover { color: var(--text); border-color: var(--muted); }
     .btn-small   { width: auto; padding: 0.35rem 0.8rem; font-size: 0.8rem; }
-    .btn-blue    { background: var(--blue); border-color: var(--blue); color: #fff; }
+    .btn-blue    { background: var(--blue); border-color: var(--blue); color: #fff; font-weight: 600; }
 
     /* ── Sliders ── */
     .slider-row { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.6rem; }
@@ -127,7 +146,7 @@
       font-size: 0.9rem; cursor: pointer;
     }
     .device-item:last-child { border-bottom: none; }
-    .device-item input[type=checkbox] { accent-color: var(--accent); width: 16px; height: 16px; }
+    .device-item input[type=checkbox] { accent-color: var(--brown); width: 16px; height: 16px; }
     .device-empty { color: var(--muted); font-size: 0.85rem; text-align: center; padding: 0.5rem 0; }
 
     /* ── Catalog ── */
@@ -138,9 +157,14 @@
     .album-card {
       background: var(--surface); border: 1px solid var(--border);
       border-radius: 10px; overflow: hidden; cursor: pointer;
-      transition: border-color 0.15s;
+      transition: border-color 0.15s, box-shadow 0.15s, transform 0.15s;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.15);
     }
-    .album-card:hover { border-color: var(--accent); }
+    .album-card:hover {
+      border-color: var(--accent);
+      box-shadow: 0 4px 16px rgba(245,127,91,0.15);
+      transform: translateY(-2px);
+    }
     .album-art {
       width: 100%; aspect-ratio: 1; object-fit: cover;
       background: var(--border); display: flex; align-items: center;
@@ -154,10 +178,10 @@
 
     /* ── Album detail modal ── */
     .modal-overlay {
-      display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.75);
+      display: none; position: fixed; inset: 0; background: rgba(59,42,26,0.6);
       z-index: 100; overflow-y: auto; padding: 1rem;
     }
-    .modal-overlay.open { display: flex; align-items: flex-start; justify-content: center; }
+    .modal-overlay.open { display: flex; align-items: flex-start; justify-content: center; backdrop-filter: blur(4px); }
     .modal {
       background: var(--surface); border: 1px solid var(--border);
       border-radius: 14px; padding: 1.5rem; width: 100%; max-width: 440px;
@@ -186,6 +210,46 @@
     .track-num { color: var(--muted); width: 28px; flex-shrink: 0; font-size: 0.78rem; }
     .modal-actions { display: flex; gap: 0.5rem; margin-top: 1rem; flex-wrap: wrap; }
 
+    /* ── Album Recording Panel ── */
+    .album-rec-panel {
+      background: var(--surface); border: 2px solid var(--brown);
+      border-radius: 10px; padding: 1rem; margin-top: 1rem;
+    }
+    .album-rec-panel h3 {
+      font-size: 0.8rem; font-weight: 700; color: var(--accent);
+      text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 0.6rem;
+    }
+    .album-rec-timer {
+      font-family: 'Space Mono', 'SF Mono', 'Fira Code', monospace;
+      font-size: 1.6rem; font-weight: 700; color: var(--brown);
+      margin-bottom: 0.5rem;
+    }
+    .album-rec-tracks {
+      font-size: 0.8rem; color: var(--muted); margin-bottom: 0.75rem;
+      max-height: 120px; overflow-y: auto;
+    }
+    .album-audio-row {
+      display: flex; align-items: center; gap: 0.6rem;
+      padding: 0.45rem 0; border-bottom: 1px solid var(--border); font-size: 0.82rem;
+    }
+    .album-audio-row:last-child { border-bottom: none; }
+    .album-audio-play {
+      background: var(--brown); color: #FFF8EF; border: none; border-radius: 50%;
+      width: 28px; height: 28px; font-size: 0.75rem; cursor: pointer;
+      display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+    }
+    .album-audio-stop {
+      background: var(--red); color: #FFF8EF; border: none; border-radius: 50%;
+      width: 28px; height: 28px; font-size: 0.65rem; cursor: pointer;
+      display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+    }
+    .album-audio-delete {
+      background: none; border: none; color: var(--muted); cursor: pointer;
+      font-size: 0.8rem; padding: 0.2rem 0.4rem; border-radius: 4px; flex-shrink: 0;
+      opacity: 0.5; transition: opacity 0.15s;
+    }
+    .album-audio-delete:hover { opacity: 1; color: var(--red); }
+
     /* ── Manual entry form ── */
     .form-row { margin-bottom: 0.75rem; }
     .form-row label { display: block; font-size: 0.78rem; color: var(--muted); margin-bottom: 0.3rem; }
@@ -194,8 +258,8 @@
 
     /* ── Error bar ── */
     #error-msg {
-      display: none; background: rgba(244,67,54,0.1); border: 1px solid var(--red);
-      color: var(--red); border-radius: 8px; padding: 0.7rem 1rem;
+      display: none; background: rgba(221,83,65,0.08); border: 1px solid var(--red);
+      color: var(--accent); border-radius: 8px; padding: 0.7rem 1rem;
       font-size: 0.85rem; margin-bottom: 1rem; max-width: 480px;
       margin-left: auto; margin-right: auto;
     }
@@ -451,9 +515,9 @@
           <button class="btn-start btn-small" id="btn-search" onclick="doSearch()">Search</button>
           <div style="display:flex;gap:0;border:1px solid var(--border);border-radius:6px;overflow:hidden;font-size:0.8rem">
             <button id="src-mb" onclick="setSource('mb')"
-              style="padding:0.3rem 0.7rem;border:none;cursor:pointer;background:var(--accent);color:#fff">MusicBrainz</button>
+              style="padding:0.3rem 0.7rem;border:none;cursor:pointer;background:var(--surface);color:var(--text)">MusicBrainz</button>
             <button id="src-discogs" onclick="setSource('discogs')"
-              style="padding:0.3rem 0.7rem;border:none;cursor:pointer;background:var(--surface);color:var(--text)">Discogs</button>
+              style="padding:0.3rem 0.7rem;border:none;cursor:pointer;background:var(--accent);color:#fff">Discogs</button>
           </div>
         </div>
         <button class="btn-ghost btn-small" onclick="showManualStep()">Enter Manually Instead</button>
@@ -555,6 +619,7 @@
                   font-weight:600;display:inline-block">
           ⬇ Download All
         </a>
+        <button class="btn-stop btn-small" onclick="deleteAllRecordings()">🗑 Delete All</button>
       </div>
     </div>
     <div id="recordings-list">
@@ -696,12 +761,66 @@
       </div>
     </div>
     <div class="track-list" id="modal-tracks"></div>
+
+    <!-- Album Audio Files (recorded sides) -->
+    <div id="modal-audio-section" style="display:none;margin-top:0.75rem">
+      <div style="font-size:0.72rem;font-weight:600;text-transform:uppercase;letter-spacing:0.08em;color:var(--muted);margin-bottom:0.4rem">
+        Recorded Audio
+      </div>
+      <div id="modal-audio-list"></div>
+    </div>
+
+    <!-- Album Recording Panel -->
+    <div class="album-rec-panel" id="album-rec-panel" style="display:none">
+      <div id="album-rec-setup">
+        <h3>🎙 Record Album</h3>
+        <p style="font-size:0.82rem;color:var(--muted);margin-bottom:0.6rem;line-height:1.4">
+          Records a full side to lossless FLAC while fingerprinting each track.
+        </p>
+        <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:0.75rem">
+          <label style="font-size:0.82rem;font-weight:600;flex-shrink:0">Side</label>
+          <select id="album-rec-side" style="width:80px;padding:0.4rem 0.6rem;font-size:0.85rem">
+            <option value="A">A</option><option value="B">B</option>
+          </select>
+          <span id="album-rec-side-info" style="font-size:0.78rem;color:var(--muted)"></span>
+        </div>
+        <div style="display:flex;gap:0.5rem;flex-wrap:wrap">
+          <button class="btn-start btn-small" onclick="startAlbumRecording()">⏺ Start Recording</button>
+          <button class="btn-ghost btn-small" onclick="hideAlbumRecPanel()">Cancel</button>
+        </div>
+      </div>
+      <div id="album-rec-active" style="display:none">
+        <h3>⏺ Recording Side <span id="album-rec-active-side">A</span></h3>
+        <div class="album-rec-timer" id="album-rec-timer">00:00</div>
+        <div id="album-rec-status-text" style="font-size:0.9rem;font-weight:600;margin-bottom:0.5rem">Waiting for audio…</div>
+        <div class="album-rec-tracks" id="album-rec-track-log"></div>
+        <div style="display:flex;gap:0.5rem;flex-wrap:wrap">
+          <button class="btn-blue btn-small" onclick="flipAlbumRecording()" id="btn-album-rec-flip">⟳ Flip — Side B</button>
+          <button class="btn-stop btn-small" onclick="stopAlbumRecording()">■ Stop &amp; Save</button>
+          <button class="btn-ghost btn-small" onclick="cancelAlbumRecording()">✕ Cancel</button>
+        </div>
+      </div>
+      <div id="album-rec-saving" style="display:none">
+        <h3>💿 Encoding FLAC…</h3>
+        <p style="font-size:0.85rem;color:var(--muted)">Please wait…</p>
+      </div>
+      <div id="album-rec-flip-prompt" style="display:none">
+        <h3 style="color:var(--green)">✓ Side <span id="album-rec-done-side">A</span> saved!</h3>
+        <p style="font-size:0.85rem;color:var(--muted);margin-bottom:0.6rem">Flip the record and press continue when ready.</p>
+        <div style="display:flex;gap:0.5rem;flex-wrap:wrap">
+          <button class="btn-start btn-small" onclick="startNextSideRecording()">⏺ Record Side <span id="album-rec-next-side-label">B</span></button>
+          <button class="btn-ghost btn-small" onclick="finishAlbumRecSession()">Done — No More Sides</button>
+        </div>
+      </div>
+    </div>
+
     <div class="modal-actions">
       <label class="btn-start btn-small" style="cursor:pointer;display:inline-block;padding:0.35rem 0.8rem;font-size:0.8rem;background:var(--accent);color:#fff;border-radius:8px;font-weight:600">
         📷 Upload Photo
         <input type="file" accept="image/*" style="display:none" onchange="uploadArtwork(event)">
       </label>
       <button class="btn-blue  btn-small" onclick="learnAlbum()" id="btn-learn">🎵 Learn — This is Playing</button>
+      <button class="btn-start btn-small" onclick="showAlbumRecPanel()" id="btn-album-rec" style="background:var(--red)">🎙 Record Album</button>
       <button class="btn-ghost btn-small" onclick="clearAlbumFingerprints()" id="btn-clear-fp" title="Clear all learned fingerprints so the album can be re-learned from scratch">🗑 Clear Fingerprints</button>
       <button class="btn-ghost btn-small" onclick="toggleReorderMode()" id="btn-reorder">⇅ Reorder Tracks</button>
       <button class="btn-ghost btn-small" onclick="closeModalDirect()">Close</button>
@@ -749,6 +868,8 @@
     if (data.event === 'learn_paused')  onLearnPaused(data);
     if (data.event === 'learn_done')    onLearnDone(data);
     if (data.event === 'recording_saved')  onRecordingSaved(data);
+    if (data.event === 'album_recording_status')    onAlbumRecStatus(data);
+    if (data.event === 'album_recording_side_saved') onAlbumRecSideSaved(data);
     if (data.eq) applyEQValues(data.eq.bass, data.eq.treble, data.eq.volume);
   }
 
@@ -1060,6 +1181,11 @@
       ).join('');
       logEl.scrollTop = logEl.scrollHeight;  // auto-scroll to latest
     }
+
+    // Refresh the album track list so fingerprint badges update live
+    if (currentAlbumId && data.album_id === currentAlbumId) {
+      refreshModalTracks(currentAlbumId);
+    }
   }
 
   function onLearnPaused(data) {
@@ -1073,12 +1199,14 @@
     if (data.remaining_in_album > 0 && data.remaining_in_album <= 10) {
       document.getElementById('learn-continue-count').value = data.remaining_in_album;
     }
+    if (currentAlbumId) refreshModalTracks(currentAlbumId);
   }
 
   function onLearnDone(data) {
     showLearnStep('done');
     document.getElementById('learn-done-message').textContent =
       data.message || `${data.learned || 0} track(s) learned.`;
+    if (currentAlbumId) refreshModalTracks(currentAlbumId);
   }
 
   // ── Recording ─────────────────────────────────────────────────────────────
@@ -1121,7 +1249,7 @@
       list.innerHTML = '<div class="device-empty">No recordings yet — use 🎓 Learn Fingerprints with "Also save as MP3" checked</div>';
       return;
     }
-    list.innerHTML = data.recordings.map(r => `
+    list.innerHTML = data.recordings.map((r, i) => `
       <div class="rec-row">
         <span class="name" title="${esc(r.filename)}">${esc(r.filename)}</span>
         <span class="size">${r.size_mb} MB</span>
@@ -1129,7 +1257,8 @@
            download="${esc(r.filename)}"
            style="color:var(--accent);font-size:0.8rem;text-decoration:none;flex-shrink:0">⬇</a>
         <button class="btn-stop btn-small" style="flex-shrink:0"
-                onclick="deleteRec('${esc(r.filename)}')">✕</button>
+                data-filename="${esc(r.filename)}"
+                onclick="deleteRec(this.dataset.filename)">✕</button>
       </div>`).join('');
   }
 
@@ -1137,6 +1266,18 @@
     if (!confirm(`Delete ${filename}?`)) return;
     await fetch(`/api/recordings/${encodeURIComponent(filename)}`, {method:'DELETE'});
     loadRecordings();
+  }
+
+  async function deleteAllRecordings() {
+    const data = await fetch('/api/recordings').then(r => r.json());
+    const count = (data.recordings || []).length;
+    if (!count) { showToast('No recordings to delete'); return; }
+    if (!confirm(`Delete all ${count} recording(s)? This cannot be undone.`)) return;
+    for (const r of data.recordings) {
+      await fetch(`/api/recordings/${encodeURIComponent(r.filename)}`, {method:'DELETE'});
+    }
+    loadRecordings();
+    showToast(`Deleted ${count} recording(s)`);
   }
 
 
@@ -1233,6 +1374,7 @@
     renderModalTracks(window._modalTracks, false);
 
     document.getElementById('album-modal').classList.add('open');
+    loadAlbumAudio(albumId);
   }
 
   // ── Track Reorder ──────────────────────────────────────────────────────────
@@ -1260,6 +1402,9 @@
         : '';
       const plays     = (!reorderMode && t.play_count)
         ? `<span style="color:var(--muted);font-size:0.72rem;margin-left:auto">${t.play_count}▶</span>` : '';
+      const dur       = t.duration_secs > 0
+        ? `<span style="color:var(--muted);font-size:0.72rem;margin-left:auto;white-space:nowrap">${Math.floor(t.duration_secs/60)}:${String(t.duration_secs%60).padStart(2,'0')}</span>`
+        : '';
       const handle    = reorderMode
         ? `<span class="drag-handle" title="Drag to reorder">⠿</span>` : '';
       const numLabel  = reorderMode
@@ -1271,11 +1416,21 @@
                    ${reorderMode ? 'draggable="true"' : ''}>
         ${handle}${numLabel}
         <span style="flex:1">${esc(t.title)}${badge}</span>
-        ${plays}${clearBtn}
+        ${dur}${plays}${clearBtn}
       </div>`;
     }).join('');
 
     if (reorderMode) _attachDragHandlers(container);
+  }
+
+  async function refreshModalTracks(albumId) {
+    try {
+      const data = await fetch(`/api/catalog/${albumId}/tracks`).then(r => r.json());
+      if (!data.tracks) return;
+      data.tracks.sort((a,b) => (a.side||'').localeCompare(b.side||'') || parseInt(a.track_number||0) - parseInt(b.track_number||0));
+      window._modalTracks = data.tracks.slice();
+      renderModalTracks(window._modalTracks, _reorderMode);
+    } catch(e) { /* silent — non-critical UI refresh */ }
   }
 
   function _attachDragHandlers(container) {
@@ -1497,7 +1652,7 @@
   function backToSearch() { showStep('search'); }
   function showManualStep() { showStep('manual'); }
 
-  let _searchSource = 'mb';
+  let _searchSource = 'discogs';
   function setSource(src) {
     _searchSource = src;
     document.getElementById('src-mb').style.background      = src === 'mb'      ? 'var(--accent)' : 'var(--surface)';
@@ -1690,6 +1845,308 @@
   }
 
   // ── Utility ───────────────────────────────────────────────────────────────
+  // ── Album Recording (Full-Side FLAC) ─────────────────────────────────────
+
+  let _albumRecInterval = null, _albumRecStartTime = null, _albumRecSide = 'A', _albumRecNextSide = null;
+
+  function showToast(msg) {
+    const el = document.getElementById('error-msg');
+    el.textContent = msg; el.style.display = 'block';
+    el.style.background = 'var(--surface2)'; el.style.borderColor = 'var(--green)';
+    setTimeout(() => { el.style.display='none'; el.style.background=''; el.style.borderColor=''; }, 4000);
+  }
+
+  function showAlbumRecPanel() {
+    if (!currentAlbumId) return;
+    document.getElementById('album-rec-panel').style.display = 'block';
+    document.getElementById('album-rec-setup').style.display = 'block';
+    document.getElementById('album-rec-active').style.display = 'none';
+    document.getElementById('album-rec-saving').style.display = 'none';
+    document.getElementById('album-rec-flip-prompt').style.display = 'none';
+    document.getElementById('btn-album-rec').style.display = 'none';
+    const tracks = window._modalTracks || [];
+    const sides = [...new Set(tracks.map(t => t.side || 'A'))].sort();
+    const sel = document.getElementById('album-rec-side');
+    sel.innerHTML = sides.length
+      ? sides.map(s => '<option value="'+s+'">Side '+s+'</option>').join('')
+      : '<option value="A">A</option><option value="B">B</option>';
+    updateSideInfo(); sel.onchange = updateSideInfo;
+  }
+
+  function updateSideInfo() {
+    const side = document.getElementById('album-rec-side').value;
+    const ct = (window._modalTracks||[]).filter(t=>(t.side||'A')===side).length;
+    document.getElementById('album-rec-side-info').textContent =
+      ct ? ct+' tracks on this side' : 'No tracks on this side';
+  }
+
+  function hideAlbumRecPanel() {
+    document.getElementById('album-rec-panel').style.display = 'none';
+    document.getElementById('album-rec-flip-prompt').style.display = 'none';
+    document.getElementById('btn-album-rec').style.display = '';
+  }
+
+  async function startAlbumRecording() {
+    if (!currentAlbumId) return;
+    _albumRecSide = document.getElementById('album-rec-side').value;
+    document.getElementById('album-rec-setup').style.display = 'none';
+    document.getElementById('album-rec-active').style.display = 'block';
+    document.getElementById('album-rec-active-side').textContent = _albumRecSide;
+    document.getElementById('album-rec-timer').textContent = '00:00';
+    document.getElementById('album-rec-status-text').textContent = 'Starting…';
+    document.getElementById('album-rec-track-log').innerHTML = '';
+    var ns = String.fromCharCode(_albumRecSide.charCodeAt(0)+1);
+    document.getElementById('btn-album-rec-flip').textContent = '\u27F3 Flip \u2014 Side '+ns;
+    try {
+      var res = await fetch('/api/album-recording/start', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({album_id:currentAlbumId, side:_albumRecSide})
+      }).then(r=>r.json());
+      if (!res.ok) { showError(res.error||'Failed'); hideAlbumRecPanel(); return; }
+      _albumRecStartTime = Date.now();
+      _albumRecInterval = setInterval(updateAlbumRecTimer, 1000);
+      document.getElementById('album-rec-status-text').textContent = 'Drop the needle \u2014 recording when audio detected\u2026';
+    } catch(e) { showError('Failed: '+e.message); hideAlbumRecPanel(); }
+  }
+
+  function updateAlbumRecTimer() {
+    if (!_albumRecStartTime) return;
+    var s = Math.floor((Date.now()-_albumRecStartTime)/1000);
+    document.getElementById('album-rec-timer').textContent =
+      String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0');
+  }
+
+  async function flipAlbumRecording() {
+    var ns = String.fromCharCode(_albumRecSide.charCodeAt(0)+1);
+    clearInterval(_albumRecInterval);
+    document.getElementById('album-rec-active').style.display = 'none';
+    document.getElementById('album-rec-saving').style.display = 'block';
+    try {
+      var res = await fetch('/api/album-recording/flip', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({side:ns})
+      }).then(r=>r.json());
+      if (!res.ok) { showError(res.error||'Flip failed'); hideAlbumRecPanel(); return; }
+      _albumRecSide = ns; _albumRecStartTime = Date.now();
+      _albumRecInterval = setInterval(updateAlbumRecTimer, 1000);
+      document.getElementById('album-rec-saving').style.display = 'none';
+      document.getElementById('album-rec-active').style.display = 'block';
+      document.getElementById('album-rec-active-side').textContent = ns;
+      document.getElementById('album-rec-timer').textContent = '00:00';
+      document.getElementById('album-rec-status-text').textContent = 'Side '+ns+' \u2014 flip the record and drop the needle';
+      document.getElementById('album-rec-track-log').innerHTML = '';
+      var fs = String.fromCharCode(ns.charCodeAt(0)+1);
+      document.getElementById('btn-album-rec-flip').textContent = '\u27F3 Flip \u2014 Side '+fs;
+    } catch(e) { showError('Flip failed: '+e.message); hideAlbumRecPanel(); }
+  }
+
+  async function stopAlbumRecording() {
+    clearInterval(_albumRecInterval); _albumRecInterval = null;
+    document.getElementById('album-rec-active').style.display = 'none';
+    document.getElementById('album-rec-saving').style.display = 'block';
+    try {
+      var res = await fetch('/api/album-recording/stop', {method:'POST'}).then(r=>r.json());
+      if (res.ok) showToast('\u2713 Side '+_albumRecSide+' saved');
+      else showError(res.error||'Stop failed');
+    } catch(e) { showError('Stop failed: '+e.message); }
+    hideAlbumRecPanel();
+    if (currentAlbumId) openAlbum(currentAlbumId);
+  }
+
+  async function cancelAlbumRecording() {
+    clearInterval(_albumRecInterval); _albumRecInterval = null;
+    await fetch('/api/album-recording/cancel', {method:'POST'});
+    hideAlbumRecPanel(); showToast('Recording cancelled');
+  }
+
+  async function startNextSideRecording() {
+    // Called from flip prompt — start recording the next side directly
+    if (!currentAlbumId || !_albumRecNextSide) return;
+    _albumRecSide = _albumRecNextSide;
+    _albumRecNextSide = null;
+    document.getElementById('album-rec-flip-prompt').style.display = 'none';
+    document.getElementById('album-rec-active').style.display = 'block';
+    document.getElementById('album-rec-active-side').textContent = _albumRecSide;
+    document.getElementById('album-rec-timer').textContent = '00:00';
+    document.getElementById('album-rec-status-text').textContent = 'Starting…';
+    document.getElementById('album-rec-track-log').innerHTML = '';
+    var ns = String.fromCharCode(_albumRecSide.charCodeAt(0)+1);
+    document.getElementById('btn-album-rec-flip').textContent = '\u27F3 Flip \u2014 Side '+ns;
+    try {
+      var res = await fetch('/api/album-recording/start', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({album_id:currentAlbumId, side:_albumRecSide})
+      }).then(r=>r.json());
+      if (!res.ok) { showError(res.error||'Failed'); hideAlbumRecPanel(); return; }
+      _albumRecStartTime = Date.now();
+      _albumRecInterval = setInterval(updateAlbumRecTimer, 1000);
+      document.getElementById('album-rec-status-text').textContent = 'Side '+_albumRecSide+' \u2014 flip the record and drop the needle\u2026';
+    } catch(e) { showError('Failed: '+e.message); hideAlbumRecPanel(); }
+  }
+
+  function finishAlbumRecSession() {
+    // Called from flip prompt "Done" button — no more sides to record
+    hideAlbumRecPanel();
+    if (currentAlbumId) openAlbum(currentAlbumId);
+  }
+
+  function onAlbumRecStatus(data) {
+    var el = document.getElementById('album-rec-status-text');
+    if (el && data.message) el.textContent = data.message;
+    // Server auto-stopped the recording (end-of-side detected)
+    if (data.recording === false) {
+      clearInterval(_albumRecInterval); _albumRecInterval = null;
+      // If saving panel is not already shown, show it briefly
+      var activeEl = document.getElementById('album-rec-active');
+      var savingEl = document.getElementById('album-rec-saving');
+      if (activeEl && activeEl.style.display !== 'none') {
+        activeEl.style.display = 'none';
+        if (savingEl) savingEl.style.display = 'block';
+      }
+      if (data.message && data.message.indexOf('\u2713') >= 0) {
+        // Side saved — check if there's a next side to prompt for
+        var doneSide = _albumRecSide || 'A';
+        var nextSide = String.fromCharCode(doneSide.charCodeAt(0) + 1);
+        var tracks = window._modalTracks || [];
+        var sides = [...new Set(tracks.map(t => t.side || 'A'))].sort();
+        var hasNextSide = sides.indexOf(nextSide) >= 0;
+
+        // Refresh audio list in the background
+        if (currentAlbumId) loadAlbumAudio(currentAlbumId);
+
+        if (hasNextSide) {
+          // Show flip prompt instead of closing
+          document.getElementById('album-rec-saving').style.display = 'none';
+          document.getElementById('album-rec-active').style.display = 'none';
+          document.getElementById('album-rec-setup').style.display = 'none';
+          var flipPrompt = document.getElementById('album-rec-flip-prompt');
+          flipPrompt.style.display = 'block';
+          document.getElementById('album-rec-done-side').textContent = doneSide;
+          document.getElementById('album-rec-next-side-label').textContent = nextSide;
+          _albumRecNextSide = nextSide;
+        } else {
+          // Last side — close the panel
+          hideAlbumRecPanel();
+          if (currentAlbumId) openAlbum(currentAlbumId);
+        }
+      }
+    }
+  }
+
+  function onAlbumRecSideSaved(data) {
+    showToast('\uD83D\uDCBF Side '+data.side+' saved \u2014 '+data.tracks_captured+' tracks');
+    if (currentAlbumId && currentAlbumId===data.album_id) loadAlbumAudio(currentAlbumId);
+  }
+
+  let _audioPlayer = null;
+  let _audioPlayingId = null;
+
+  async function loadAlbumAudio(albumId) {
+    try {
+      var data = await fetch('/api/album-audio/'+albumId).then(r=>r.json());
+      var section = document.getElementById('modal-audio-section');
+      var list = document.getElementById('modal-audio-list');
+      if (!data.audio || !data.audio.length) { section.style.display='none'; return; }
+      section.style.display = 'block';
+      list.innerHTML = data.audio.map(function(a) {
+        var dur = a.duration_secs ? Math.floor(a.duration_secs/60)+':'+String(Math.floor(a.duration_secs%60)).padStart(2,'0') : '?';
+        var sz = a.file_size ? (a.file_size/(1024*1024)).toFixed(1)+' MB' : '';
+        var isPlaying = _audioPlayingId === a.id;
+        return '<div class="album-audio-row" id="audio-row-'+a.id+'">'
+          +'<button class="album-audio-play" data-album="'+albumId+'" data-audio="'+a.id+'" onclick="toggleAlbumAudio(this)" title="'+(isPlaying?'Pause':'Play')+'">'+(isPlaying?'\u275A\u275A':'\u25B6')+'</button>'
+          +'<button class="album-audio-stop" data-audio="'+a.id+'" onclick="stopAlbumAudio()" title="Stop" style="display:'+(isPlaying?'flex':'none')+'">\u25A0</button>'
+          +'<span style="font-weight:600">Side '+(a.side||'?')+'</span>'
+          +'<span style="color:var(--muted)">'+dur+'</span>'
+          +'<span style="color:var(--muted);margin-left:auto">'+sz+'</span>'
+          +'<button class="album-audio-delete" data-album="'+albumId+'" data-audio="'+a.id+'" onclick="deleteAlbumAudio(this)" title="Delete side">\u2715</button>'
+          +'</div>';
+      }).join('');
+    } catch(e) { console.warn('loadAlbumAudio failed:', e); }
+  }
+
+  function toggleAlbumAudio(btn) {
+    var albumId = parseInt(btn.dataset.album);
+    var audioId = parseInt(btn.dataset.audio);
+
+    // If already playing this audio — toggle pause/resume
+    if (_audioPlayer && _audioPlayingId === audioId) {
+      if (_audioPlayer.paused) {
+        _audioPlayer.play();
+        btn.textContent = '\u275A\u275A'; btn.title = 'Pause';
+        _showStopBtn(audioId, true);
+      } else {
+        _audioPlayer.pause();
+        btn.textContent = '\u25B6'; btn.title = 'Play';
+      }
+      return;
+    }
+
+    // Stop any existing playback
+    stopAlbumAudio();
+
+    // Start new playback
+    _audioPlayer = new Audio('/api/album-audio/'+albumId+'/play/'+audioId);
+    _audioPlayingId = audioId;
+    _audioPlayer.play();
+    btn.textContent = '\u275A\u275A'; btn.title = 'Pause';
+    _showStopBtn(audioId, true);
+
+    // When audio ends naturally, reset UI
+    _audioPlayer.addEventListener('ended', function() {
+      _resetAudioUI();
+    });
+  }
+
+  function stopAlbumAudio() {
+    if (_audioPlayer) {
+      _audioPlayer.pause();
+      _audioPlayer.currentTime = 0;
+      _audioPlayer = null;
+    }
+    _resetAudioUI();
+  }
+
+  function _resetAudioUI() {
+    var oldId = _audioPlayingId;
+    _audioPlayingId = null;
+    if (oldId) {
+      var row = document.getElementById('audio-row-'+oldId);
+      if (row) {
+        var playBtn = row.querySelector('.album-audio-play');
+        if (playBtn) { playBtn.textContent = '\u25B6'; playBtn.title = 'Play'; }
+        _showStopBtn(oldId, false);
+      }
+    }
+  }
+
+  function _showStopBtn(audioId, show) {
+    var row = document.getElementById('audio-row-'+audioId);
+    if (!row) return;
+    var stopBtn = row.querySelector('.album-audio-stop');
+    if (stopBtn) stopBtn.style.display = show ? 'flex' : 'none';
+  }
+
+  async function deleteAlbumAudio(btn) {
+    var albumId = parseInt(btn.dataset.album);
+    var audioId = parseInt(btn.dataset.audio);
+    var row = btn.closest('.album-audio-row');
+    var side = row ? row.querySelector('span[style*="font-weight"]').textContent : 'this recording';
+    if (!confirm('Delete '+side+'?')) return;
+
+    // Stop playback if we're deleting the currently playing audio
+    if (_audioPlayingId === audioId) stopAlbumAudio();
+
+    try {
+      var res = await fetch('/api/album-audio/'+albumId+'/'+audioId, {method:'DELETE'}).then(r=>r.json());
+      if (res.ok) {
+        showToast(side+' deleted');
+        loadAlbumAudio(albumId);
+      } else {
+        showError(res.error || 'Delete failed');
+      }
+    } catch(e) { showError('Delete failed: '+e.message); }
+  }
+
 
   function esc(s) {
     if (!s) return '';
@@ -1863,7 +2320,7 @@
   init();
 </script>
   <!-- ── Pairing Modal ──────────────────────────────────────────────────── -->
-  <div id="pair-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.75);
+  <div id="pair-modal" style="display:none;position:fixed;inset:0;background:rgba(59,42,26,0.6);
        z-index:1000;display:none;align-items:center;justify-content:center">
     <div style="background:var(--card);border-radius:12px;padding:1.5rem;width:min(400px,90vw);
                 border:1px solid var(--border)">

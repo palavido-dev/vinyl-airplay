@@ -47,6 +47,7 @@ MIN_VOTES           = 2           # minimum votes required to declare a match
 ARTWORK_SIZE        = 600         # px — artwork stored at this square size
 DB_PATH             = Path("catalog.db")
 ARTWORK_DIR         = Path("artwork")
+ALBUM_AUDIO_DIR     = Path("album_audio")
 MB_APP              = "VinylAirPlay/1.0 (local)"  # MusicBrainz user-agent
 
 
@@ -99,25 +100,72 @@ CREATE TABLE IF NOT EXISTS plays (
     played_at   TEXT    DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS album_audio (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    album_id    INTEGER REFERENCES albums(id) ON DELETE CASCADE,
+    side        TEXT,               -- 'A', 'B', 'C', 'D', or NULL for full album
+    file_path   TEXT NOT NULL,      -- relative path: album_audio/Artist - Album - SideA.flac
+    format      TEXT DEFAULT 'flac',
+    duration_secs REAL,
+    file_size   INTEGER,            -- bytes
+    created_at  TEXT DEFAULT (datetime('now'))
+);
+
 CREATE INDEX IF NOT EXISTS idx_plays_album  ON plays(album_id);
 CREATE INDEX IF NOT EXISTS idx_plays_track  ON plays(track_id);
 CREATE INDEX IF NOT EXISTS idx_tracks_album ON tracks(album_id);
+CREATE INDEX IF NOT EXISTS idx_album_audio  ON album_audio(album_id);
 """
 
 
 def get_db() -> sqlite3.Connection:
     db = sqlite3.connect(DB_PATH, check_same_thread=False)
     db.row_factory = sqlite3.Row
+    db.execute("PRAGMA foreign_keys=ON")
     return db
 
 
 def init_db():
     ARTWORK_DIR.mkdir(exist_ok=True)
+    ALBUM_AUDIO_DIR.mkdir(exist_ok=True)
     db = get_db()
     db.executescript(SCHEMA)
+    # Migrations for existing databases — add columns if missing
+    _migrate_db(db)
     db.commit()
+
+    # Clean up orphaned rows from before foreign_keys=ON was enforced per-connection
+    orphan_fp = db.execute("""
+        DELETE FROM fingerprints WHERE track_id NOT IN (SELECT id FROM tracks)
+    """).rowcount
+    orphan_tracks = db.execute("""
+        DELETE FROM tracks WHERE album_id NOT IN (SELECT id FROM albums)
+    """).rowcount
+    orphan_audio = db.execute("""
+        DELETE FROM album_audio WHERE album_id NOT IN (SELECT id FROM albums)
+    """).rowcount
+    orphan_plays = db.execute("""
+        DELETE FROM plays WHERE track_id NOT IN (SELECT id FROM tracks)
+    """).rowcount
+    db.commit()
+    if orphan_fp or orphan_tracks or orphan_audio or orphan_plays:
+        print(f"[catalog] Cleaned up orphans: {orphan_fp} fingerprints, "
+              f"{orphan_tracks} tracks, {orphan_audio} audio, {orphan_plays} plays")
+
     db.close()
     purge_oversized_fingerprints()
+
+
+def _migrate_db(db: sqlite3.Connection):
+    """Add new columns/tables to existing databases without breaking anything."""
+    # Check if tracks table has start_secs/end_secs columns
+    cols = {row[1] for row in db.execute("PRAGMA table_info(tracks)").fetchall()}
+    if "start_secs" not in cols:
+        db.execute("ALTER TABLE tracks ADD COLUMN start_secs REAL")
+        print("[catalog] Migration: added tracks.start_secs")
+    if "end_secs" not in cols:
+        db.execute("ALTER TABLE tracks ADD COLUMN end_secs REAL")
+        print("[catalog] Migration: added tracks.end_secs")
 
 
 # ── Fingerprint Buffer ────────────────────────────────────────────────────────
@@ -341,6 +389,16 @@ def _refresh_fingerprint_cache(db: sqlite3.Connection, force: bool = False) -> N
         _FP_CACHE["matrix"]    = None
         _FP_CACHE["track_ids"] = None
     print(f"[catalog] Fingerprint cache refreshed: {len(parsed)} fingerprints")
+
+
+def force_refresh_fingerprint_cache():
+    """Force a complete rebuild of the in-memory fingerprint cache."""
+    db = get_db()
+    try:
+        _refresh_fingerprint_cache(db, force=True)
+    finally:
+        db.close()
+
 
 def match_local(fingerprint: list[int], duration: float = FINGERPRINT_SECS) -> Optional[dict]:
     """
@@ -799,6 +857,9 @@ def get_discogs_release(discogs_id: str, token: str = "") -> dict:
                 except Exception:
                     pass
 
+            print(f"[catalog] Discogs track {pos}: '{t.get('title','')}' "
+                  f"duration='{dur_str}' → {dur_secs}s")
+
             tracks.append({
                 "title":         t.get("title", ""),
                 "track_number":  num,
@@ -807,10 +868,14 @@ def get_discogs_release(discogs_id: str, token: str = "") -> dict:
                 "musicbrainz_track_id": None,
             })
 
-        # Cover art: use primary image if available
+        # Cover art: use primary image if available, fall back to thumb
         images    = data.get("images") or []
         art_url   = next((i["uri"] for i in images if i.get("type") == "primary"), None)
         art_url   = art_url or (images[0]["uri"] if images else None)
+        # Without Discogs auth, images may be empty — use thumb as fallback
+        if not art_url:
+            art_url = data.get("thumb") or None
+        print(f"[catalog] Discogs artwork: {len(images)} images, url={art_url or 'none'}")
 
         return {
             "ok": True,
@@ -996,6 +1061,28 @@ def fetch_artwork(mb_release_id: str, album_id: int) -> Optional[str]:
 
     except Exception as e:
         print(f"[catalog] Artwork fetch failed: {e}")
+        return None
+
+
+def fetch_artwork_from_url(url: str, album_id: int, token: str = "") -> Optional[str]:
+    """
+    Download artwork from an arbitrary URL (e.g. Discogs image URL).
+    Saves as JPEG to artwork/ dir. Returns relative path or None.
+    """
+    if not url:
+        return None
+    try:
+        headers = {"User-Agent": MB_APP}
+        if token and "discogs" in url.lower():
+            headers["Authorization"] = f"Discogs token={token}"
+        req = urllib.request.Request(url, headers=headers)
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            data = resp.read()
+        path = _save_artwork(data, album_id, user=False)
+        print(f"[catalog] Artwork downloaded from URL: {url[:80]}")
+        return path
+    except Exception as e:
+        print(f"[catalog] Artwork URL fetch failed: {e}")
         return None
 
 
@@ -1394,7 +1481,11 @@ def clear_track_fingerprints(track_id: int) -> int:
     db = get_db()
     try:
         cur = db.execute("DELETE FROM fingerprints WHERE track_id = ?", (track_id,))
+        # Reset measured duration — it's a product of the recording, like fingerprints.
+        # Prevents bad splits from poisoning expected_track_secs on re-learning.
+        db.execute("UPDATE tracks SET duration_secs = 0 WHERE id = ? AND duration_secs > 0", (track_id,))
         db.commit()
+        _refresh_fingerprint_cache(db, force=True)
         print(f"[catalog] Cleared {cur.rowcount} fingerprints for track {track_id}")
         return cur.rowcount
     finally:
@@ -1409,7 +1500,11 @@ def clear_album_fingerprints(album_id: int) -> int:
             DELETE FROM fingerprints
             WHERE track_id IN (SELECT id FROM tracks WHERE album_id = ?)
         """, (album_id,))
+        # Reset measured durations — they're products of the recording, like fingerprints.
+        # Prevents bad splits from poisoning expected_track_secs on re-learning.
+        db.execute("UPDATE tracks SET duration_secs = 0 WHERE album_id = ?", (album_id,))
         db.commit()
+        _refresh_fingerprint_cache(db, force=True)
         print(f"[catalog] Cleared {cur.rowcount} fingerprints for album {album_id}")
         return cur.rowcount
     finally:
@@ -1540,10 +1635,147 @@ def update_album_artwork(album_id: int, path: str, user: bool = True):
 
 
 def delete_album(album_id: int):
+    # Delete associated FLAC files first (before DB records)
+    delete_album_audio(album_id)
     db = get_db()
     try:
+        # Delete children in dependency order — plays lacks ON DELETE CASCADE
+        db.execute("""
+            DELETE FROM fingerprints
+            WHERE track_id IN (SELECT id FROM tracks WHERE album_id = ?)
+        """, (album_id,))
+        db.execute("DELETE FROM plays WHERE album_id = ?", (album_id,))
+        db.execute("DELETE FROM tracks WHERE album_id = ?", (album_id,))
         db.execute("DELETE FROM albums WHERE id = ?", (album_id,))
         db.commit()
+        _refresh_fingerprint_cache(db, force=True)
+    finally:
+        db.close()
+
+
+# ── Album Audio (Full-Side Recordings) ───────────────────────────────────────
+
+def save_album_audio(album_id: int, side: str, file_path: str,
+                     duration_secs: float, file_size: int,
+                     fmt: str = "flac") -> Optional[int]:
+    """Save a full-side audio file record to the database. Returns row ID."""
+    db = get_db()
+    try:
+        # Remove any existing audio for this album+side (re-recording replaces)
+        db.execute(
+            "DELETE FROM album_audio WHERE album_id = ? AND side = ?",
+            (album_id, side)
+        )
+        cur = db.execute("""
+            INSERT INTO album_audio
+                (album_id, side, file_path, format, duration_secs, file_size)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (album_id, side, file_path, fmt, duration_secs, file_size))
+        db.commit()
+        print(f"[catalog] Saved album audio: album {album_id} side {side} "
+              f"({duration_secs:.0f}s, {file_size / (1024*1024):.1f} MB)")
+        return cur.lastrowid
+    except Exception as e:
+        print(f"[catalog] save_album_audio failed: {e}")
+        db.rollback()
+        return None
+    finally:
+        db.close()
+
+
+def get_album_audio(album_id: int) -> list[dict]:
+    """Get all audio files for an album, ordered by side."""
+    db = get_db()
+    try:
+        rows = db.execute("""
+            SELECT * FROM album_audio
+            WHERE album_id = ?
+            ORDER BY side
+        """, (album_id,)).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        db.close()
+
+
+def get_album_audio_by_id(audio_id: int) -> Optional[dict]:
+    """Get a single album audio record by its ID."""
+    db = get_db()
+    try:
+        row = db.execute("SELECT * FROM album_audio WHERE id = ?", (audio_id,)).fetchone()
+        return dict(row) if row else None
+    finally:
+        db.close()
+
+
+def update_track_timestamps(track_id: int, start_secs: float, end_secs: float):
+    """Set the start/end offsets for a track within its side's audio file."""
+    db = get_db()
+    try:
+        db.execute(
+            "UPDATE tracks SET start_secs = ?, end_secs = ? WHERE id = ?",
+            (start_secs, end_secs, track_id)
+        )
+        db.commit()
+    except Exception as e:
+        print(f"[catalog] update_track_timestamps failed: {e}")
+    finally:
+        db.close()
+
+
+def update_track_duration(track_id: int, duration_secs: float):
+    """Update a track's duration from actual recorded length."""
+    db = get_db()
+    try:
+        db.execute(
+            "UPDATE tracks SET duration_secs = ? WHERE id = ?",
+            (round(duration_secs), track_id)
+        )
+        db.commit()
+    except Exception as e:
+        print(f"[catalog] update_track_duration failed: {e}")
+    finally:
+        db.close()
+
+
+def delete_album_audio(album_id: int) -> int:
+    """Delete all audio files and DB records for an album. Returns files deleted."""
+    db = get_db()
+    try:
+        rows = db.execute(
+            "SELECT file_path FROM album_audio WHERE album_id = ?", (album_id,)
+        ).fetchall()
+        count = 0
+        for r in rows:
+            p = Path(r["file_path"])
+            if p.exists():
+                p.unlink()
+                count += 1
+        db.execute("DELETE FROM album_audio WHERE album_id = ?", (album_id,))
+        db.commit()
+        return count
+    finally:
+        db.close()
+
+
+def delete_album_audio_by_id(audio_id: int) -> bool:
+    """Delete a single album audio record and its file. Returns True if deleted."""
+    db = get_db()
+    try:
+        row = db.execute(
+            "SELECT file_path FROM album_audio WHERE id = ?", (audio_id,)
+        ).fetchone()
+        if not row:
+            return False
+        p = Path(row["file_path"])
+        if p.exists():
+            p.unlink()
+        db.execute("DELETE FROM album_audio WHERE id = ?", (audio_id,))
+        db.commit()
+        print(f"[catalog] Deleted album audio id={audio_id}: {p.name}")
+        return True
+    except Exception as e:
+        print(f"[catalog] delete_album_audio_by_id failed: {e}")
+        return False
     finally:
         db.close()
 

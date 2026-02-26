@@ -2,6 +2,7 @@ __pycache__/
 *.pyc
 recordings/
 artwork/
+album_audio/
 catalog.db
 catalog.db-wal
 catalog.db-shm
