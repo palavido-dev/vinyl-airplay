@@ -370,6 +370,16 @@ def _refresh_fingerprint_cache(db: sqlite3.Connection, force: bool = False) -> N
         _FP_CACHE["track_ids"] = None
     print(f"[catalog] Fingerprint cache refreshed: {len(parsed)} fingerprints")
 
+
+def force_refresh_fingerprint_cache():
+    """Force a complete rebuild of the in-memory fingerprint cache."""
+    db = get_db()
+    try:
+        _refresh_fingerprint_cache(db, force=True)
+    finally:
+        db.close()
+
+
 def match_local(fingerprint: list[int], duration: float = FINGERPRINT_SECS) -> Optional[dict]:
     """
     Compare a live fingerprint against stored fingerprints using a voting approach.
@@ -1423,6 +1433,7 @@ def clear_track_fingerprints(track_id: int) -> int:
     try:
         cur = db.execute("DELETE FROM fingerprints WHERE track_id = ?", (track_id,))
         db.commit()
+        _refresh_fingerprint_cache(db, force=True)
         print(f"[catalog] Cleared {cur.rowcount} fingerprints for track {track_id}")
         return cur.rowcount
     finally:
@@ -1438,6 +1449,7 @@ def clear_album_fingerprints(album_id: int) -> int:
             WHERE track_id IN (SELECT id FROM tracks WHERE album_id = ?)
         """, (album_id,))
         db.commit()
+        _refresh_fingerprint_cache(db, force=True)
         print(f"[catalog] Cleared {cur.rowcount} fingerprints for album {album_id}")
         return cur.rowcount
     finally:

@@ -1126,6 +1126,13 @@ async def clear_track_fingerprints(track_id: int):
             "message": f"Cleared {deleted} fingerprints for this track"}
 
 
+@app.post("/api/catalog/fingerprints/rebuild-cache")
+async def rebuild_fingerprint_cache():
+    """Force a complete rebuild of the in-memory fingerprint cache."""
+    cat.force_refresh_fingerprint_cache()
+    return {"ok": True}
+
+
 @app.post("/api/catalog/{album_id}/reorder")
 async def reorder_tracks(album_id: int, body: dict):
     """Save new track order. body: { track_ids: [id, id, ...] in desired order }"""
