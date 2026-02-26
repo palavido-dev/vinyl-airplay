@@ -218,9 +218,19 @@ class RecordingBuffer:
 
         silence_threshold = max(SILENCE_RATIO_MIN, self._signal_level * effective_ratio)
 
-        # Use smoothed RMS for silence/audio decision (prevents noise spikes from
-        # resetting the silence counter), but raw RMS for signal level tracking
-        if self._smoothed_rms < silence_threshold:
+        # Hysteresis: once silence is accumulating, require smoothed RMS to clearly
+        # exceed the threshold before resetting. Without this, smoothed RMS hovering
+        # right at the threshold boundary oscillates in/out and resets silence_secs.
+        # Entry: smoothed < threshold
+        # Exit:  smoothed >= threshold * 1.3 (30% above — must be clearly music, not noise)
+        in_silence = self._silence_secs > 0
+        if in_silence:
+            exit_threshold = silence_threshold * 1.3
+            is_silent = self._smoothed_rms < exit_threshold
+        else:
+            is_silent = self._smoothed_rms < silence_threshold
+
+        if is_silent:
             self._silence_secs += chunk_secs
             if self._silence_start_byte == 0:
                 with self._lock:
