@@ -4,143 +4,235 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<title>Vinyl AirPlay</title>
+<title>The Listening Room</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Libre+Baskerville:ital,wght@0,400;0,700;1,400&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
+  @font-face { font-family: 'Fallback Serif'; src: local('Georgia'), local('Times New Roman'); }
+  @font-face { font-family: 'Fallback Sans'; src: local('Helvetica Neue'), local('Arial'); }
   :root {
-    --bg:      #FFF8EF;
-    --surface: #FAF0E4;
-    --card:    #F5E6D0;
-    --border:  #E8D5BE;
-    --text:    #3B2A1A;
-    --muted:   #8B7355;
-    --accent:  #F57F5B;
-    --green:   #4A9E98;
-    --red:     #D94F4F;
-    --brown:   #6B4C3B;
+    --walnut:    #3E2723;
+    --walnut-lt: #5D4037;
+    --leather:   #795548;
+    --amber:     #D4A24E;
+    --amber-dk:  #B8862D;
+    --cream:     #F5EBD8;
+    --paper:     #EDE0CA;
+    --paper-dk:  #DDD0B8;
+    --ink:       #2C1810;
+    --muted:     #7A6652;
+    --sage:      #6B8F71;
+    --sage-dk:   #557A5A;
+    --rust:      #C1553A;
+    --rust-dk:   #A8432A;
+    --teal:      #4A8B83;
+    --shelf:     #8B6F4E;
+    --groove:    #4A3728;
+    --display-font: 'Libre Baskerville', 'Fallback Serif', Georgia, serif;
+    --body-font:    'DM Sans', 'Fallback Sans', 'Helvetica Neue', sans-serif;
   }
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body {
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-    background: var(--bg); color: var(--text);
-    display: flex; flex-direction: column; height: 100vh; height: 100dvh;
+    font-family: var(--body-font);
+    background: var(--walnut);
+    color: var(--ink);
+    height: 100vh; height: 100dvh;
+    display: flex; flex-direction: column;
     overflow: hidden;
   }
-  .app-header { flex-shrink: 0; padding: 0.7rem 1rem 0.5rem; background: var(--surface); border-bottom: 1px solid var(--border); }
-  .header-top { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.5rem; }
-  .header-top h1 { font-size: 1.1rem; font-weight: 700; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .header-btn { width: 38px; height: 38px; border-radius: 50%; background: var(--card); border: 1px solid var(--border); color: var(--text); font-size: 1.1rem; cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
-  .header-btn:active { background: var(--border); }
-  .search-bar { width: 100%; padding: 0.45rem 0.8rem; border-radius: 8px; background: var(--bg); border: 1px solid var(--border); color: var(--text); font-size: 0.85rem; outline: none; }
-  .search-bar:focus { border-color: var(--accent); }
-  .search-bar::placeholder { color: var(--muted); }
-  .status-bar { flex-shrink: 0; padding: 0.3rem 1rem; background: var(--surface); border-bottom: 1px solid var(--border); font-size: 0.75rem; color: var(--muted); display: flex; align-items: center; gap: 0.4rem; }
-  .status-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); flex-shrink: 0; }
-  .status-dot.on { background: var(--green); box-shadow: 0 0 6px rgba(74,158,152,0.4); }
-  .main-content { flex: 1; overflow-y: auto; padding: 0.75rem; -webkit-overflow-scrolling: touch; }
-  .album-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 0.75rem; max-width: 720px; margin: 0 auto; }
-  .album-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; cursor: pointer; transition: transform 0.12s, box-shadow 0.15s; box-shadow: 0 2px 6px rgba(0,0,0,0.1); position: relative; }
-  .album-card:active { transform: scale(0.97); }
-  .album-card .album-art-wrap { width: 100%; aspect-ratio: 1; position: relative; background: var(--border); overflow: hidden; }
-  .album-card .album-art-wrap img { width: 100%; height: 100%; object-fit: cover; }
-  .album-card .album-art-placeholder { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; font-size: 2.5rem; color: var(--muted); }
-  .album-info-btn { position: absolute; top: 4px; right: 4px; width: 26px; height: 26px; border-radius: 50%; background: rgba(59,42,26,0.6); border: none; color: #fff; font-size: 0.7rem; cursor: pointer; display: flex; align-items: center; justify-content: center; backdrop-filter: blur(4px); opacity: 0.7; }
-  .album-info-btn:active { opacity: 1; }
-  .album-badge { position: absolute; bottom: 4px; left: 4px; font-size: 0.6rem; padding: 0.1rem 0.35rem; border-radius: 3px; backdrop-filter: blur(4px); }
-  .album-badge.unrecorded { background: rgba(139,115,85,0.8); color: #fff; }
-  .album-card .album-meta { padding: 0.45rem 0.5rem; }
-  .album-card .album-meta .title { font-size: 0.78rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .album-card .album-meta .artist { font-size: 0.7rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .catalog-empty { text-align: center; color: var(--muted); padding: 3rem 1rem; font-size: 0.9rem; }
-  .np-footer { flex-shrink: 0; background: var(--surface); border-bottom: 1px solid var(--border); padding: 0.6rem 0.8rem 0.5rem; box-shadow: 0 2px 12px rgba(0,0,0,0.08); }
-  .np-footer.hidden { display: none; }
-  .np-row { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.4rem; }
-  .np-art { width: 48px; height: 48px; border-radius: 6px; object-fit: cover; background: var(--border); flex-shrink: 0; }
-  .np-art-placeholder { width: 48px; height: 48px; border-radius: 6px; background: var(--border); flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 1.4rem; }
+  .frame {
+    flex: 1; display: flex; flex-direction: column; overflow: hidden;
+    margin: 6px;
+    border: 3px solid var(--walnut-lt);
+    border-radius: 12px;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.08), 0 0 0 2px var(--walnut), 0 2px 12px rgba(0,0,0,0.4);
+    background: repeating-linear-gradient(90deg, transparent, transparent 2px, rgba(0,0,0,0.02) 2px, rgba(0,0,0,0.02) 4px),
+      linear-gradient(180deg, #EDE0CA 0%, #F5EBD8 30%, #F0E4CE 100%);
+  }
+  .app-header {
+    flex-shrink: 0;
+    padding: 0.5rem 0.9rem 0.4rem;
+    background: linear-gradient(180deg, var(--walnut) 0%, var(--walnut-lt) 100%);
+    border-bottom: 2px solid var(--amber-dk);
+    display: flex; align-items: center; gap: 0.7rem;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+    position: relative;
+  }
+  .app-header::after {
+    content: '';
+    position: absolute; bottom: -4px; left: 0; right: 0; height: 2px;
+    background: linear-gradient(90deg, transparent 0%, rgba(212,162,78,0.3) 50%, transparent 100%);
+  }
+  .brand {
+    font-family: var(--display-font);
+    font-size: 1.05rem; font-weight: 700;
+    color: var(--amber);
+    letter-spacing: 0.02em; white-space: nowrap;
+    text-shadow: 0 1px 3px rgba(0,0,0,0.4);
+    flex-shrink: 0;
+  }
+  .brand-icon {
+    display: inline-block; width: 22px; height: 22px;
+    background: radial-gradient(circle at 50% 50%, var(--ink) 18%, var(--walnut-lt) 20%, var(--walnut-lt) 38%, var(--ink) 40%, var(--ink) 42%, var(--walnut-lt) 44%, var(--walnut-lt) 58%, var(--ink) 60%, var(--ink) 62%, var(--walnut-lt) 64%);
+    border-radius: 50%;
+    border: 1.5px solid var(--amber);
+    vertical-align: middle; margin-right: 0.4rem; flex-shrink: 0;
+    box-shadow: 0 0 6px rgba(212,162,78,0.3);
+  }
+  .search-bar {
+    flex: 1; min-width: 0;
+    padding: 0.5rem 0.8rem; border-radius: 6px;
+    background: rgba(255,255,255,0.1);
+    border: 1px solid rgba(212,162,78,0.25);
+    color: var(--cream);
+    font-family: var(--body-font); font-size: 0.85rem; outline: none;
+    transition: border-color 0.2s, background 0.2s;
+  }
+  .search-bar:focus { border-color: var(--amber); background: rgba(255,255,255,0.15); }
+  .search-bar::placeholder { color: rgba(245,235,216,0.45); }
+  .header-btn {
+    width: 40px; height: 40px; border-radius: 8px;
+    background: rgba(255,255,255,0.08);
+    border: 1px solid rgba(212,162,78,0.2);
+    color: var(--amber); font-size: 1.1rem;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0; transition: background 0.15s;
+  }
+  .header-btn:active { background: rgba(212,162,78,0.25); }
+  .status-bar {
+    flex-shrink: 0; padding: 0.2rem 0.9rem;
+    background: var(--paper-dk);
+    border-bottom: 1px solid rgba(0,0,0,0.08);
+    font-size: 0.72rem; color: var(--muted);
+    display: flex; align-items: center; gap: 0.4rem;
+  }
+  .status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); flex-shrink: 0; }
+  .status-dot.on { background: var(--sage); box-shadow: 0 0 6px rgba(107,143,113,0.5); }
+  .np-bar {
+    flex-shrink: 0;
+    background: linear-gradient(180deg, #352218 0%, #2C1810 100%);
+    border-bottom: 2px solid var(--groove);
+    padding: 0.5rem 0.9rem;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+    position: relative;
+  }
+  .np-bar.hidden { display: none; }
+  .np-bar::before {
+    content: '';
+    position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+    background: repeating-linear-gradient(90deg, transparent, transparent 1px, rgba(255,255,255,0.01) 1px, rgba(255,255,255,0.01) 2px);
+    pointer-events: none;
+  }
+  .np-row { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.3rem; position: relative; }
+  .np-art { width: 50px; height: 50px; border-radius: 4px; object-fit: cover; border: 1px solid rgba(212,162,78,0.3); flex-shrink: 0; box-shadow: 0 2px 6px rgba(0,0,0,0.3); }
+  .np-art-placeholder { width: 50px; height: 50px; border-radius: 4px; flex-shrink: 0; background: radial-gradient(circle, var(--groove) 30%, var(--walnut-lt) 32%, var(--walnut-lt) 48%, var(--groove) 50%); display: flex; align-items: center; justify-content: center; font-size: 1.4rem; border: 1px solid rgba(212,162,78,0.2); }
   .np-text { flex: 1; min-width: 0; }
-  .np-title { font-size: 0.85rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .np-artist-album { font-size: 0.72rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .np-source-badge { font-size: 0.55rem; background: var(--accent); color: #fff; border-radius: 3px; padding: 0.05rem 0.3rem; text-transform: uppercase; letter-spacing: 0.04em; vertical-align: middle; margin-left: 0.3rem; }
+  .np-title { font-family: var(--display-font); font-size: 0.9rem; font-weight: 700; color: var(--amber); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-shadow: 0 1px 2px rgba(0,0,0,0.4); }
+  .np-artist-album { font-size: 0.75rem; color: rgba(245,235,216,0.6); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .np-source-badge { font-size: 0.55rem; font-weight: 700; letter-spacing: 0.06em; background: var(--amber-dk); color: var(--walnut); border-radius: 3px; padding: 0.08rem 0.35rem; text-transform: uppercase; vertical-align: middle; margin-left: 0.4rem; }
   .np-transport { display: flex; align-items: center; gap: 0.3rem; flex-shrink: 0; }
-  .np-btn { width: 34px; height: 34px; border-radius: 50%; background: none; border: 1px solid var(--border); color: var(--text); font-size: 0.85rem; cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 0; }
-  .np-btn:active { background: var(--card); }
-  .np-btn.primary { width: 40px; height: 40px; font-size: 1rem; background: var(--accent); color: #fff; border-color: var(--accent); }
-  .np-btn.primary:active { background: #e06840; }
-  .np-progress-row { display: flex; align-items: center; gap: 0.35rem; margin-bottom: 0.35rem; }
-  .np-time { font-size: 0.65rem; color: var(--muted); min-width: 30px; text-align: center; font-variant-numeric: tabular-nums; }
-  .np-progress-bar { flex: 1; height: 3px; background: var(--border); border-radius: 2px; cursor: pointer; position: relative; }
-  .np-progress-fill { height: 100%; background: var(--accent); border-radius: 2px; transition: width 0.3s linear; }
-  .eq-row { display: flex; align-items: center; gap: 0.5rem; padding-top: 0.3rem; border-top: 1px solid var(--border); }
-  .eq-group { display: flex; align-items: center; gap: 0.25rem; flex: 1; }
-  .eq-label { font-size: 0.6rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; min-width: 30px; }
-  .eq-slider { flex: 1; height: 3px; -webkit-appearance: none; appearance: none; background: var(--border); border-radius: 2px; outline: none; }
-  .eq-slider::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; border-radius: 50%; background: var(--accent); border: 2px solid var(--surface); cursor: pointer; }
-  .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(59,42,26,0.55); z-index: 100; overflow-y: auto; padding: 0.75rem; backdrop-filter: blur(3px); }
+  .np-btn { width: 40px; height: 40px; border-radius: 50%; background: rgba(255,255,255,0.06); border: 1px solid rgba(212,162,78,0.2); color: var(--cream); font-size: 0.9rem; cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 0; transition: background 0.12s; }
+  .np-btn:active { background: rgba(212,162,78,0.2); }
+  .np-btn.primary { width: 46px; height: 46px; font-size: 1.1rem; background: var(--amber-dk); color: var(--walnut); border-color: var(--amber); box-shadow: 0 2px 8px rgba(212,162,78,0.3); }
+  .np-btn.primary:active { background: var(--amber); }
+  .np-progress-row { display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.25rem; position: relative; }
+  .np-time { font-size: 0.65rem; color: rgba(245,235,216,0.5); min-width: 32px; text-align: center; font-variant-numeric: tabular-nums; }
+  .np-progress-bar { flex: 1; height: 4px; background: rgba(255,255,255,0.1); border-radius: 2px; cursor: pointer; }
+  .np-progress-fill { height: 100%; background: linear-gradient(90deg, var(--amber-dk), var(--amber)); border-radius: 2px; transition: width 0.3s linear; }
+  .eq-row { display: flex; align-items: center; gap: 0.6rem; padding-top: 0.3rem; border-top: 1px solid rgba(255,255,255,0.06); position: relative; }
+  .eq-group { display: flex; align-items: center; gap: 0.3rem; flex: 1; }
+  .eq-label { font-size: 0.6rem; color: rgba(245,235,216,0.4); text-transform: uppercase; letter-spacing: 0.06em; min-width: 32px; }
+  .eq-slider { flex: 1; height: 4px; -webkit-appearance: none; appearance: none; background: rgba(255,255,255,0.1); border-radius: 2px; outline: none; }
+  .eq-slider::-webkit-slider-thumb { -webkit-appearance: none; width: 18px; height: 18px; border-radius: 50%; background: linear-gradient(135deg, var(--amber) 0%, var(--amber-dk) 100%); border: 2px solid var(--walnut); cursor: pointer; box-shadow: 0 1px 4px rgba(0,0,0,0.4); }
+  .main-content { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 0.75rem; -webkit-overflow-scrolling: touch; }
+  .album-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 0.7rem; max-width: 960px; margin: 0 auto; }
+  .album-card { background: var(--paper); border: 1px solid rgba(0,0,0,0.1); border-radius: 6px; overflow: hidden; cursor: pointer; transition: transform 0.1s, box-shadow 0.15s; box-shadow: 0 1px 3px rgba(0,0,0,0.08), 0 4px 8px rgba(0,0,0,0.06); position: relative; }
+  .album-card:active { transform: scale(0.97); box-shadow: 0 1px 2px rgba(0,0,0,0.1); }
+  .album-card .album-art-wrap { width: 100%; aspect-ratio: 1; position: relative; overflow: hidden; background: var(--paper-dk); border-bottom: 1px solid rgba(0,0,0,0.08); }
+  .album-card .album-art-wrap img { width: 100%; height: 100%; object-fit: cover; }
+  .album-card .album-art-placeholder { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; font-size: 2.8rem; color: var(--muted); opacity: 0.4; background: radial-gradient(circle at 50% 50%, var(--paper-dk) 0%, var(--paper) 100%); }
+  .album-info-btn { position: absolute; top: 5px; right: 5px; width: 28px; height: 28px; border-radius: 50%; background: rgba(44,24,16,0.65); border: none; color: #fff; font-size: 0.72rem; cursor: pointer; display: flex; align-items: center; justify-content: center; backdrop-filter: blur(4px); opacity: 0.75; transition: opacity 0.15s; }
+  .album-info-btn:active { opacity: 1; }
+  .album-badge { position: absolute; bottom: 5px; left: 5px; font-size: 0.6rem; font-weight: 600; padding: 0.12rem 0.4rem; border-radius: 3px; backdrop-filter: blur(4px); }
+  .album-badge.unrecorded { background: rgba(122,102,82,0.8); color: #fff; }
+  .album-card .album-meta { padding: 0.45rem 0.55rem; }
+  .album-card .album-meta .title { font-family: var(--display-font); font-size: 0.78rem; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--ink); }
+  .album-card .album-meta .artist { font-size: 0.7rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 0.05rem; }
+  .catalog-empty { text-align: center; color: var(--muted); padding: 3rem 1rem; font-family: var(--display-font); font-size: 0.95rem; font-style: italic; }
+  .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(44,24,16,0.65); z-index: 100; overflow-y: auto; padding: 0.75rem; backdrop-filter: blur(4px); }
   .modal-overlay.open { display: flex; align-items: flex-start; justify-content: center; }
-  .modal { position: relative; }
+  .modal { position: relative; background: linear-gradient(180deg, var(--cream) 0%, var(--paper) 100%); border: 2px solid var(--shelf); border-radius: 10px; padding: 1.2rem; width: 100%; max-width: 480px; margin-top: 1rem; box-shadow: 0 8px 32px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.5); }
   .modal-x { position: absolute; top: 0.5rem; right: 0.6rem; background: none; border: none; font-size: 1.3rem; color: var(--muted); cursor: pointer; padding: 0.2rem 0.4rem; line-height: 1; z-index: 5; border-radius: 4px; }
-  .modal-x:hover { background: var(--border); color: var(--text); }
-  .modal { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 1.2rem; width: 100%; max-width: 440px; margin-top: 1.5rem; box-shadow: 0 8px 32px rgba(0,0,0,0.2); }
+  .modal-x:active { background: var(--paper-dk); color: var(--ink); }
   .modal-header { display: flex; align-items: flex-start; gap: 0.8rem; margin-bottom: 0.8rem; }
-  .modal-art { width: 80px; height: 80px; border-radius: 8px; object-fit: cover; background: var(--border); flex-shrink: 0; }
-  .modal-title { font-size: 1rem; font-weight: 700; }
+  .modal-art { width: 80px; height: 80px; border-radius: 6px; object-fit: cover; border: 1px solid rgba(0,0,0,0.1); flex-shrink: 0; box-shadow: 0 2px 8px rgba(0,0,0,0.15); }
+  .modal-title { font-family: var(--display-font); font-size: 1rem; font-weight: 700; }
   .modal-artist { font-size: 0.82rem; color: var(--muted); margin-top: 0.15rem; }
   .modal-meta { font-size: 0.72rem; color: var(--muted); margin-top: 0.1rem; }
   .track-list { max-height: 260px; overflow-y: auto; margin-bottom: 0.6rem; }
-  .track-row { display: flex; align-items: center; gap: 0.4rem; padding: 0.3rem 0; border-bottom: 1px solid var(--border); font-size: 0.8rem; cursor: pointer; }
+  .track-row { display: flex; align-items: center; gap: 0.4rem; padding: 0.35rem 0; border-bottom: 1px solid rgba(0,0,0,0.06); font-size: 0.82rem; cursor: pointer; transition: background 0.1s; }
   .track-row:last-child { border-bottom: none; }
-  .track-row:active { background: var(--card); }
+  .track-row:active { background: var(--paper-dk); }
   .track-num { color: var(--muted); min-width: 1.6rem; font-size: 0.72rem; }
-  .side-label { font-size: 0.68rem; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; padding: 0.5rem 0 0.2rem; }
-  .modal-actions { display: flex; flex-wrap: wrap; gap: 0.4rem; padding-top: 0.6rem; border-top: 1px solid var(--border); }
-  .btn { padding: 0.4rem 0.75rem; border-radius: 8px; font-size: 0.78rem; font-weight: 600; border: 1px solid var(--border); cursor: pointer; background: var(--card); color: var(--text); display: inline-flex; align-items: center; gap: 0.3rem; }
+  .side-label { font-family: var(--display-font); font-size: 0.7rem; font-weight: 700; color: var(--leather); text-transform: uppercase; letter-spacing: 0.1em; padding: 0.55rem 0 0.2rem; }
+  .modal-actions { display: flex; flex-wrap: wrap; gap: 0.4rem; padding-top: 0.6rem; border-top: 1px solid rgba(0,0,0,0.08); }
+  .btn { padding: 0.45rem 0.8rem; border-radius: 6px; font-family: var(--body-font); font-size: 0.8rem; font-weight: 600; border: 1px solid rgba(0,0,0,0.12); cursor: pointer; background: var(--paper); color: var(--ink); display: inline-flex; align-items: center; gap: 0.3rem; transition: background 0.1s; min-height: 38px; }
   .btn:active { opacity: 0.8; }
-  .btn-primary { background: var(--green); color: #fff; border-color: var(--green); }
-  .btn-accent { background: var(--accent); color: #fff; border-color: var(--accent); }
-  .btn-danger { background: var(--red); color: #fff; border-color: var(--red); }
-  .btn-ghost { background: none; color: var(--muted); }
-  .audio-row { display: flex; align-items: center; gap: 0.5rem; padding: 0.35rem 0; border-bottom: 1px solid var(--border); font-size: 0.8rem; }
-  .audio-play-btn { width: 28px; height: 28px; border-radius: 50%; background: var(--green); color: #fff; border: none; font-size: 0.7rem; cursor: pointer; display: flex; align-items: center; justify-content: center; }
-  .audio-play-btn:active { background: #3d857f; }
-  .audio-del-btn { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 0.8rem; padding: 0.2rem; }
-  .learn-overlay { display: none; position: fixed; inset: 0; background: var(--bg); z-index: 200; overflow-y: auto; padding: 1rem; }
+  .btn-primary { background: var(--sage); color: #fff; border-color: var(--sage-dk); }
+  .btn-primary:active { background: var(--sage-dk); }
+  .btn-accent { background: var(--amber-dk); color: #fff; border-color: var(--amber-dk); }
+  .btn-accent:active { background: var(--amber); }
+  .btn-danger { background: var(--rust); color: #fff; border-color: var(--rust-dk); }
+  .btn-danger:active { background: var(--rust-dk); }
+  .btn-ghost { background: none; color: var(--muted); border-color: transparent; }
+  .btn-ghost:active { background: var(--paper-dk); }
+  .audio-row { display: flex; align-items: center; gap: 0.5rem; padding: 0.4rem 0; border-bottom: 1px solid rgba(0,0,0,0.06); font-size: 0.82rem; }
+  .audio-play-btn { width: 32px; height: 32px; border-radius: 50%; background: var(--sage); color: #fff; border: none; font-size: 0.75rem; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+  .audio-play-btn:active { background: var(--sage-dk); }
+  .audio-del-btn { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 0.85rem; padding: 0.3rem; }
+  .learn-overlay { display: none; position: fixed; inset: 0; background: linear-gradient(180deg, var(--cream) 0%, var(--paper) 100%); z-index: 200; overflow-y: auto; padding: 1rem; }
   .learn-overlay.open { display: block; }
-  .learn-card { max-width: 440px; margin: 0 auto; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 1.2rem; }
+  .learn-card { max-width: 480px; margin: 0 auto; background: var(--paper); border: 2px solid var(--shelf); border-radius: 10px; padding: 1.2rem; box-shadow: 0 4px 16px rgba(0,0,0,0.1); }
   .form-row { margin-bottom: 0.5rem; }
-  .form-row label { display: block; font-size: 0.78rem; font-weight: 600; margin-bottom: 0.2rem; color: var(--muted); }
-  .form-input { width: 100%; padding: 0.45rem 0.7rem; border-radius: 8px; background: var(--bg); border: 1px solid var(--border); color: var(--text); font-size: 0.85rem; outline: none; }
-  .form-input:focus { border-color: var(--accent); }
+  .form-row label { display: block; font-size: 0.78rem; font-weight: 600; margin-bottom: 0.2rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+  .form-input { width: 100%; padding: 0.5rem 0.7rem; border-radius: 6px; background: var(--cream); border: 1px solid rgba(0,0,0,0.12); color: var(--ink); font-family: var(--body-font); font-size: 0.85rem; outline: none; min-height: 40px; transition: border-color 0.2s; }
+  .form-input:focus { border-color: var(--amber-dk); }
   .form-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
-  #error-msg { display: none; position: fixed; top: 0.5rem; left: 50%; transform: translateX(-50%); z-index: 999; background: var(--red); color: #fff; padding: 0.5rem 1rem; border-radius: 8px; font-size: 0.82rem; font-weight: 600; max-width: 90vw; text-align: center; }
-  #toast-msg { display: none; position: fixed; bottom: 5rem; left: 50%; transform: translateX(-50%); z-index: 999; background: var(--brown); color: #fff; padding: 0.45rem 1rem; border-radius: 8px; font-size: 0.8rem; max-width: 90vw; text-align: center; }
+  #error-msg { display: none; position: fixed; top: 0.5rem; left: 50%; transform: translateX(-50%); z-index: 999; background: var(--rust); color: #fff; padding: 0.5rem 1rem; border-radius: 6px; font-size: 0.82rem; font-weight: 600; max-width: 90vw; text-align: center; box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
+  #toast-msg { display: none; position: fixed; bottom: 5rem; left: 50%; transform: translateX(-50%); z-index: 999; background: var(--walnut); color: var(--cream); padding: 0.5rem 1rem; border-radius: 6px; font-size: 0.82rem; max-width: 90vw; text-align: center; box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
   .settings-section { margin-bottom: 1.2rem; }
-  .settings-section h3 { font-size: 0.82rem; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 0.5rem; }
-  .device-item { display: flex; align-items: center; gap: 0.6rem; padding: 0.5rem 0; border-bottom: 1px solid var(--border); font-size: 0.82rem; }
+  .settings-section h3 { font-family: var(--display-font); font-size: 0.78rem; font-weight: 700; color: var(--leather); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 0.5rem; }
+  .device-item { display: flex; align-items: center; gap: 0.6rem; padding: 0.5rem 0; border-bottom: 1px solid rgba(0,0,0,0.06); font-size: 0.82rem; }
   .device-item:last-child { border-bottom: none; }
-  .device-item input[type=checkbox] { accent-color: var(--accent); width: 16px; height: 16px; }
-  .rec-timer { font-size: 1.8rem; font-weight: 700; font-variant-numeric: tabular-nums; text-align: center; color: var(--red); margin: 0.5rem 0; }
+  .device-item input[type=checkbox] { accent-color: var(--amber-dk); width: 18px; height: 18px; }
+  .rec-timer { font-family: var(--display-font); font-size: 2rem; font-weight: 700; font-variant-numeric: tabular-nums; text-align: center; color: var(--rust); margin: 0.5rem 0; }
   .drag-handle { cursor: grab; color: var(--muted); font-size: 1rem; user-select: none; }
   .track-list.reorder-mode .track-row { cursor: grab; }
   .track-list.reorder-mode .track-row.dragging { opacity: 0.4; }
+  .main-content::-webkit-scrollbar { width: 6px; }
+  .main-content::-webkit-scrollbar-track { background: transparent; }
+  .main-content::-webkit-scrollbar-thumb { background: var(--paper-dk); border-radius: 3px; }
+  .track-list::-webkit-scrollbar { width: 4px; }
+  .track-list::-webkit-scrollbar-thumb { background: var(--paper-dk); border-radius: 2px; }
 </style>
 </head>
 <body>
 <div id="error-msg"></div>
 <div id="toast-msg"></div>
+<div class="frame">
 <div class="app-header">
-  <div class="header-top">
-    <h1>🎵 Vinyl AirPlay</h1>
-    <button class="header-btn" onclick="shufflePlay()" title="Shuffle play">🔀</button>
-    <button class="header-btn" onclick="showAddForm()" title="Add record">＋</button>
-    <button class="header-btn" onclick="showSettings()" title="Settings">⚙</button>
-  </div>
-  <input type="search" class="search-bar" id="catalog-search" placeholder="Search collection…" oninput="filterCatalog(this.value)">
+  <span class="brand"><span class="brand-icon"></span>The Listening Room</span>
+  <input type="search" class="search-bar" id="catalog-search" placeholder="Search your collection…" oninput="filterCatalog(this.value)">
+  <button class="header-btn" onclick="shufflePlay()" title="Shuffle play">🔀</button>
+  <button class="header-btn" onclick="showAddForm()" title="Add record">＋</button>
+  <button class="header-btn" onclick="showSettings()" title="Settings">⚙</button>
 </div>
 <div class="status-bar"><span class="status-dot" id="dot"></span><span id="status-text">Connecting…</span></div>
-
-<!-- Now Playing Bar -->
-<div class="np-footer hidden" id="np-footer">
+<div class="np-bar hidden" id="np-footer">
   <div class="np-row">
-    <div class="np-art-placeholder" id="np-art-wrap">🎵</div>
+    <div class="np-art-placeholder" id="np-art-wrap">💿</div>
     <div class="np-text">
       <div class="np-title" id="np-title">—</div>
       <div class="np-artist-album" id="np-artist-album">—</div>
@@ -163,8 +255,8 @@
     <div class="eq-group"><span class="eq-label">Vol</span><input type="range" class="eq-slider" id="eq-volume" min="0" max="100" value="80" step="1" oninput="sendVolume()"></div>
   </div>
 </div>
-
 <div class="main-content" id="main-content"><div class="album-grid" id="album-grid"><div class="catalog-empty">Loading catalog…</div></div></div>
+</div>
 
 <!-- Album Detail Modal -->
 <div class="modal-overlay" id="album-modal" onclick="if(event.target===this)closeModal()">
@@ -185,7 +277,7 @@
           <div class="side-label">🎙 Record Side</div>
           <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.5rem">
             <label style="font-size:0.8rem;font-weight:600">Side</label>
-            <select id="album-rec-side" class="form-input" style="width:70px"><option value="A">A</option><option value="B">B</option></select>
+            <select id="album-rec-side" class="form-input" style="width:70px;min-height:36px"><option value="A">A</option><option value="B">B</option></select>
             <span id="album-rec-side-info" style="font-size:0.72rem;color:var(--muted)"></span>
           </div>
           <div style="display:flex;gap:0.4rem">
@@ -206,7 +298,7 @@
         </div>
         <div id="album-rec-saving" style="display:none"><div class="side-label">💿 Encoding FLAC…</div><p style="font-size:0.82rem;color:var(--muted)">Please wait…</p></div>
         <div id="album-rec-flip-prompt" style="display:none">
-          <div class="side-label" style="color:var(--green)">✓ Side <span id="album-rec-done-side">A</span> saved!</div>
+          <div class="side-label" style="color:var(--sage)">✓ Side <span id="album-rec-done-side">A</span> saved!</div>
           <p style="font-size:0.82rem;color:var(--muted);margin-bottom:0.5rem">Flip the record and press continue.</p>
           <div style="display:flex;gap:0.4rem">
             <button class="btn btn-accent" onclick="startNextSideRecording()">⏺ Side <span id="album-rec-next-side-label">B</span></button>
@@ -221,7 +313,7 @@
         <label class="btn" style="cursor:pointer" title="Upload album artwork">📷 Photo<input type="file" accept="image/*" style="display:none" onchange="uploadArtwork(event)"></label>
         <button class="btn btn-ghost" onclick="toggleReorderMode()" id="btn-reorder" title="Reorder tracks">⇅ Reorder</button>
         <button class="btn btn-ghost" onclick="clearAlbumFingerprints()" title="Clear learned fingerprints">🗑 Clear FP</button>
-        <button class="btn btn-ghost" style="color:var(--red)" onclick="deleteAlbum()">Delete</button>
+        <button class="btn btn-ghost" style="color:var(--rust)" onclick="deleteAlbum()">Delete</button>
         <button class="btn btn-ghost" onclick="closeModal()" style="margin-left:auto">Close</button>
       </div>
     </div>
@@ -232,30 +324,30 @@
 <div class="learn-overlay" id="learn-overlay">
   <div class="learn-card">
     <div id="learn-step-setup">
-      <h2 style="font-size:1rem;margin-bottom:0.5rem">🎓 Learn Album Fingerprints</h2>
+      <h2 style="font-family:var(--display-font);font-size:1rem;margin-bottom:0.5rem">🎓 Learn Album Fingerprints</h2>
       <p style="font-size:0.78rem;color:var(--muted);margin-bottom:0.6rem;line-height:1.4">Play the record — tracks will be detected automatically, fingerprinted, and recorded as FLAC.</p>
       <div class="form-row"><label>Album</label><input type="text" class="form-input" id="learn-album-input" list="learn-album-list" placeholder="Search artist or album…" autocomplete="off" oninput="onLearnAlbumInput(this.value)"><datalist id="learn-album-list"></datalist><input type="hidden" id="learn-album-id"></div>
       <div class="form-row"><label>Tracks on this side</label><input type="number" class="form-input" id="learn-track-count" value="5" min="1" max="30" style="width:80px"></div>
-      <label class="device-item" style="border:none;padding:0.4rem 0;gap:0.5rem"><input type="checkbox" id="learn-also-record" checked><span style="font-size:0.8rem">Also record full side as FLAC</span></label>
-      <div style="margin-bottom:0.6rem"><div style="font-size:0.7rem;color:var(--muted);margin-bottom:0.2rem">Input level</div><div style="background:var(--border);border-radius:3px;height:6px;overflow:hidden"><div id="learn-level-bar" style="height:100%;width:0%;background:var(--green);transition:width 0.08s;border-radius:3px"></div></div></div>
+      <label class="device-item" style="border:none;padding:0.4rem 0;gap:0.5rem"><input type="checkbox" id="learn-also-record" checked><span style="font-size:0.82rem">Also record full side as FLAC</span></label>
+      <div style="margin-bottom:0.6rem"><div style="font-size:0.72rem;color:var(--muted);margin-bottom:0.2rem">Input level</div><div style="background:rgba(0,0,0,0.08);border-radius:3px;height:6px;overflow:hidden"><div id="learn-level-bar" style="height:100%;width:0%;background:var(--sage);transition:width 0.08s;border-radius:3px"></div></div></div>
       <div style="display:flex;gap:0.4rem"><button class="btn btn-primary" onclick="startLearnSession()">▶ Start</button><button class="btn btn-ghost" onclick="hideLearnOverlay()">Cancel</button></div>
     </div>
     <div id="learn-step-active" style="display:none">
-      <h2 style="font-size:1rem;margin-bottom:0.5rem">🎓 Learning…</h2>
-      <div style="background:var(--border);border-radius:3px;height:5px;margin-bottom:0.5rem"><div id="learn-progress-bar" style="height:100%;width:0%;background:var(--accent);border-radius:3px;transition:width 0.4s"></div></div>
+      <h2 style="font-family:var(--display-font);font-size:1rem;margin-bottom:0.5rem">🎓 Learning…</h2>
+      <div style="background:rgba(0,0,0,0.08);border-radius:3px;height:5px;margin-bottom:0.5rem"><div id="learn-progress-bar" style="height:100%;width:0%;background:var(--amber-dk);border-radius:3px;transition:width 0.4s"></div></div>
       <div id="learn-status-text" style="font-size:0.85rem;font-weight:600;margin-bottom:0.3rem"></div>
       <div id="learn-next-track" style="font-size:0.75rem;color:var(--muted);margin-bottom:0.5rem"></div>
       <div id="learn-track-list" style="font-size:0.78rem;max-height:180px;overflow-y:auto;margin-bottom:0.5rem"></div>
       <button class="btn btn-danger" onclick="stopLearnSession()">■ Stop</button>
     </div>
     <div id="learn-step-paused" style="display:none">
-      <h2 style="font-size:1rem;margin-bottom:0.5rem">⏸ Flip Record</h2>
+      <h2 style="font-family:var(--display-font);font-size:1rem;margin-bottom:0.5rem">⏸ Flip Record</h2>
       <div id="learn-pause-message" style="font-size:0.82rem;margin-bottom:0.5rem;line-height:1.4"></div>
       <div class="form-row"><label>Tracks on next side</label><input type="number" class="form-input" id="learn-continue-count" value="5" min="1" max="30" style="width:80px"></div>
       <div style="display:flex;gap:0.4rem"><button class="btn btn-primary" onclick="continueLearnSession()">▶ Continue</button><button class="btn btn-ghost" onclick="finishLearnSession()">✓ Done</button></div>
     </div>
     <div id="learn-step-done" style="display:none">
-      <h2 style="font-size:1rem;margin-bottom:0.5rem">✓ Learning Complete</h2>
+      <h2 style="font-family:var(--display-font);font-size:1rem;margin-bottom:0.5rem">✓ Learning Complete</h2>
       <div id="learn-done-message" style="font-size:0.82rem;margin-bottom:0.5rem"></div>
       <button class="btn btn-ghost" onclick="hideLearnOverlay()">Close</button>
     </div>
@@ -267,7 +359,7 @@
   <div class="modal">
     <button class="modal-x" onclick="hideAddForm()" title="Close">✕</button>
     <div id="add-step-search">
-      <h2 style="font-size:1rem;margin-bottom:0.6rem">Add Record</h2>
+      <h2 style="font-family:var(--display-font);font-size:1rem;margin-bottom:0.6rem">Add Record</h2>
       <div class="form-cols" style="margin-bottom:0.4rem">
         <div class="form-row"><label>Artist</label><input type="text" class="form-input" id="s-artist" placeholder="Pearl Jam" onkeydown="if(event.key==='Enter')doSearch()"></div>
         <div class="form-row"><label>Album</label><input type="text" class="form-input" id="s-album" placeholder="Ten" onkeydown="if(event.key==='Enter')doSearch()"></div>
@@ -280,13 +372,13 @@
       <div id="search-results"></div>
     </div>
     <div id="add-step-confirm" style="display:none">
-      <h2 style="font-size:1rem;margin-bottom:0.6rem">Confirm Tracks</h2>
+      <h2 style="font-family:var(--display-font);font-size:1rem;margin-bottom:0.6rem">Confirm Tracks</h2>
       <div id="confirm-album-header" style="margin-bottom:0.5rem"></div>
       <div id="confirm-tracks" style="margin-bottom:0.5rem;max-height:300px;overflow-y:auto"></div>
       <div style="display:flex;gap:0.4rem"><button class="btn btn-primary" onclick="saveRelease()">Save to Catalog</button><button class="btn btn-ghost" onclick="backToSearch()">← Back</button></div>
     </div>
     <div id="add-step-manual" style="display:none">
-      <h2 style="font-size:1rem;margin-bottom:0.6rem">Add Manually</h2>
+      <h2 style="font-family:var(--display-font);font-size:1rem;margin-bottom:0.6rem">Add Manually</h2>
       <div class="form-cols"><div class="form-row"><label>Album Title *</label><input type="text" class="form-input" id="m-album-title" placeholder="Abbey Road"></div><div class="form-row"><label>Artist *</label><input type="text" class="form-input" id="m-artist" placeholder="The Beatles"></div></div>
       <div class="form-cols"><div class="form-row"><label>Year</label><input type="number" class="form-input" id="m-year" placeholder="1969"></div><div class="form-row"><label>Genre</label><input type="text" class="form-input" id="m-genre" placeholder="Rock"></div></div>
       <div class="form-cols"><div class="form-row"><label>Label</label><input type="text" class="form-input" id="m-label" placeholder="Epic"></div><div class="form-row"><label>Notes</label><input type="text" class="form-input" id="m-notes" placeholder="UK pressing"></div></div>
@@ -301,16 +393,16 @@
 <div class="modal-overlay" id="settings-modal" onclick="if(event.target===this)hideSettings()">
   <div class="modal" style="max-width:420px">
     <button class="modal-x" onclick="hideSettings()" title="Close">✕</button>
-    <h2 style="font-size:1rem;margin-bottom:0.8rem">⚙ Settings</h2>
-    <div class="settings-section"><h3>AirPlay Devices</h3><div id="settings-device-list" style="margin-bottom:0.5rem"><div style="color:var(--muted);font-size:0.8rem">Press scan to find devices</div></div><button class="btn" onclick="scanDevices()">⟳ Scan for Devices</button><div style="margin-top:0.7rem;padding-top:0.5rem;border-top:1px solid var(--border)"><h4 style="font-size:0.8rem;color:var(--muted);margin-bottom:0.3rem">Hidden Devices</h4><div id="hidden-device-list" style="font-size:0.8rem;color:var(--muted)">Scan to manage</div></div></div>
+    <h2 style="font-family:var(--display-font);font-size:1rem;margin-bottom:0.8rem">⚙ Settings</h2>
+    <div class="settings-section"><h3>AirPlay Devices</h3><div id="settings-device-list" style="margin-bottom:0.5rem"><div style="color:var(--muted);font-size:0.82rem">Press scan to find devices</div></div><button class="btn" onclick="scanDevices()">⟳ Scan for Devices</button><div style="margin-top:0.7rem;padding-top:0.5rem;border-top:1px solid rgba(0,0,0,0.08)"><h4 style="font-size:0.78rem;color:var(--muted);margin-bottom:0.3rem">Hidden Devices</h4><div id="hidden-device-list" style="font-size:0.82rem;color:var(--muted)">Scan to manage</div></div></div>
     <div class="settings-section"><h3>Vinyl Streaming</h3>
       <div style="display:flex;gap:0.4rem;margin-bottom:0.5rem"><button class="btn btn-primary" id="btn-start-stream" onclick="startStream()">▶ Start Streaming</button><button class="btn btn-danger" id="btn-stop-stream" onclick="stopStream()" style="display:none">■ Stop</button></div>
-      <label class="device-item" style="border:none;padding:0.3rem 0;gap:0.5rem"><input type="checkbox" id="auto-stream-enabled" onchange="saveAutoStreamSettings()"><span style="font-size:0.8rem">Auto-stream when record plays</span></label>
+      <label class="device-item" style="border:none;padding:0.3rem 0;gap:0.5rem"><input type="checkbox" id="auto-stream-enabled" onchange="saveAutoStreamSettings()"><span style="font-size:0.82rem">Auto-stream when record plays</span></label>
       <div class="form-row" style="margin-top:0.3rem"><label>Default device</label><div style="display:flex;gap:0.4rem;align-items:center"><select class="form-input" id="auto-stream-device-select" onchange="saveAutoStreamSettings()" style="flex:1"><option value="">— Select —</option></select><button class="btn btn-ghost" onclick="scanAutoStreamDevices()" style="padding:0.3rem 0.5rem">↺</button></div></div>
       <div id="auto-stream-status" style="font-size:0.72rem;color:var(--muted);margin-top:0.2rem"></div>
     </div>
     <div class="settings-section"><h3>Audio Input</h3><select class="form-input" id="audio-select"><option value="">Loading…</option></select></div>
-    <div class="settings-section"><h3>Discogs Token</h3><p style="font-size:0.75rem;color:var(--muted);margin-bottom:0.4rem;line-height:1.4">Optional — increases rate limits and enables cover art. <a href="https://www.discogs.com/settings/developers" target="_blank" style="color:var(--accent)">Get token</a></p><div style="display:flex;gap:0.4rem;align-items:center"><input type="password" class="form-input" id="discogs-token" placeholder="Paste token" style="flex:1"><button class="btn btn-accent" onclick="saveDiscogsToken()">Save</button></div><span id="discogs-saved" style="display:none;color:var(--green);font-size:0.75rem">✓ Saved</span></div>
+    <div class="settings-section"><h3>Discogs Token</h3><p style="font-size:0.75rem;color:var(--muted);margin-bottom:0.4rem;line-height:1.4">Optional — increases rate limits and enables cover art. <a href="https://www.discogs.com/settings/developers" target="_blank" style="color:var(--amber-dk)">Get token</a></p><div style="display:flex;gap:0.4rem;align-items:center"><input type="password" class="form-input" id="discogs-token" placeholder="Paste token" style="flex:1"><button class="btn btn-accent" onclick="saveDiscogsToken()">Save</button></div><span id="discogs-saved" style="display:none;color:var(--sage);font-size:0.75rem">✓ Saved</span></div>
     <button class="btn btn-ghost" onclick="hideSettings()" style="width:100%;margin-top:0.5rem">Close</button>
   </div>
 </div>
@@ -429,17 +521,17 @@ function playAlbumFromModal(){if(currentAlbumId){playAlbum(currentAlbumId);close
 
 function renderModalTracks(tracks,reorder){
   const c=document.getElementById('modal-tracks');c.classList.toggle('reorder-mode',reorder);
-  if(!tracks.length){c.innerHTML='<div style="color:var(--muted);font-size:0.8rem;padding:0.5rem 0">No tracks</div>';return}
+  if(!tracks.length){c.innerHTML='<div style="color:var(--muted);font-size:0.82rem;padding:0.5rem 0">No tracks</div>';return}
   const sides={};tracks.forEach(t=>{if(!sides[t.side])sides[t.side]=[];sides[t.side].push(t)});
   let h='';Object.keys(sides).sort().forEach(side=>{
     h+=`<div class="side-label">Side ${side}</div>`;
     sides[side].forEach((t,i)=>{
       const dur=t.duration_secs?fmtTime(t.duration_secs):'';
       const learned=(t.fingerprint_count||0)>0;
-      const fp=learned?`<span style="color:var(--green);font-size:0.68rem">\u2713 ${t.fingerprint_count}fp</span>`:'<span style="color:var(--muted);font-size:0.68rem">unlearned</span>';
+      const fp=learned?`<span style="color:var(--sage);font-size:0.68rem">\u2713 ${t.fingerprint_count}fp</span>`:'<span style="color:var(--muted);font-size:0.68rem">unlearned</span>';
       const handle=reorder?'<span class="drag-handle">\u2807</span>':'';
       const click=t.start_secs!=null&&!reorder?`onclick="seekToTrack(${t.id})"`:'';
-      h+=`<div class="track-row" data-id="${t.id}" data-idx="${i}" ${click}>${handle}<span class="track-num">${esc(t.track_number||'')}</span><span style="flex:1">${esc(t.title)}</span>${fp}<span style="color:var(--muted);font-size:0.7rem;min-width:2.5rem;text-align:right">${dur}</span></div>`;
+      h+=`<div class="track-row" data-id="${t.id}" data-idx="${i}" ${click}>${handle}<span class="track-num">${esc(t.track_number||'')}</span><span style="flex:1">${esc(t.title)}</span>${fp}<span style="color:var(--muted);font-size:0.72rem;min-width:2.5rem;text-align:right">${dur}</span></div>`;
     });
   });
   c.innerHTML=h;if(reorder)initDragReorder();
@@ -486,8 +578,8 @@ async function stopLearnSession(){await fetch('/api/learn/stop',{method:'POST'})
 async function continueLearnSession(){const c=parseInt(document.getElementById('learn-continue-count').value)||1;const r=await fetch('/api/learn/continue',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({track_count:c})}).then(r=>r.json());if(!r.ok){showError(r.error);return}showLearnStep('active')}
 function finishLearnSession(){fetch('/api/learn/stop',{method:'POST'});showLearnStep('done');document.getElementById('learn-done-message').textContent=`${_learnLog.length} track(s) learned this session.`}
 function onLearnAudioDetected(d){document.getElementById('learn-status-text').textContent=`\u23FA Track ${d.learned+1} of ${d.track_count} \u2014 recording\u2026`;document.getElementById('learn-next-track').textContent=d.next_track?`Capturing: ${d.next_track}`:''}
-function onLearnUpdate(d){showLearnStep('active');document.getElementById('learn-progress-bar').style.width=Math.round((d.learned/d.track_count)*100)+'%';document.getElementById('learn-status-text').textContent=d.message||'';document.getElementById('learn-next-track').textContent=d.next_track?`Next: ${d.next_track}`:'';if(d.learned>_learnLog.length){_learnLog.push(d.learned_track||`Track ${d.learned}`);const el=document.getElementById('learn-track-list');el.innerHTML=_learnLog.map((n,i)=>`<div style="padding:0.15rem 0;color:var(--green)">\u2713 Track ${i+1}: ${esc(n)}</div>`).join('');el.scrollTop=el.scrollHeight}if(d.album_id)refreshModalTracks(d.album_id)}
-function onLearnPaused(d){showLearnStep('paused');document.getElementById('learn-pause-message').innerHTML=`<strong>${d.learned} track(s) learned</strong><br>${esc(d.message||'')}`+(d.remaining_in_album>0?`<br><span style="color:var(--muted)">${d.remaining_in_album} tracks still unlearned.</span>`:'<br><span style="color:var(--green)">All tracks learned!</span>');if(d.remaining_in_album>0&&d.remaining_in_album<=10)document.getElementById('learn-continue-count').value=d.remaining_in_album;if(d.album_id)refreshModalTracks(d.album_id)}
+function onLearnUpdate(d){showLearnStep('active');document.getElementById('learn-progress-bar').style.width=Math.round((d.learned/d.track_count)*100)+'%';document.getElementById('learn-status-text').textContent=d.message||'';document.getElementById('learn-next-track').textContent=d.next_track?`Next: ${d.next_track}`:'';if(d.learned>_learnLog.length){_learnLog.push(d.learned_track||`Track ${d.learned}`);const el=document.getElementById('learn-track-list');el.innerHTML=_learnLog.map((n,i)=>`<div style="padding:0.15rem 0;color:var(--sage)">\u2713 Track ${i+1}: ${esc(n)}</div>`).join('');el.scrollTop=el.scrollHeight}if(d.album_id)refreshModalTracks(d.album_id)}
+function onLearnPaused(d){showLearnStep('paused');document.getElementById('learn-pause-message').innerHTML=`<strong>${d.learned} track(s) learned</strong><br>${esc(d.message||'')}`+(d.remaining_in_album>0?`<br><span style="color:var(--muted)">${d.remaining_in_album} tracks still unlearned.</span>`:'<br><span style="color:var(--sage)">All tracks learned!</span>');if(d.remaining_in_album>0&&d.remaining_in_album<=10)document.getElementById('learn-continue-count').value=d.remaining_in_album;if(d.album_id)refreshModalTracks(d.album_id)}
 function onLearnDone(d){showLearnStep('done');document.getElementById('learn-done-message').textContent=d.message||`${d.learned||0} track(s) learned.`;if(d.album_id)refreshModalTracks(d.album_id);loadCatalog()}
 function onLearnEndOfSide(d){const rem=d.track_count-d.learned;if(rem>0){document.getElementById('learn-pause-message').innerHTML=`\u2713 Learned <strong>${d.learned}</strong> of <strong>${d.track_count}</strong> tracks.<br>End of side detected \u2014 flip the record and press Continue.`;document.getElementById('learn-continue-count').value=rem;showLearnStep('paused')}else{document.getElementById('learn-done-message').textContent=`All ${d.learned} tracks learned successfully.`;showLearnStep('done');loadCatalog()}}
 
@@ -496,7 +588,7 @@ function hideAddForm(){document.getElementById('add-modal').classList.remove('op
 function showAddStep(s){['search','confirm','manual'].forEach(x=>document.getElementById('add-step-'+x).style.display=(x===s)?'block':'none')}
 function backToSearch(){showAddStep('search')}
 function showManualStep(){showAddStep('manual')}
-async function doSearch(){const a=document.getElementById('s-artist').value.trim(),al=document.getElementById('s-album').value.trim();if(!a&&!al){showError('Enter an artist or album');return}const btn=document.getElementById('btn-search');btn.disabled=true;btn.textContent='Searching\u2026';try{const r=await fetch(`/api/catalog/search/discogs?artist=${encodeURIComponent(a)}&album=${encodeURIComponent(al)}`).then(r=>r.json());const el=document.getElementById('search-results');if(!r.releases||!r.releases.length){el.innerHTML='<div style="color:var(--muted);font-size:0.82rem;padding:0.5rem 0">No results. Try different terms or enter manually.</div>';return}el.innerHTML=r.releases.map((r,i)=>{const art=r.thumb?`<img src="${r.thumb}" style="width:40px;height:40px;border-radius:4px;object-fit:cover">`:'<div style="width:40px;height:40px;border-radius:4px;background:var(--border);display:flex;align-items:center;justify-content:center">\uD83D\uDCBF</div>';return `<div style="display:flex;gap:0.5rem;align-items:center;padding:0.4rem 0;border-bottom:1px solid var(--border);cursor:pointer" onclick="selectResult(${i})">${art}<div style="flex:1;min-width:0"><div style="font-size:0.82rem;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.title)}</div><div style="font-size:0.72rem;color:var(--muted)">${esc(r.artist||'')}${r.year?' \xB7 '+r.year:''}${r.label?' \xB7 '+esc(r.label):''}${r.country?' \xB7 '+r.country:''}</div></div></div>`}).join('');window._searchResults=r.releases}catch(e){showError('Search failed: '+e.message)}finally{btn.disabled=false;btn.textContent='Search Discogs'}}
+async function doSearch(){const a=document.getElementById('s-artist').value.trim(),al=document.getElementById('s-album').value.trim();if(!a&&!al){showError('Enter an artist or album');return}const btn=document.getElementById('btn-search');btn.disabled=true;btn.textContent='Searching\u2026';try{const r=await fetch(`/api/catalog/search/discogs?artist=${encodeURIComponent(a)}&album=${encodeURIComponent(al)}`).then(r=>r.json());const el=document.getElementById('search-results');if(!r.releases||!r.releases.length){el.innerHTML='<div style="color:var(--muted);font-size:0.82rem;padding:0.5rem 0">No results. Try different terms or enter manually.</div>';return}el.innerHTML=r.releases.map((r,i)=>{const art=r.thumb?`<img src="${r.thumb}" style="width:44px;height:44px;border-radius:4px;object-fit:cover">`:'<div style="width:44px;height:44px;border-radius:4px;background:var(--paper-dk);display:flex;align-items:center;justify-content:center">\uD83D\uDCBF</div>';return `<div style="display:flex;gap:0.5rem;align-items:center;padding:0.45rem 0;border-bottom:1px solid rgba(0,0,0,0.06);cursor:pointer" onclick="selectResult(${i})">${art}<div style="flex:1;min-width:0"><div style="font-size:0.82rem;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.title)}</div><div style="font-size:0.72rem;color:var(--muted)">${esc(r.artist||'')}${r.year?' \xB7 '+r.year:''}${r.label?' \xB7 '+esc(r.label):''}${r.country?' \xB7 '+r.country:''}</div></div></div>`}).join('');window._searchResults=r.releases}catch(e){showError('Search failed: '+e.message)}finally{btn.disabled=false;btn.textContent='Search Discogs'}}
 async function selectResult(idx){const r=window._searchResults[idx];if(!r)return;try{const d=await fetch(`/api/catalog/release/discogs/${r.id}`).then(r=>r.json());if(!d.release){showError('Could not load details');return}_pendingRelease=d.release;document.getElementById('confirm-album-header').innerHTML=`<div style="font-weight:600">${esc(d.release.title)}</div><div style="font-size:0.78rem;color:var(--muted)">${esc(d.release.artist||'')}${d.release.year?' \xB7 '+d.release.year:''}${d.release.label?' \xB7 '+esc(d.release.label):''}</div>`;const sides={};(d.release.tracks||[]).forEach(t=>{if(!sides[t.side])sides[t.side]=[];sides[t.side].push(t)});Object.keys(sides).forEach(s=>sides[s].sort((a,b)=>parseInt(a.track_number||0)-parseInt(b.track_number||0)));let h='';Object.keys(sides).sort().forEach(side=>{h+=`<div class="side-label">Side ${side}</div>`;sides[side].forEach(t=>{const dur=t.duration_secs?fmtTime(t.duration_secs):'';h+=`<div class="track-row"><span class="track-num">${esc(t.track_number||'')}</span><span style="flex:1">${esc(t.title)}</span><span style="color:var(--muted);font-size:0.72rem">${dur}</span></div>`})});document.getElementById('confirm-tracks').innerHTML=h;showAddStep('confirm')}catch(e){showError('Failed: '+e.message)}}
 async function saveRelease(){if(!_pendingRelease)return;const r=await fetch('/api/catalog/release',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({release:_pendingRelease})}).then(r=>r.json());if(r.ok){hideAddForm();loadCatalog()}else showError(r.error||'Failed to save')}
 async function submitManual(){const t=document.getElementById('m-album-title').value.trim(),a=document.getElementById('m-artist').value.trim();if(!t||!a){showError('Album title and artist required');return}const ta=document.getElementById('m-tracks-a').value.split('\n').map(s=>s.trim()).filter(Boolean).map((x,i)=>({title:x,side:'A',track_number:String(i+1)}));const tb=document.getElementById('m-tracks-b').value.split('\n').map(s=>s.trim()).filter(Boolean).map((x,i)=>({title:x,side:'B',track_number:String(i+1)}));const tracks=[...ta,...tb];if(!tracks.length){showError('Enter at least one track');return}const r=await fetch('/api/catalog/manual',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({album_title:t,album_artist:a,year:parseInt(document.getElementById('m-year').value)||null,genre:document.getElementById('m-genre').value.trim()||null,label:document.getElementById('m-label').value.trim()||null,notes:document.getElementById('m-notes').value.trim()||null,tracks})}).then(r=>r.json());if(r.ok){hideAddForm();loadCatalog()}else showError(r.error||'Failed')}
@@ -504,12 +596,12 @@ async function submitManual(){const t=document.getElementById('m-album-title').v
 function showSettings(){document.getElementById('settings-modal').classList.add('open')}
 function hideSettings(){document.getElementById('settings-modal').classList.remove('open')}
 async function scanDevices(){try{const d=await fetch('/api/scan').then(r=>r.json());renderSettingsDevices(d.devices);renderHiddenDevices(d.devices)}catch(e){showError('Scan failed')}}
-function renderSettingsDevices(devs){const l=document.getElementById('settings-device-list');const v=(devs||[]).filter(d=>!d.hidden);if(!v.length){l.innerHTML='<div style="color:var(--muted);font-size:0.8rem">No devices found</div>';return}l.innerHTML=v.map(d=>{const np=d.needs_pairing&&d.paired===false;return `<label class="device-item" style="opacity:${np?'0.6':'1'}"><input type="checkbox" class="dev-check" value='${JSON.stringify({id:d.id,name:d.name}).replace(/'/g,"&apos;")}'><span style="flex:1">${esc(d.name)}</span>${np?`<button class="btn btn-ghost" onclick="pairDevice('${d.id}')">Pair</button>`:''}</label>`}).join('')}
+function renderSettingsDevices(devs){const l=document.getElementById('settings-device-list');const v=(devs||[]).filter(d=>!d.hidden);if(!v.length){l.innerHTML='<div style="color:var(--muted);font-size:0.82rem">No devices found</div>';return}l.innerHTML=v.map(d=>{const np=d.needs_pairing&&d.paired===false;return `<label class="device-item" style="opacity:${np?'0.6':'1'}"><input type="checkbox" class="dev-check" value='${JSON.stringify({id:d.id,name:d.name}).replace(/'/g,"&apos;")}'><span style="flex:1">${esc(d.name)}</span>${np?`<button class="btn btn-ghost" onclick="pairDevice('${d.id}')">Pair</button>`:''}</label>`}).join('')}
 function getSelectedDevices(){return[...document.querySelectorAll('.dev-check:checked')].map(c=>JSON.parse(c.value))}
 async function startStream(){const devs=getSelectedDevices();if(!devs.length){showError('Select at least one device');return}await fetch('/api/start',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({devices:devs,volume:parseInt(document.getElementById('eq-volume').value)})})}
 async function stopStream(){await fetch('/api/stop',{method:'POST'})}
 async function pairDevice(did){const r=await fetch('/api/pair',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({device_id:did,protocol:'raop'})}).then(r=>r.json());if(r.ok){showToast('Check device for PIN');const pin=prompt('Enter PIN:');if(pin){const f=await fetch('/api/pair',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({device_id:did,protocol:'raop',pin})}).then(r=>r.json());if(f.ok){showToast('Paired!');scanDevices()}else showError(f.error||'Failed')}}else showError(r.error||'Failed')}
-function renderHiddenDevices(devs){const l=document.getElementById('hidden-device-list');if(!devs||!devs.length){l.innerHTML='<div style="color:var(--muted);font-size:0.8rem">Scan to manage</div>';return}l.innerHTML=devs.map(d=>`<label class="device-item" style="gap:0.5rem"><input type="checkbox" ${d.hidden?'checked':''} onchange="toggleHidden('${d.id}',this.checked)" style="accent-color:var(--red)"><span style="font-size:0.8rem">${esc(d.name)}${d.hidden?' (hidden)':''}</span></label>`).join('')}
+function renderHiddenDevices(devs){const l=document.getElementById('hidden-device-list');if(!devs||!devs.length){l.innerHTML='<div style="color:var(--muted);font-size:0.82rem">Scan to manage</div>';return}l.innerHTML=devs.map(d=>`<label class="device-item" style="gap:0.5rem"><input type="checkbox" ${d.hidden?'checked':''} onchange="toggleHidden('${d.id}',this.checked)" style="accent-color:var(--rust)"><span style="font-size:0.82rem">${esc(d.name)}${d.hidden?' (hidden)':''}</span></label>`).join('')}
 async function toggleHidden(did,hide){await fetch('/api/device/hide',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({device_id:did,hidden:hide})})}
 async function saveAutoStreamSettings(){const en=document.getElementById('auto-stream-enabled').checked,sel=document.getElementById('auto-stream-device-select'),opt=sel.options[sel.selectedIndex],dev=opt&&opt.value?{id:opt.value,name:opt.textContent}:null;await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({auto_stream_enabled:en,auto_stream_device:dev})});document.getElementById('auto-stream-status').textContent=en&&dev?`Auto-streaming to: ${dev.name}`:''}
 async function scanAutoStreamDevices(){const sel=document.getElementById('auto-stream-device-select');sel.innerHTML='<option value="">Scanning\u2026</option>';try{const d=await fetch('/api/scan').then(r=>r.json());sel.innerHTML='<option value="">\u2014 Select \u2014</option>';(d.devices||[]).filter(d=>!d.hidden).forEach(d=>{const o=document.createElement('option');o.value=d.id;o.textContent=d.name;sel.appendChild(o)});if(window._savedAutoStreamDevice)sel.value=window._savedAutoStreamDevice.id}catch(e){sel.innerHTML='<option value="">Scan failed</option>'}}
@@ -530,4 +622,6 @@ async function init(){
   loadCatalog();
 }
 init();
-</script></body></html>
+</script>
+</body>
+</html>
