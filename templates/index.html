@@ -1181,6 +1181,11 @@
       ).join('');
       logEl.scrollTop = logEl.scrollHeight;  // auto-scroll to latest
     }
+
+    // Refresh the album track list so fingerprint badges update live
+    if (currentAlbumId && data.album_id === currentAlbumId) {
+      refreshModalTracks(currentAlbumId);
+    }
   }
 
   function onLearnPaused(data) {
@@ -1194,12 +1199,14 @@
     if (data.remaining_in_album > 0 && data.remaining_in_album <= 10) {
       document.getElementById('learn-continue-count').value = data.remaining_in_album;
     }
+    if (currentAlbumId) refreshModalTracks(currentAlbumId);
   }
 
   function onLearnDone(data) {
     showLearnStep('done');
     document.getElementById('learn-done-message').textContent =
       data.message || `${data.learned || 0} track(s) learned.`;
+    if (currentAlbumId) refreshModalTracks(currentAlbumId);
   }
 
   // ── Recording ─────────────────────────────────────────────────────────────
@@ -1395,6 +1402,9 @@
         : '';
       const plays     = (!reorderMode && t.play_count)
         ? `<span style="color:var(--muted);font-size:0.72rem;margin-left:auto">${t.play_count}▶</span>` : '';
+      const dur       = t.duration_secs > 0
+        ? `<span style="color:var(--muted);font-size:0.72rem;margin-left:auto;white-space:nowrap">${Math.floor(t.duration_secs/60)}:${String(t.duration_secs%60).padStart(2,'0')}</span>`
+        : '';
       const handle    = reorderMode
         ? `<span class="drag-handle" title="Drag to reorder">⠿</span>` : '';
       const numLabel  = reorderMode
@@ -1406,11 +1416,21 @@
                    ${reorderMode ? 'draggable="true"' : ''}>
         ${handle}${numLabel}
         <span style="flex:1">${esc(t.title)}${badge}</span>
-        ${plays}${clearBtn}
+        ${dur}${plays}${clearBtn}
       </div>`;
     }).join('');
 
     if (reorderMode) _attachDragHandlers(container);
+  }
+
+  async function refreshModalTracks(albumId) {
+    try {
+      const data = await fetch(`/api/catalog/${albumId}/tracks`).then(r => r.json());
+      if (!data.tracks) return;
+      data.tracks.sort((a,b) => (a.side||'').localeCompare(b.side||'') || parseInt(a.track_number||0) - parseInt(b.track_number||0));
+      window._modalTracks = data.tracks.slice();
+      renderModalTracks(window._modalTracks, _reorderMode);
+    } catch(e) { /* silent — non-critical UI refresh */ }
   }
 
   function _attachDragHandlers(container) {

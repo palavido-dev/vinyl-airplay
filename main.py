@@ -1936,6 +1936,7 @@ class LearnSession:
         else:
             asyncio.run_coroutine_threadsafe(
                 broadcast("learn_update", {
+                    "album_id":      self.album_id,
                     "learned":       self.learned,
                     "track_count":   self.track_count,
                     "learned_track": just_learned_name,
