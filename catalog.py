@@ -1679,6 +1679,21 @@ def update_track_timestamps(track_id: int, start_secs: float, end_secs: float):
         db.close()
 
 
+def update_track_duration(track_id: int, duration_secs: float):
+    """Update a track's duration from actual recorded length."""
+    db = get_db()
+    try:
+        db.execute(
+            "UPDATE tracks SET duration_secs = ? WHERE id = ?",
+            (round(duration_secs), track_id)
+        )
+        db.commit()
+    except Exception as e:
+        print(f"[catalog] update_track_duration failed: {e}")
+    finally:
+        db.close()
+
+
 def delete_album_audio(album_id: int) -> int:
     """Delete all audio files and DB records for an album. Returns files deleted."""
     db = get_db()

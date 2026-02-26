@@ -1835,6 +1835,9 @@ class LearnSession:
 
         rows = cat.save_track_fingerprints(track_id, raw_ints, duration)
 
+        # Save the actual recorded duration to the track (backfills missing Discogs data)
+        cat.update_track_duration(track_id, duration)
+
         # Capture the name of the track we just learned BEFORE advancing the pointer
         just_learned_name = self.next_track_name()
 
