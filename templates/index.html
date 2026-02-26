@@ -51,7 +51,7 @@
   .album-card .album-meta .title { font-size: 0.78rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .album-card .album-meta .artist { font-size: 0.7rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .catalog-empty { text-align: center; color: var(--muted); padding: 3rem 1rem; font-size: 0.9rem; }
-  .np-footer { flex-shrink: 0; background: var(--surface); border-top: 1px solid var(--border); padding: 0.6rem 0.8rem 0.5rem; box-shadow: 0 -2px 12px rgba(0,0,0,0.08); }
+  .np-footer { flex-shrink: 0; background: var(--surface); border-bottom: 1px solid var(--border); padding: 0.6rem 0.8rem 0.5rem; box-shadow: 0 2px 12px rgba(0,0,0,0.08); }
   .np-footer.hidden { display: none; }
   .np-row { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.4rem; }
   .np-art { width: 48px; height: 48px; border-radius: 6px; object-fit: cover; background: var(--border); flex-shrink: 0; }
@@ -133,9 +133,8 @@
   <input type="search" class="search-bar" id="catalog-search" placeholder="Search collection…" oninput="filterCatalog(this.value)">
 </div>
 <div class="status-bar"><span class="status-dot" id="dot"></span><span id="status-text">Connecting…</span></div>
-<div class="main-content" id="main-content"><div class="album-grid" id="album-grid"><div class="catalog-empty">Loading catalog…</div></div></div>
 
-<!-- Now Playing Footer -->
+<!-- Now Playing Bar -->
 <div class="np-footer hidden" id="np-footer">
   <div class="np-row">
     <div class="np-art-placeholder" id="np-art-wrap">🎵</div>
@@ -161,6 +160,8 @@
     <div class="eq-group"><span class="eq-label">Vol</span><input type="range" class="eq-slider" id="eq-volume" min="0" max="100" value="80" step="1" oninput="sendVolume()"></div>
   </div>
 </div>
+
+<div class="main-content" id="main-content"><div class="album-grid" id="album-grid"><div class="catalog-empty">Loading catalog…</div></div></div>
 
 <!-- Album Detail Modal -->
 <div class="modal-overlay" id="album-modal" onclick="if(event.target===this)closeModal()">
@@ -295,7 +296,7 @@
 <div class="modal-overlay" id="settings-modal" onclick="if(event.target===this)hideSettings()">
   <div class="modal" style="max-width:420px">
     <h2 style="font-size:1rem;margin-bottom:0.8rem">⚙ Settings</h2>
-    <div class="settings-section"><h3>AirPlay Devices</h3><div id="settings-device-list" style="margin-bottom:0.5rem"><div style="color:var(--muted);font-size:0.8rem">Press scan to find devices</div></div><button class="btn" onclick="scanDevices()">⟳ Scan for Devices</button></div>
+    <div class="settings-section"><h3>AirPlay Devices</h3><div id="settings-device-list" style="margin-bottom:0.5rem"><div style="color:var(--muted);font-size:0.8rem">Press scan to find devices</div></div><button class="btn" onclick="scanDevices()">⟳ Scan for Devices</button><div style="margin-top:0.7rem;padding-top:0.5rem;border-top:1px solid var(--border)"><h4 style="font-size:0.8rem;color:var(--muted);margin-bottom:0.3rem">Hidden Devices</h4><div id="hidden-device-list" style="font-size:0.8rem;color:var(--muted)">Scan to manage</div></div></div>
     <div class="settings-section"><h3>Vinyl Streaming</h3>
       <div style="display:flex;gap:0.4rem;margin-bottom:0.5rem"><button class="btn btn-primary" id="btn-start-stream" onclick="startStream()">▶ Start Streaming</button><button class="btn btn-danger" id="btn-stop-stream" onclick="stopStream()" style="display:none">■ Stop</button></div>
       <label class="device-item" style="border:none;padding:0.3rem 0;gap:0.5rem"><input type="checkbox" id="auto-stream-enabled" onchange="saveAutoStreamSettings()"><span style="font-size:0.8rem">Auto-stream when record plays</span></label>
@@ -304,7 +305,6 @@
     </div>
     <div class="settings-section"><h3>Audio Input</h3><select class="form-input" id="audio-select"><option value="">Loading…</option></select></div>
     <div class="settings-section"><h3>Discogs Token</h3><p style="font-size:0.75rem;color:var(--muted);margin-bottom:0.4rem;line-height:1.4">Optional — increases rate limits and enables cover art. <a href="https://www.discogs.com/settings/developers" target="_blank" style="color:var(--accent)">Get token</a></p><div style="display:flex;gap:0.4rem;align-items:center"><input type="password" class="form-input" id="discogs-token" placeholder="Paste token" style="flex:1"><button class="btn btn-accent" onclick="saveDiscogsToken()">Save</button></div><span id="discogs-saved" style="display:none;color:var(--green);font-size:0.75rem">✓ Saved</span></div>
-    <div class="settings-section"><h3>Hidden Devices</h3><div id="hidden-device-list" style="font-size:0.8rem;color:var(--muted)">Scan to manage</div></div>
     <button class="btn btn-ghost" onclick="hideSettings()" style="width:100%;margin-top:0.5rem">Close</button>
   </div>
 </div>
