@@ -76,6 +76,9 @@
   .eq-slider::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; border-radius: 50%; background: var(--accent); border: 2px solid var(--surface); cursor: pointer; }
   .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(59,42,26,0.55); z-index: 100; overflow-y: auto; padding: 0.75rem; backdrop-filter: blur(3px); }
   .modal-overlay.open { display: flex; align-items: flex-start; justify-content: center; }
+  .modal { position: relative; }
+  .modal-x { position: absolute; top: 0.5rem; right: 0.6rem; background: none; border: none; font-size: 1.3rem; color: var(--muted); cursor: pointer; padding: 0.2rem 0.4rem; line-height: 1; z-index: 5; border-radius: 4px; }
+  .modal-x:hover { background: var(--border); color: var(--text); }
   .modal { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 1.2rem; width: 100%; max-width: 440px; margin-top: 1.5rem; box-shadow: 0 8px 32px rgba(0,0,0,0.2); }
   .modal-header { display: flex; align-items: flex-start; gap: 0.8rem; margin-bottom: 0.8rem; }
   .modal-art { width: 80px; height: 80px; border-radius: 8px; object-fit: cover; background: var(--border); flex-shrink: 0; }
@@ -166,6 +169,7 @@
 <!-- Album Detail Modal -->
 <div class="modal-overlay" id="album-modal" onclick="if(event.target===this)closeModal()">
   <div class="modal">
+    <button class="modal-x" onclick="closeModal()" title="Close">✕</button>
     <div id="modal-detail">
       <div class="modal-header">
         <img id="modal-art" class="modal-art" src="" alt="" onerror="this.style.display='none'">
@@ -214,9 +218,9 @@
         <button class="btn btn-primary" onclick="playAlbumFromModal()" id="btn-modal-play">▶ Play</button>
         <button class="btn btn-accent" onclick="openLearnForAlbum()" id="btn-modal-learn">🎓 Learn</button>
         <button class="btn" onclick="showAlbumRecPanel()" id="btn-modal-rec">🎙 Record</button>
-        <label class="btn" style="cursor:pointer">📷<input type="file" accept="image/*" style="display:none" onchange="uploadArtwork(event)"></label>
-        <button class="btn btn-ghost" onclick="toggleReorderMode()" id="btn-reorder">⇅</button>
-        <button class="btn btn-ghost" onclick="clearAlbumFingerprints()">🗑fp</button>
+        <label class="btn" style="cursor:pointer" title="Upload album artwork">📷 Photo<input type="file" accept="image/*" style="display:none" onchange="uploadArtwork(event)"></label>
+        <button class="btn btn-ghost" onclick="toggleReorderMode()" id="btn-reorder" title="Reorder tracks">⇅ Reorder</button>
+        <button class="btn btn-ghost" onclick="clearAlbumFingerprints()" title="Clear learned fingerprints">🗑 Clear FP</button>
         <button class="btn btn-ghost" style="color:var(--red)" onclick="deleteAlbum()">Delete</button>
         <button class="btn btn-ghost" onclick="closeModal()" style="margin-left:auto">Close</button>
       </div>
@@ -261,6 +265,7 @@
 <!-- Add Record Modal -->
 <div class="modal-overlay" id="add-modal" onclick="if(event.target===this)hideAddForm()">
   <div class="modal">
+    <button class="modal-x" onclick="hideAddForm()" title="Close">✕</button>
     <div id="add-step-search">
       <h2 style="font-size:1rem;margin-bottom:0.6rem">Add Record</h2>
       <div class="form-cols" style="margin-bottom:0.4rem">
@@ -295,6 +300,7 @@
 <!-- Settings Modal -->
 <div class="modal-overlay" id="settings-modal" onclick="if(event.target===this)hideSettings()">
   <div class="modal" style="max-width:420px">
+    <button class="modal-x" onclick="hideSettings()" title="Close">✕</button>
     <h2 style="font-size:1rem;margin-bottom:0.8rem">⚙ Settings</h2>
     <div class="settings-section"><h3>AirPlay Devices</h3><div id="settings-device-list" style="margin-bottom:0.5rem"><div style="color:var(--muted);font-size:0.8rem">Press scan to find devices</div></div><button class="btn" onclick="scanDevices()">⟳ Scan for Devices</button><div style="margin-top:0.7rem;padding-top:0.5rem;border-top:1px solid var(--border)"><h4 style="font-size:0.8rem;color:var(--muted);margin-bottom:0.3rem">Hidden Devices</h4><div id="hidden-device-list" style="font-size:0.8rem;color:var(--muted)">Scan to manage</div></div></div>
     <div class="settings-section"><h3>Vinyl Streaming</h3>
