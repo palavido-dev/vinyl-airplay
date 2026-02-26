@@ -283,13 +283,28 @@ class RecordingBuffer:
                 # Check if accumulated audio meets expected track duration before splitting.
                 # If we know the track should be ~3 min, don't split after 45 seconds of audio
                 # just because there was a quiet passage.
+                with self._lock:
+                    accumulated_secs = self._silence_start_byte / (SAMPLE_RATE * CHANNELS * 2)
+
                 if self.expected_track_secs > 0:
-                    with self._lock:
-                        accumulated_secs = self._silence_start_byte / (SAMPLE_RATE * CHANNELS * 2)
                     min_secs = self.expected_track_secs * 0.45  # allow 45% tolerance
                     if accumulated_secs < min_secs:
                         print(f"[recorder] Suppressed split: {accumulated_secs:.0f}s captured"
                               f" < {min_secs:.0f}s (45% of expected {self.expected_track_secs:.0f}s)"
+                              f" — treating as quiet passage")
+                        self._silence_secs       = 0.0
+                        self._silence_start_byte = 0
+                        return
+                elif self.remaining_tracks > 1:
+                    # No duration data available — use a conservative fallback.
+                    # The shortest vinyl tracks are ~90s; if we haven't accumulated
+                    # that much audio yet and more tracks remain on this side,
+                    # this is almost certainly a quiet passage, not a track gap.
+                    FALLBACK_MIN_SECS = 90
+                    if accumulated_secs < FALLBACK_MIN_SECS:
+                        print(f"[recorder] Suppressed split: {accumulated_secs:.0f}s captured"
+                              f" < {FALLBACK_MIN_SECS}s fallback (no duration data,"
+                              f" {self.remaining_tracks} tracks remain)"
                               f" — treating as quiet passage")
                         self._silence_secs       = 0.0
                         self._silence_start_byte = 0
