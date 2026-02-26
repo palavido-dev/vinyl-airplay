@@ -1568,6 +1568,8 @@ def update_album_artwork(album_id: int, path: str, user: bool = True):
 
 
 def delete_album(album_id: int):
+    # Delete associated FLAC files and album_audio records first
+    delete_album_audio(album_id)
     db = get_db()
     try:
         db.execute("DELETE FROM albums WHERE id = ?", (album_id,))
