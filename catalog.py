@@ -121,6 +121,7 @@ CREATE INDEX IF NOT EXISTS idx_album_audio  ON album_audio(album_id);
 def get_db() -> sqlite3.Connection:
     db = sqlite3.connect(DB_PATH, check_same_thread=False)
     db.row_factory = sqlite3.Row
+    db.execute("PRAGMA foreign_keys=ON")
     return db
 
 
@@ -132,6 +133,25 @@ def init_db():
     # Migrations for existing databases — add columns if missing
     _migrate_db(db)
     db.commit()
+
+    # Clean up orphaned rows from before foreign_keys=ON was enforced per-connection
+    orphan_fp = db.execute("""
+        DELETE FROM fingerprints WHERE track_id NOT IN (SELECT id FROM tracks)
+    """).rowcount
+    orphan_tracks = db.execute("""
+        DELETE FROM tracks WHERE album_id NOT IN (SELECT id FROM albums)
+    """).rowcount
+    orphan_audio = db.execute("""
+        DELETE FROM album_audio WHERE album_id NOT IN (SELECT id FROM albums)
+    """).rowcount
+    orphan_plays = db.execute("""
+        DELETE FROM plays WHERE track_id NOT IN (SELECT id FROM tracks)
+    """).rowcount
+    db.commit()
+    if orphan_fp or orphan_tracks or orphan_audio or orphan_plays:
+        print(f"[catalog] Cleaned up orphans: {orphan_fp} fingerprints, "
+              f"{orphan_tracks} tracks, {orphan_audio} audio, {orphan_plays} plays")
+
     db.close()
     purge_oversized_fingerprints()
 
