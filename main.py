@@ -1785,6 +1785,28 @@ async def _run_playback(album_id: int, targets: list[dict], volume: int,
             for t in all_tracks
             if t["side"] == side
         ]
+
+        # Normalize timestamps: shift so first track starts at 0
+        # (DB stores offsets from stream start, not FLAC file start)
+        if side_tracks:
+            first_start = min(
+                (t["start_secs"] for t in side_tracks if t["start_secs"] is not None),
+                default=0,
+            )
+            if first_start > 5.0:  # only shift if offset is significant
+                print(f"[player] Side {side}: normalizing timestamps, "
+                      f"shifting by -{first_start:.1f}s")
+                for t in side_tracks:
+                    if t["start_secs"] is not None:
+                        t["start_secs"] -= first_start
+                    if t["end_secs"] is not None:
+                        t["end_secs"] -= first_start
+        print(f"[player] Side {side}: {len(side_tracks)} tracks, "
+              f"audio={af['file_path']}")
+        if side_tracks:
+            print(f"[player]   first track: {side_tracks[0]['title']} "
+                  f"start={side_tracks[0].get('start_secs')} "
+                  f"end={side_tracks[0].get('end_secs')}")
         playlist.append(plr.PlaylistEntry(
             audio_path    = af["file_path"],
             side          = side,
