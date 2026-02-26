@@ -189,8 +189,21 @@ class RecordingBuffer:
             return  # don't do split logic until gate is open
 
         # Adaptive silence detection (gate is open)
-        # Compute dynamic threshold from current signal level estimate
-        silence_threshold = max(SILENCE_RATIO_MIN, self._signal_level * SILENCE_RATIO)
+        # Compute dynamic threshold from current signal level estimate.
+        # When we know expected track duration and are past it, boost the ratio
+        # so vinyl surface noise in between-track gaps reliably registers as silence.
+        effective_ratio = SILENCE_RATIO  # 0.40 baseline
+
+        if self.expected_track_secs > 0:
+            with self._lock:
+                accumulated_secs = self._total_bytes / (SAMPLE_RATE * CHANNELS * 2)
+            overdue_pct = accumulated_secs / self.expected_track_secs
+            if overdue_pct >= 0.80:
+                # Ramp ratio from 0.40 → 0.55 between 80% and 120% of expected
+                boost = min(1.0, (overdue_pct - 0.80) / 0.40)  # 0→1 over range
+                effective_ratio = SILENCE_RATIO + boost * 0.15   # 0.40 → 0.55
+
+        silence_threshold = max(SILENCE_RATIO_MIN, self._signal_level * effective_ratio)
 
         if rms < silence_threshold:
             self._silence_secs += chunk_secs
@@ -200,8 +213,9 @@ class RecordingBuffer:
             # Periodic diagnostic log so we can see gap RMS in journalctl
             self._silence_log_countdown -= 1
             if self._silence_log_countdown <= 0:
+                ratio_info = f"  ratio={effective_ratio:.2f}" if effective_ratio > SILENCE_RATIO else ""
                 print(f"[recorder] Gap: RMS={rms:.5f}  threshold={silence_threshold:.5f}"
-                      f"  signal={self._signal_level:.5f}  silence={self._silence_secs:.1f}s")
+                      f"  signal={self._signal_level:.5f}  silence={self._silence_secs:.1f}s{ratio_info}")
                 self._silence_log_countdown = 20  # log every ~20 chunks
             # End-of-side detection: long silence = needle lifted / run-out groove
             if (not self._end_of_side_fired
