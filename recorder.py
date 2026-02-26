@@ -31,10 +31,12 @@ RECORDINGS_DIR    = Path(__file__).parent / "recordings"
 # Adaptive silence detection
 # Rather than a fixed RMS threshold (which varies by pressing), we measure the
 # actual playing level and call something "silent" when it drops to a fraction of that.
-SILENCE_RATIO     = 0.40            # silence = RMS drops below this fraction of signal level
-                                    # 0.40 = must be 8dB quieter than the music
+SILENCE_RATIO     = 0.45            # silence = RMS drops below this fraction of signal level
+                                    # 0.45 = must be ~7dB quieter than the music
                                     # Vinyl groove noise is typically 10-20dB below music,
                                     # so this reliably catches inter-track gaps on any pressing
+                                    # (increased from 0.40 — 0.40 gave only 7% headroom above
+                                    # surface noise, causing silence counter resets from spikes)
 SILENCE_RATIO_MIN = 0.006           # absolute floor — never treat above this as silence
 SIGNAL_ADAPT_RATE = 0.002           # EMA rate for signal level tracker (slow — ~500 chunks)
 SILENCE_MIN_SECS  = 1.5             # silence must last this long to split track
@@ -194,7 +196,7 @@ class RecordingBuffer:
         # Smooth the RMS with an EMA to prevent vinyl surface noise spikes from
         # resetting the silence counter. A single 0.014 spike among 0.010 chunks
         # won't break silence detection when the AVERAGE is clearly below threshold.
-        SMOOTH_ALPHA = 0.15  # ~7 chunk window (~0.7s) — smooths noise, still responsive
+        SMOOTH_ALPHA = 0.08  # ~12 chunk window (~1.2s) — heavy smoothing absorbs noise spikes
         if self._smoothed_rms == 0.0:
             self._smoothed_rms = rms  # seed on first call
         else:
@@ -210,9 +212,9 @@ class RecordingBuffer:
                 accumulated_secs = self._total_bytes / (SAMPLE_RATE * CHANNELS * 2)
             overdue_pct = accumulated_secs / self.expected_track_secs
             if overdue_pct >= 0.80:
-                # Ramp ratio from 0.40 → 0.55 between 80% and 120% of expected
+                # Ramp ratio from 0.45 → 0.58 between 80% and 120% of expected
                 boost = min(1.0, (overdue_pct - 0.80) / 0.40)  # 0→1 over range
-                effective_ratio = SILENCE_RATIO + boost * 0.15   # 0.40 → 0.55
+                effective_ratio = SILENCE_RATIO + boost * 0.13   # 0.45 → 0.58
 
         silence_threshold = max(SILENCE_RATIO_MIN, self._signal_level * effective_ratio)
 
