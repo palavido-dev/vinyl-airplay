@@ -1,2503 +1,527 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Vinyl AirPlay</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
-  <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
-    :root {
-      --bg:      #F5EDE0;
-      --surface: #FFF8EF;
-      --surface2:#EDE4D4;
-      --border:  #D4C4AA;
-      --accent:  #F57F5B;
-      --accent2: #DD5341;
-      --text:    #3B2A1A;
-      --muted:   #8B7355;
-      --green:   #4A9E98;
-      --red:     #DD5341;
-      --blue:    #4A9E98;
-      --gold:    #E8A832;
-      --brown:   #794A3A;
-    }
-
-    body {
-      font-family: 'Outfit', -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      background: var(--bg);
-      color: var(--text);
-      min-height: 100vh;
-    }
-    body::after {
-      content: ''; position: fixed; inset: 0; pointer-events: none; z-index: 9999;
-      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
-      background-repeat: repeat; background-size: 256px 256px;
-      opacity: 0.5;
-    }
-
-    /* ── Tabs ── */
-    .tab-bar {
-      display: flex;
-      background: var(--brown);
-      border-bottom: 3px solid #5C3529;
-      position: sticky; top: 0; z-index: 10;
-    }
-    .tab-btn {
-      flex: 1; padding: 0.85rem 0.5rem;
-      background: none; border: none; border-bottom: 3px solid transparent;
-      color: rgba(255,255,255,0.55); font-size: 0.8rem; font-weight: 600;
-      text-transform: uppercase; letter-spacing: 0.1em;
-      cursor: pointer; transition: color 0.15s, border-color 0.15s;
-    }
-    .tab-btn.active { color: #FACA78; border-bottom-color: #FACA78; }
-    .tab-pane { display: none; padding: 1rem; }
-    .tab-pane.active { display: block; }
-
-    header { text-align: center; padding: 1.5rem 0 1rem; }
-    header h1 {
-      font-family: 'Space Mono', monospace;
-      font-size: 1.4rem; font-weight: 700; letter-spacing: 0.04em;
-      background: linear-gradient(135deg, var(--brown) 0%, var(--accent2) 100%);
-      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-      background-clip: text;
-    }
-    header p  { color: var(--muted); font-size: 0.82rem; margin-top: 0.25rem; }
-
-    .card {
-      background: var(--surface); border: 1px solid var(--border);
-      border-radius: 12px; padding: 1.25rem;
-      margin-bottom: 1rem; max-width: 480px; margin-left: auto; margin-right: auto;
-      box-shadow: 0 2px 8px rgba(120,74,58,0.1);
-    }
-    .card h2 {
-      font-family: 'Space Mono', monospace;
-      font-size: 0.72rem; font-weight: 700;
-      text-transform: uppercase; letter-spacing: 0.1em;
-      color: var(--brown); margin-bottom: 0.9rem;
-    }
-
-    /* ── Now Playing ── */
-    #now-playing-card { display: none; }
-    .np-inner {
-      display: flex; gap: 1rem; align-items: center;
-    }
-    .np-art {
-      width: 80px; height: 80px; border-radius: 8px;
-      object-fit: cover; background: var(--border); flex-shrink: 0;
-      border: 1px solid var(--border);
-    }
-    .np-art-placeholder {
-      width: 80px; height: 80px; border-radius: 8px;
-      background: var(--border); flex-shrink: 0;
-      display: flex; align-items: center; justify-content: center;
-      font-size: 2rem;
-    }
-    .np-info { flex: 1; min-width: 0; }
-    .np-title   { font-size: 1rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .np-artist  { font-size: 0.82rem; color: var(--muted); margin-top: 0.2rem; }
-    .np-album   { font-size: 0.78rem; color: var(--muted); margin-top: 0.1rem; font-style: italic; }
-    .np-badge   { display: inline-block; font-size: 0.7rem; background: var(--brown); color: #FFF8EF;
-                  border-radius: 4px; padding: 0.1rem 0.4rem; margin-top: 0.4rem; }
-    .np-scanning { color: var(--muted); font-size: 0.85rem; font-style: italic; }
-
-    /* ── Player Transport ── */
-    .player-controls {
-      display: flex; align-items: center; gap: 0.5rem;
-      margin-top: 0.6rem; padding-top: 0.6rem;
-      border-top: 1px solid var(--border);
-    }
-    .player-btn {
-      width: 36px; height: 36px; border-radius: 50%;
-      background: var(--surface); border: 1px solid var(--border);
-      color: var(--text); font-size: 1rem; cursor: pointer;
-      display: flex; align-items: center; justify-content: center;
-      padding: 0; transition: background 0.15s, border-color 0.15s;
-    }
-    .player-btn:hover { border-color: var(--accent); background: var(--card); }
-    .player-btn.play-pause {
-      width: 42px; height: 42px; font-size: 1.1rem;
-      background: var(--accent); color: #fff; border-color: var(--accent);
-    }
-    .player-btn.play-pause:hover { background: #e06840; }
-    .player-progress-wrap {
-      flex: 1; display: flex; align-items: center; gap: 0.4rem;
-    }
-    .player-progress-bar {
-      flex: 1; height: 4px; background: var(--border); border-radius: 2px;
-      cursor: pointer; position: relative; overflow: hidden;
-    }
-    .player-progress-fill {
-      height: 100%; background: var(--accent); border-radius: 2px;
-      transition: width 0.3s linear;
-    }
-    .player-time {
-      font-size: 0.7rem; color: var(--muted); min-width: 35px;
-      text-align: center; font-variant-numeric: tabular-nums;
-    }
-    .player-source-badge {
-      font-size: 0.65rem; background: var(--accent); color: #fff;
-      border-radius: 3px; padding: 0.1rem 0.35rem; margin-left: 0.4rem;
-      vertical-align: middle; letter-spacing: 0.03em;
-    }
-
-    /* ── Status dot ── */
-    .status-dot {
-      display: inline-block; width: 8px; height: 8px; border-radius: 50%;
-      background: var(--muted); margin-right: 6px; vertical-align: middle;
-    }
-    .status-dot.on { background: var(--green); box-shadow: 0 0 8px rgba(74,158,152,0.4); }
-
-    /* ── Buttons ── */
-    select, button, input[type=text], input[type=number], input[type=password], textarea {
-      width: 100%; padding: 0.7rem 1rem; border-radius: 8px;
-      border: 1px solid var(--border); background: var(--bg);
-      color: var(--text); font-size: 0.9rem; cursor: pointer; font-family: inherit;
-    }
-    input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px rgba(245,127,91,0.15); }
-    select, input, textarea { cursor: text; }
-    button { font-weight: 600; transition: background 0.15s, transform 0.1s; cursor: pointer; }
-    button:active { transform: scale(0.98); }
-    .btn-scan    { background: transparent; color: var(--brown); border-color: var(--brown); margin-bottom: 0.75rem; }
-    .btn-scan:hover { background: rgba(121,74,58,0.08); }
-    .btn-start   { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
-    .btn-start:hover { background: var(--accent2); }
-    .btn-stop    { background: transparent; border-color: var(--red); color: var(--red); }
-    .btn-stop:hover { background: rgba(244,67,54,0.08); }
-    .btn-ghost   { background: transparent; border-color: var(--border); color: var(--brown); }
-    .btn-ghost:hover { color: var(--text); border-color: var(--muted); }
-    .btn-small   { width: auto; padding: 0.35rem 0.8rem; font-size: 0.8rem; }
-    .btn-blue    { background: var(--blue); border-color: var(--blue); color: #fff; font-weight: 600; }
-
-    /* ── Sliders ── */
-    .slider-row { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.6rem; }
-    .slider-row:last-child { margin-bottom: 0; }
-    .slider-row label { color: var(--muted); font-size: 0.82rem; width: 52px; flex-shrink: 0; }
-    .slider-row input[type=range] { flex: 1; accent-color: var(--accent); cursor: pointer; }
-    .slider-val { font-size: 0.82rem; width: 44px; text-align: right; font-variant-numeric: tabular-nums; }
-
-    /* ── Device list ── */
-    .device-list { margin-bottom: 0.75rem; }
-    .device-item {
-      display: flex; align-items: center; gap: 0.6rem;
-      padding: 0.5rem 0; border-bottom: 1px solid var(--border);
-      font-size: 0.9rem; cursor: pointer;
-    }
-    .device-item:last-child { border-bottom: none; }
-    .device-item input[type=checkbox] { accent-color: var(--brown); width: 16px; height: 16px; }
-    .device-empty { color: var(--muted); font-size: 0.85rem; text-align: center; padding: 0.5rem 0; }
-
-    /* ── Catalog ── */
-    .album-grid {
-      display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-      gap: 1rem; max-width: 480px; margin: 0 auto;
-    }
-    .album-card {
-      background: var(--surface); border: 1px solid var(--border);
-      border-radius: 10px; overflow: hidden; cursor: pointer;
-      transition: border-color 0.15s, box-shadow 0.15s, transform 0.15s;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.15);
-    }
-    .album-card:hover {
-      border-color: var(--accent);
-      box-shadow: 0 4px 16px rgba(245,127,91,0.15);
-      transform: translateY(-2px);
-    }
-    .album-art {
-      width: 100%; aspect-ratio: 1; object-fit: cover;
-      background: var(--border); display: flex; align-items: center;
-      justify-content: center; font-size: 2.5rem; color: var(--muted);
-    }
-    .album-art img { width: 100%; height: 100%; object-fit: cover; }
-    .album-info { padding: 0.6rem 0.7rem; }
-    .album-info .title  { font-size: 0.82rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .album-info .artist { font-size: 0.75rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .album-info .meta   { font-size: 0.7rem; color: var(--muted); margin-top: 0.25rem; }
-
-    /* ── Album detail modal ── */
-    .modal-overlay {
-      display: none; position: fixed; inset: 0; background: rgba(59,42,26,0.6);
-      z-index: 100; overflow-y: auto; padding: 1rem;
-    }
-    .modal-overlay.open { display: flex; align-items: flex-start; justify-content: center; backdrop-filter: blur(4px); }
-    .modal {
-      background: var(--surface); border: 1px solid var(--border);
-      border-radius: 14px; padding: 1.5rem; width: 100%; max-width: 440px;
-      margin-top: 2rem;
-    }
-    .modal-header { display: flex; align-items: flex-start; gap: 1rem; margin-bottom: 1rem; }
-    .modal-art {
-      width: 90px; height: 90px; border-radius: 8px; object-fit: cover;
-      background: var(--border); flex-shrink: 0; border: 1px solid var(--border);
-    }
-    .modal-title   { font-size: 1rem; font-weight: 700; }
-    .modal-artist  { font-size: 0.85rem; color: var(--muted); margin-top: 0.2rem; }
-    .modal-meta    { font-size: 0.78rem; color: var(--muted); margin-top: 0.3rem; }
-    .track-list    { margin: 0.75rem 0; }
-    .track-row {
-      display: flex; align-items: center; gap: 0.5rem;
-      padding: 0.4rem 0; border-bottom: 1px solid var(--border); font-size: 0.85rem;
-    }
-    .track-row.drag-over { background: var(--accent-dim, rgba(255,120,0,0.12)); border-radius: 6px; }
-    .track-row[draggable] { cursor: grab; }
-    .track-row[draggable]:active { cursor: grabbing; opacity: 0.7; }
-    .drag-handle { color: var(--muted); font-size: 1rem; cursor: grab; padding: 0 0.3rem; flex-shrink: 0; user-select: none; }
-    #modal-tracks.reorder-mode .track-row { background: var(--surface, #1e1e2e); border-radius:6px; margin-bottom:2px; padding: 0.4rem 0.5rem; }
-
-    .track-row:last-child { border-bottom: none; }
-    .track-num { color: var(--muted); width: 28px; flex-shrink: 0; font-size: 0.78rem; }
-    .modal-actions { display: flex; gap: 0.5rem; margin-top: 1rem; flex-wrap: wrap; }
-
-    /* ── Album Recording Panel ── */
-    .album-rec-panel {
-      background: var(--surface); border: 2px solid var(--brown);
-      border-radius: 10px; padding: 1rem; margin-top: 1rem;
-    }
-    .album-rec-panel h3 {
-      font-size: 0.8rem; font-weight: 700; color: var(--accent);
-      text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 0.6rem;
-    }
-    .album-rec-timer {
-      font-family: 'Space Mono', 'SF Mono', 'Fira Code', monospace;
-      font-size: 1.6rem; font-weight: 700; color: var(--brown);
-      margin-bottom: 0.5rem;
-    }
-    .album-rec-tracks {
-      font-size: 0.8rem; color: var(--muted); margin-bottom: 0.75rem;
-      max-height: 120px; overflow-y: auto;
-    }
-    .album-audio-row {
-      display: flex; align-items: center; gap: 0.6rem;
-      padding: 0.45rem 0; border-bottom: 1px solid var(--border); font-size: 0.82rem;
-    }
-    .album-audio-row:last-child { border-bottom: none; }
-    .album-audio-play {
-      background: var(--brown); color: #FFF8EF; border: none; border-radius: 50%;
-      width: 28px; height: 28px; font-size: 0.75rem; cursor: pointer;
-      display: flex; align-items: center; justify-content: center; flex-shrink: 0;
-    }
-    .album-audio-stop {
-      background: var(--red); color: #FFF8EF; border: none; border-radius: 50%;
-      width: 28px; height: 28px; font-size: 0.65rem; cursor: pointer;
-      display: flex; align-items: center; justify-content: center; flex-shrink: 0;
-    }
-    .album-audio-delete {
-      background: none; border: none; color: var(--muted); cursor: pointer;
-      font-size: 0.8rem; padding: 0.2rem 0.4rem; border-radius: 4px; flex-shrink: 0;
-      opacity: 0.5; transition: opacity 0.15s;
-    }
-    .album-audio-delete:hover { opacity: 1; color: var(--red); }
-
-    /* ── Manual entry form ── */
-    .form-row { margin-bottom: 0.75rem; }
-    .form-row label { display: block; font-size: 0.78rem; color: var(--muted); margin-bottom: 0.3rem; }
-    .form-row input, .form-row select, .form-row textarea { margin: 0; }
-    .form-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
-
-    /* ── Error bar ── */
-    #error-msg {
-      display: none; background: rgba(221,83,65,0.08); border: 1px solid var(--red);
-      color: var(--accent); border-radius: 8px; padding: 0.7rem 1rem;
-      font-size: 0.85rem; margin-bottom: 1rem; max-width: 480px;
-      margin-left: auto; margin-right: auto;
-    }
-
-    /* ── History ── */
-    .history-row {
-      display: flex; align-items: center; gap: 0.75rem;
-      padding: 0.5rem 0; border-bottom: 1px solid var(--border); font-size: 0.85rem;
-    }
-    .history-row:last-child { border-bottom: none; }
-    .history-art {
-      width: 40px; height: 40px; border-radius: 6px;
-      object-fit: cover; background: var(--border); flex-shrink: 0;
-    }
-    .history-art-ph { width:40px;height:40px;border-radius:6px;background:var(--border);
-      flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:1.2rem; }
-    .history-info .track { font-weight: 600; }
-    .history-info .album { color: var(--muted); font-size: 0.78rem; }
-    .history-time { color: var(--muted); font-size: 0.75rem; margin-left: auto; white-space: nowrap; }
-    .rec-row {
-      display: flex; align-items: center; gap: 0.6rem;
-      padding: 0.5rem 0; border-bottom: 1px solid var(--border); font-size: 0.85rem;
-    }
-    .rec-row:last-child { border-bottom: none; }
-    .rec-row .name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .rec-row .size { color: var(--muted); font-size: 0.75rem; flex-shrink: 0; }
-  </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Vinyl AirPlay</title>
+<style>
+  :root {
+    --bg:      #FFF8EF;
+    --surface: #FAF0E4;
+    --card:    #F5E6D0;
+    --border:  #E8D5BE;
+    --text:    #3B2A1A;
+    --muted:   #8B7355;
+    --accent:  #F57F5B;
+    --green:   #4A9E98;
+    --red:     #D94F4F;
+    --brown:   #6B4C3B;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: var(--bg); color: var(--text);
+    display: flex; flex-direction: column; height: 100vh; height: 100dvh;
+    overflow: hidden;
+  }
+  .app-header { flex-shrink: 0; padding: 0.7rem 1rem 0.5rem; background: var(--surface); border-bottom: 1px solid var(--border); }
+  .header-top { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.5rem; }
+  .header-top h1 { font-size: 1.1rem; font-weight: 700; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .header-btn { width: 38px; height: 38px; border-radius: 50%; background: var(--card); border: 1px solid var(--border); color: var(--text); font-size: 1.1rem; cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+  .header-btn:active { background: var(--border); }
+  .search-bar { width: 100%; padding: 0.45rem 0.8rem; border-radius: 8px; background: var(--bg); border: 1px solid var(--border); color: var(--text); font-size: 0.85rem; outline: none; }
+  .search-bar:focus { border-color: var(--accent); }
+  .search-bar::placeholder { color: var(--muted); }
+  .status-bar { flex-shrink: 0; padding: 0.3rem 1rem; background: var(--surface); border-bottom: 1px solid var(--border); font-size: 0.75rem; color: var(--muted); display: flex; align-items: center; gap: 0.4rem; }
+  .status-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); flex-shrink: 0; }
+  .status-dot.on { background: var(--green); box-shadow: 0 0 6px rgba(74,158,152,0.4); }
+  .main-content { flex: 1; overflow-y: auto; padding: 0.75rem; -webkit-overflow-scrolling: touch; }
+  .album-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 0.75rem; max-width: 720px; margin: 0 auto; }
+  .album-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; cursor: pointer; transition: transform 0.12s, box-shadow 0.15s; box-shadow: 0 2px 6px rgba(0,0,0,0.1); position: relative; }
+  .album-card:active { transform: scale(0.97); }
+  .album-card .album-art-wrap { width: 100%; aspect-ratio: 1; position: relative; background: var(--border); overflow: hidden; }
+  .album-card .album-art-wrap img { width: 100%; height: 100%; object-fit: cover; }
+  .album-card .album-art-placeholder { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; font-size: 2.5rem; color: var(--muted); }
+  .album-info-btn { position: absolute; top: 4px; right: 4px; width: 26px; height: 26px; border-radius: 50%; background: rgba(59,42,26,0.6); border: none; color: #fff; font-size: 0.7rem; cursor: pointer; display: flex; align-items: center; justify-content: center; backdrop-filter: blur(4px); opacity: 0.7; }
+  .album-info-btn:active { opacity: 1; }
+  .album-badge { position: absolute; bottom: 4px; left: 4px; font-size: 0.6rem; padding: 0.1rem 0.35rem; border-radius: 3px; backdrop-filter: blur(4px); }
+  .album-badge.unrecorded { background: rgba(139,115,85,0.8); color: #fff; }
+  .album-card .album-meta { padding: 0.45rem 0.5rem; }
+  .album-card .album-meta .title { font-size: 0.78rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .album-card .album-meta .artist { font-size: 0.7rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .catalog-empty { text-align: center; color: var(--muted); padding: 3rem 1rem; font-size: 0.9rem; }
+  .np-footer { flex-shrink: 0; background: var(--surface); border-top: 1px solid var(--border); padding: 0.6rem 0.8rem 0.5rem; box-shadow: 0 -2px 12px rgba(0,0,0,0.08); }
+  .np-footer.hidden { display: none; }
+  .np-row { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.4rem; }
+  .np-art { width: 48px; height: 48px; border-radius: 6px; object-fit: cover; background: var(--border); flex-shrink: 0; }
+  .np-art-placeholder { width: 48px; height: 48px; border-radius: 6px; background: var(--border); flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 1.4rem; }
+  .np-text { flex: 1; min-width: 0; }
+  .np-title { font-size: 0.85rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .np-artist-album { font-size: 0.72rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .np-source-badge { font-size: 0.55rem; background: var(--accent); color: #fff; border-radius: 3px; padding: 0.05rem 0.3rem; text-transform: uppercase; letter-spacing: 0.04em; vertical-align: middle; margin-left: 0.3rem; }
+  .np-transport { display: flex; align-items: center; gap: 0.3rem; flex-shrink: 0; }
+  .np-btn { width: 34px; height: 34px; border-radius: 50%; background: none; border: 1px solid var(--border); color: var(--text); font-size: 0.85rem; cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 0; }
+  .np-btn:active { background: var(--card); }
+  .np-btn.primary { width: 40px; height: 40px; font-size: 1rem; background: var(--accent); color: #fff; border-color: var(--accent); }
+  .np-btn.primary:active { background: #e06840; }
+  .np-progress-row { display: flex; align-items: center; gap: 0.35rem; margin-bottom: 0.35rem; }
+  .np-time { font-size: 0.65rem; color: var(--muted); min-width: 30px; text-align: center; font-variant-numeric: tabular-nums; }
+  .np-progress-bar { flex: 1; height: 3px; background: var(--border); border-radius: 2px; cursor: pointer; position: relative; }
+  .np-progress-fill { height: 100%; background: var(--accent); border-radius: 2px; transition: width 0.3s linear; }
+  .eq-row { display: flex; align-items: center; gap: 0.5rem; padding-top: 0.3rem; border-top: 1px solid var(--border); }
+  .eq-group { display: flex; align-items: center; gap: 0.25rem; flex: 1; }
+  .eq-label { font-size: 0.6rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; min-width: 30px; }
+  .eq-slider { flex: 1; height: 3px; -webkit-appearance: none; appearance: none; background: var(--border); border-radius: 2px; outline: none; }
+  .eq-slider::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; border-radius: 50%; background: var(--accent); border: 2px solid var(--surface); cursor: pointer; }
+  .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(59,42,26,0.55); z-index: 100; overflow-y: auto; padding: 0.75rem; backdrop-filter: blur(3px); }
+  .modal-overlay.open { display: flex; align-items: flex-start; justify-content: center; }
+  .modal { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 1.2rem; width: 100%; max-width: 440px; margin-top: 1.5rem; box-shadow: 0 8px 32px rgba(0,0,0,0.2); }
+  .modal-header { display: flex; align-items: flex-start; gap: 0.8rem; margin-bottom: 0.8rem; }
+  .modal-art { width: 80px; height: 80px; border-radius: 8px; object-fit: cover; background: var(--border); flex-shrink: 0; }
+  .modal-title { font-size: 1rem; font-weight: 700; }
+  .modal-artist { font-size: 0.82rem; color: var(--muted); margin-top: 0.15rem; }
+  .modal-meta { font-size: 0.72rem; color: var(--muted); margin-top: 0.1rem; }
+  .track-list { max-height: 260px; overflow-y: auto; margin-bottom: 0.6rem; }
+  .track-row { display: flex; align-items: center; gap: 0.4rem; padding: 0.3rem 0; border-bottom: 1px solid var(--border); font-size: 0.8rem; cursor: pointer; }
+  .track-row:last-child { border-bottom: none; }
+  .track-row:active { background: var(--card); }
+  .track-num { color: var(--muted); min-width: 1.6rem; font-size: 0.72rem; }
+  .side-label { font-size: 0.68rem; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; padding: 0.5rem 0 0.2rem; }
+  .modal-actions { display: flex; flex-wrap: wrap; gap: 0.4rem; padding-top: 0.6rem; border-top: 1px solid var(--border); }
+  .btn { padding: 0.4rem 0.75rem; border-radius: 8px; font-size: 0.78rem; font-weight: 600; border: 1px solid var(--border); cursor: pointer; background: var(--card); color: var(--text); display: inline-flex; align-items: center; gap: 0.3rem; }
+  .btn:active { opacity: 0.8; }
+  .btn-primary { background: var(--green); color: #fff; border-color: var(--green); }
+  .btn-accent { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .btn-danger { background: var(--red); color: #fff; border-color: var(--red); }
+  .btn-ghost { background: none; color: var(--muted); }
+  .audio-row { display: flex; align-items: center; gap: 0.5rem; padding: 0.35rem 0; border-bottom: 1px solid var(--border); font-size: 0.8rem; }
+  .audio-play-btn { width: 28px; height: 28px; border-radius: 50%; background: var(--green); color: #fff; border: none; font-size: 0.7rem; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+  .audio-play-btn:active { background: #3d857f; }
+  .audio-del-btn { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 0.8rem; padding: 0.2rem; }
+  .learn-overlay { display: none; position: fixed; inset: 0; background: var(--bg); z-index: 200; overflow-y: auto; padding: 1rem; }
+  .learn-overlay.open { display: block; }
+  .learn-card { max-width: 440px; margin: 0 auto; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 1.2rem; }
+  .form-row { margin-bottom: 0.5rem; }
+  .form-row label { display: block; font-size: 0.78rem; font-weight: 600; margin-bottom: 0.2rem; color: var(--muted); }
+  .form-input { width: 100%; padding: 0.45rem 0.7rem; border-radius: 8px; background: var(--bg); border: 1px solid var(--border); color: var(--text); font-size: 0.85rem; outline: none; }
+  .form-input:focus { border-color: var(--accent); }
+  .form-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
+  #error-msg { display: none; position: fixed; top: 0.5rem; left: 50%; transform: translateX(-50%); z-index: 999; background: var(--red); color: #fff; padding: 0.5rem 1rem; border-radius: 8px; font-size: 0.82rem; font-weight: 600; max-width: 90vw; text-align: center; }
+  #toast-msg { display: none; position: fixed; bottom: 5rem; left: 50%; transform: translateX(-50%); z-index: 999; background: var(--brown); color: #fff; padding: 0.45rem 1rem; border-radius: 8px; font-size: 0.8rem; max-width: 90vw; text-align: center; }
+  .settings-section { margin-bottom: 1.2rem; }
+  .settings-section h3 { font-size: 0.82rem; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 0.5rem; }
+  .device-item { display: flex; align-items: center; gap: 0.6rem; padding: 0.5rem 0; border-bottom: 1px solid var(--border); font-size: 0.82rem; }
+  .device-item:last-child { border-bottom: none; }
+  .device-item input[type=checkbox] { accent-color: var(--accent); width: 16px; height: 16px; }
+  .rec-timer { font-size: 1.8rem; font-weight: 700; font-variant-numeric: tabular-nums; text-align: center; color: var(--red); margin: 0.5rem 0; }
+  .drag-handle { cursor: grab; color: var(--muted); font-size: 1rem; user-select: none; }
+  .track-list.reorder-mode .track-row { cursor: grab; }
+  .track-list.reorder-mode .track-row.dragging { opacity: 0.4; }
+</style>
 </head>
 <body>
+<div id="error-msg"></div>
+<div id="toast-msg"></div>
+<div class="app-header">
+  <div class="header-top">
+    <h1>🎵 Vinyl AirPlay</h1>
+    <button class="header-btn" onclick="shufflePlay()" title="Shuffle play">🔀</button>
+    <button class="header-btn" onclick="showAddForm()" title="Add record">＋</button>
+    <button class="header-btn" onclick="showSettings()" title="Settings">⚙</button>
+  </div>
+  <input type="search" class="search-bar" id="catalog-search" placeholder="Search collection…" oninput="filterCatalog(this.value)">
+</div>
+<div class="status-bar"><span class="status-dot" id="dot"></span><span id="status-text">Connecting…</span></div>
+<div class="main-content" id="main-content"><div class="album-grid" id="album-grid"><div class="catalog-empty">Loading catalog…</div></div></div>
 
-<!-- Tab Bar -->
-<div class="tab-bar">
-  <button class="tab-btn active" onclick="showTab('stream')">Stream</button>
-  <button class="tab-btn"        onclick="showTab('catalog')">Catalog</button>
-  <button class="tab-btn"        onclick="showTab('history')">History</button>
-  <button class="tab-btn"        onclick="showTab('recordings')">Recordings</button>
-  <button class="tab-btn"        onclick="showTab('settings')">Settings</button>
+<!-- Now Playing Footer -->
+<div class="np-footer hidden" id="np-footer">
+  <div class="np-row">
+    <div class="np-art-placeholder" id="np-art-wrap">🎵</div>
+    <div class="np-text">
+      <div class="np-title" id="np-title">—</div>
+      <div class="np-artist-album" id="np-artist-album">—</div>
+    </div>
+    <div class="np-transport" id="np-transport" style="display:none">
+      <button class="np-btn" onclick="playerPrev()">⏮</button>
+      <button class="np-btn primary" id="np-play-pause" onclick="playerToggle()">⏸</button>
+      <button class="np-btn" onclick="playerNext()">⏭</button>
+      <button class="np-btn" onclick="playerStop()">⏹</button>
+    </div>
+  </div>
+  <div class="np-progress-row" id="np-progress-row" style="display:none">
+    <span class="np-time" id="np-time-cur">0:00</span>
+    <div class="np-progress-bar" onclick="playerSeekClick(event)"><div class="np-progress-fill" id="np-progress-fill" style="width:0%"></div></div>
+    <span class="np-time" id="np-time-dur">0:00</span>
+  </div>
+  <div class="eq-row">
+    <div class="eq-group"><span class="eq-label">Bass</span><input type="range" class="eq-slider" id="eq-bass" min="-12" max="12" value="0" step="1" oninput="sendEQ()"></div>
+    <div class="eq-group"><span class="eq-label">Treble</span><input type="range" class="eq-slider" id="eq-treble" min="-12" max="12" value="0" step="1" oninput="sendEQ()"></div>
+    <div class="eq-group"><span class="eq-label">Vol</span><input type="range" class="eq-slider" id="eq-volume" min="0" max="100" value="80" step="1" oninput="sendVolume()"></div>
+  </div>
 </div>
 
-<!-- ═══════════════════════ STREAM TAB ═══════════════════════ -->
-<div id="tab-stream" class="tab-pane active">
-
-  <header>
-    <h1>🎵 Vinyl AirPlay</h1>
-    <p>Stream your record player to any room</p>
-  </header>
-
-  <div id="error-msg"></div>
-
-  <!-- Now Playing -->
-  <div class="card" id="now-playing-card">
-    <h2>Now Playing</h2>
-    <div class="np-inner" id="np-inner">
-      <div class="np-art-placeholder">🎵</div>
-      <div class="np-info">
-        <div class="np-scanning">Listening for record…</div>
+<!-- Album Detail Modal -->
+<div class="modal-overlay" id="album-modal" onclick="if(event.target===this)closeModal()">
+  <div class="modal">
+    <div id="modal-detail">
+      <div class="modal-header">
+        <img id="modal-art" class="modal-art" src="" alt="" onerror="this.style.display='none'">
+        <div><div class="modal-title" id="modal-title"></div><div class="modal-artist" id="modal-artist"></div><div class="modal-meta" id="modal-meta"></div></div>
       </div>
-    </div>
-    <div class="player-controls" id="player-controls" style="display:none">
-      <button class="player-btn" onclick="playerPrev()" title="Previous">⏮</button>
-      <button class="player-btn play-pause" id="player-play-pause" onclick="playerToggle()" title="Pause">⏸</button>
-      <button class="player-btn" onclick="playerNext()" title="Next">⏭</button>
-      <div class="player-progress-wrap">
-        <span class="player-time" id="player-time-cur">0:00</span>
-        <div class="player-progress-bar" id="player-progress-bar" onclick="playerSeekClick(event)">
-          <div class="player-progress-fill" id="player-progress-fill" style="width:0%"></div>
-        </div>
-        <span class="player-time" id="player-time-dur">0:00</span>
+      <div class="track-list" id="modal-tracks"></div>
+      <div id="modal-audio-section" style="display:none;margin-bottom:0.6rem">
+        <div class="side-label">Recorded Audio</div>
+        <div id="modal-audio-list"></div>
       </div>
-      <button class="player-btn" onclick="playerStop()" title="Stop">⏹</button>
-    </div>
-  </div>
-
-  <!-- Status -->
-  <div class="card">
-    <h2>Status</h2>
-    <span class="status-dot" id="dot"></span>
-    <span id="status-text">Connecting…</span>
-  </div>
-
-  <!-- Audio Input -->
-  <div class="card">
-    <h2>Audio Input</h2>
-    <select id="audio-select"><option value="">Loading…</option></select>
-  </div>
-
-  <!-- Devices -->
-  <div class="card">
-    <h2>AirPlay Devices</h2>
-    <button class="btn-scan" id="btn-scan" onclick="scanDevices()">⟳ Scan for Devices</button>
-    <div class="device-list" id="device-list">
-      <div class="device-empty">Press scan to find devices</div>
-    </div>
-  </div>
-
-  <!-- Volume -->
-  <div class="card">
-    <h2>Volume</h2>
-    <div class="slider-row">
-      <label>Volume</label>
-      <input type="range" id="volume" min="0" max="100" value="80"
-             oninput="document.getElementById('vol-val').textContent=this.value+'%'"
-             onchange="sendVolume()">
-      <span class="slider-val" id="vol-val">80%</span>
-    </div>
-  </div>
-
-  <!-- EQ -->
-  <div class="card">
-    <h2>Equaliser</h2>
-    <div class="slider-row">
-      <label>Bass</label>
-      <input type="range" id="bass" min="-12" max="12" step="1" value="0"
-             oninput="updateEQLabel('bass',this.value)" onchange="sendEQ()">
-      <span class="slider-val" id="bass-val">0 dB</span>
-    </div>
-    <div class="slider-row">
-      <label>Treble</label>
-      <input type="range" id="treble" min="-12" max="12" step="1" value="0"
-             oninput="updateEQLabel('treble',this.value)" onchange="sendEQ()">
-      <span class="slider-val" id="treble-val">0 dB</span>
-    </div>
-    <div style="margin-top:0.75rem">
-      <button class="btn-ghost btn-small" onclick="resetEQ()">Reset EQ</button>
-    </div>
-  </div>
-
-  <!-- Controls -->
-  <div class="card">
-    <h2>Controls</h2>
-    <button class="btn-start" id="btn-start" onclick="startStream()">▶ Start Streaming</button>
-    <br><br>
-    <button class="btn-stop" id="btn-stop" onclick="stopStream()" style="display:none">■ Stop</button>
-  </div>
-
-</div><!-- /tab-stream -->
-
-<!-- ═══════════════════════ CATALOG TAB ═══════════════════════ -->
-<div id="tab-catalog" class="tab-pane">
-
-  <div style="max-width:480px;margin:1rem auto;display:flex;gap:0.5rem;flex-wrap:wrap">
-    <button class="btn-ghost btn-small" onclick="loadCatalog()">↻ Refresh</button>
-    <button class="btn-start btn-small" onclick="showAddForm()">+ Add Record</button>
-    <button class="btn-blue  btn-small" onclick="showLearnPanel()">🎓 Learn Fingerprints</button>
-  </div>
-
-  <div class="album-grid" id="album-grid">
-    <div class="device-empty" style="grid-column:1/-1">Loading catalog…</div>
-  </div>
-
-  <!-- Learn Mode Panel -->
-  <div class="card" id="learn-panel" style="display:none;max-width:480px;margin:1rem auto">
-
-    <!-- Step 1: Setup -->
-    <div id="learn-step-setup">
-      <h2>🎓 Learn Album Fingerprints</h2>
-      <p style="font-size:0.82rem;color:var(--muted);margin-bottom:0.75rem;line-height:1.5">
-        Play the record — this will automatically detect each track, fingerprint it in full,
-        and slice it into windows for local matching. No need to press anything per track.<br>
-        <strong style="color:var(--text)">No AirPlay streaming required</strong> — audio capture runs independently.
-      </p>
-      <div class="form-row" style="margin-bottom:0.5rem">
-        <label>Album</label>
-        <input type="text" id="learn-album-input" list="learn-album-list"
-               placeholder="Search artist or album…"
-               autocomplete="off"
-               oninput="onLearnAlbumInput(this.value)"
-               style="background:var(--surface,#1e1e2e);border:1px solid var(--border);
-                      color:var(--text);padding:0.4rem 0.6rem;border-radius:8px;
-                      font-size:0.85rem;width:100%;box-sizing:border-box">
-        <datalist id="learn-album-list"></datalist>
-        <input type="hidden" id="learn-album-id">
-      </div>
-      <div class="form-row" style="margin-bottom:0.75rem">
-        <label>Tracks on this side / pass</label>
-        <div style="display:flex;align-items:center;gap:0.75rem">
-          <input type="number" id="learn-track-count" value="5" min="1" max="30"
-                 style="width:70px;background:var(--card);border:1px solid var(--border);
-                        color:var(--text);padding:0.4rem 0.6rem;border-radius:8px;font-size:0.85rem">
-          <span style="font-size:0.8rem;color:var(--muted)">
-            e.g. 5 for Side A, then flip and do Side B
-          </span>
-        </div>
-      </div>
-      <!-- Also save as MP3 option -->
-      <label class="device-item" style="margin-bottom:0.75rem;gap:0.75rem;border:none;padding:0.5rem 0">
-        <input type="checkbox" id="learn-also-record"
-               style="accent-color:var(--accent);width:16px;height:16px;flex-shrink:0">
-        <span>
-          <strong style="font-size:0.85rem">Also save as MP3</strong>
-          <span style="display:block;font-size:0.75rem;color:var(--muted)">
-            Each captured track fingerprinted and saved as 320kbps MP3 with tags + artwork in one pass
-          </span>
-        </span>
-      </label>
-
-      <!-- Level meter -->
-      <div style="margin-bottom:0.75rem">
-        <div style="font-size:0.75rem;color:var(--muted);margin-bottom:0.3rem">Input level — confirm audio is coming through before starting</div>
-        <div style="background:var(--border);border-radius:4px;height:8px;overflow:hidden">
-          <div id="learn-level-bar" style="height:100%;width:0%;background:var(--green);transition:width 0.08s;border-radius:4px"></div>
-        </div>
-      </div>
-
-      <div style="display:flex;gap:0.5rem;flex-wrap:wrap">
-        <button class="btn-start btn-small" onclick="startLearnSession()">▶ Start Learning</button>
-        <button class="btn-ghost btn-small" onclick="hideLearnPanel()">Cancel</button>
-      </div>
-    </div>
-
-    <!-- Step 2: Active listening -->
-    <div id="learn-step-active" style="display:none">
-      <h2>🎓 Learning…</h2>
-      <div id="learn-progress-bar-wrap" style="background:var(--border);border-radius:4px;height:6px;margin-bottom:0.75rem">
-        <div id="learn-progress-bar" style="height:100%;width:0%;background:var(--accent);border-radius:4px;transition:width 0.4s"></div>
-      </div>
-      <div id="learn-status-text" style="font-size:0.9rem;margin-bottom:0.5rem;font-weight:600"></div>
-      <div id="learn-next-track" style="font-size:0.8rem;color:var(--muted);margin-bottom:0.75rem"></div>
-      <div id="learn-track-list" style="font-size:0.82rem;max-height:180px;overflow-y:auto;margin-bottom:0.75rem"></div>
-      <button class="btn-stop btn-small" onclick="stopLearnSession()">■ Stop</button>
-    </div>
-
-    <!-- Step 3: Paused — flip/swap prompt -->
-    <div id="learn-step-paused" style="display:none">
-      <h2>⏸ Flip or Swap Record</h2>
-      <div id="learn-pause-message" style="font-size:0.88rem;margin-bottom:0.75rem;line-height:1.5"></div>
-      <div class="form-row" style="margin-bottom:0.75rem">
-        <label>Tracks on next side / pass</label>
-        <input type="number" id="learn-continue-count" value="5" min="1" max="30"
-               style="width:70px;background:var(--card);border:1px solid var(--border);
-                      color:var(--text);padding:0.4rem 0.6rem;border-radius:8px;font-size:0.85rem">
-      </div>
-      <div style="display:flex;gap:0.5rem;flex-wrap:wrap">
-        <button class="btn-start btn-small" onclick="continueLearnSession()">▶ Continue</button>
-        <button class="btn-ghost btn-small" onclick="finishLearnSession()">✓ Done</button>
-      </div>
-    </div>
-
-    <!-- Step 4: Done -->
-    <div id="learn-step-done" style="display:none">
-      <h2>✓ Learning Complete</h2>
-      <div id="learn-done-message" style="font-size:0.88rem;margin-bottom:0.75rem;line-height:1.5"></div>
-      <button class="btn-ghost btn-small" onclick="hideLearnPanel()">Close</button>
-    </div>
-
-  </div>
-
-  <!-- Add Record Form -->
-  <div class="card" id="add-form" style="display:none;max-width:480px;margin:1rem auto">
-
-    <!-- Step 1: Search -->
-    <div id="add-step-search">
-      <h2>Add Record — Search</h2>
-      <div class="form-cols" style="margin-bottom:0.5rem">
-        <div class="form-row">
-          <label>Artist</label>
-          <input type="text" id="s-artist" placeholder="Pearl Jam" onkeydown="if(event.key==='Enter')doSearch()">
-        </div>
-        <div class="form-row">
-          <label>Album</label>
-          <input type="text" id="s-album" placeholder="Ten" onkeydown="if(event.key==='Enter')doSearch()">
-        </div>
-      </div>
-      <div style="display:flex;gap:0.5rem;margin-bottom:0.75rem">
-        <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap">
-          <button class="btn-start btn-small" id="btn-search" onclick="doSearch()">Search</button>
-          <div style="display:flex;gap:0;border:1px solid var(--border);border-radius:6px;overflow:hidden;font-size:0.8rem">
-            <button id="src-mb" onclick="setSource('mb')"
-              style="padding:0.3rem 0.7rem;border:none;cursor:pointer;background:var(--surface);color:var(--text)">MusicBrainz</button>
-            <button id="src-discogs" onclick="setSource('discogs')"
-              style="padding:0.3rem 0.7rem;border:none;cursor:pointer;background:var(--accent);color:#fff">Discogs</button>
+      <div id="album-rec-panel" style="display:none">
+        <div id="album-rec-setup">
+          <div class="side-label">🎙 Record Side</div>
+          <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.5rem">
+            <label style="font-size:0.8rem;font-weight:600">Side</label>
+            <select id="album-rec-side" class="form-input" style="width:70px"><option value="A">A</option><option value="B">B</option></select>
+            <span id="album-rec-side-info" style="font-size:0.72rem;color:var(--muted)"></span>
+          </div>
+          <div style="display:flex;gap:0.4rem">
+            <button class="btn btn-danger" onclick="startAlbumRecording()">⏺ Record</button>
+            <button class="btn btn-ghost" onclick="hideAlbumRecPanel()">Cancel</button>
           </div>
         </div>
-        <button class="btn-ghost btn-small" onclick="showManualStep()">Enter Manually Instead</button>
-        <button class="btn-ghost btn-small" onclick="hideAddForm()">Cancel</button>
+        <div id="album-rec-active" style="display:none">
+          <div class="side-label">⏺ Recording Side <span id="album-rec-active-side">A</span></div>
+          <div class="rec-timer" id="album-rec-timer">00:00</div>
+          <div id="album-rec-status-text" style="font-size:0.82rem;font-weight:600;margin-bottom:0.4rem">Waiting for audio…</div>
+          <div id="album-rec-track-log" style="font-size:0.78rem;max-height:120px;overflow-y:auto;margin-bottom:0.5rem"></div>
+          <div style="display:flex;gap:0.4rem;flex-wrap:wrap">
+            <button class="btn" onclick="flipAlbumRecording()" id="btn-album-rec-flip">⟳ Flip</button>
+            <button class="btn btn-danger" onclick="stopAlbumRecording()">■ Stop &amp; Save</button>
+            <button class="btn btn-ghost" onclick="cancelAlbumRecording()">✕ Cancel</button>
+          </div>
+        </div>
+        <div id="album-rec-saving" style="display:none"><div class="side-label">💿 Encoding FLAC…</div><p style="font-size:0.82rem;color:var(--muted)">Please wait…</p></div>
+        <div id="album-rec-flip-prompt" style="display:none">
+          <div class="side-label" style="color:var(--green)">✓ Side <span id="album-rec-done-side">A</span> saved!</div>
+          <p style="font-size:0.82rem;color:var(--muted);margin-bottom:0.5rem">Flip the record and press continue.</p>
+          <div style="display:flex;gap:0.4rem">
+            <button class="btn btn-accent" onclick="startNextSideRecording()">⏺ Side <span id="album-rec-next-side-label">B</span></button>
+            <button class="btn btn-ghost" onclick="finishAlbumRecSession()">Done</button>
+          </div>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-primary" onclick="playAlbumFromModal()" id="btn-modal-play">▶ Play</button>
+        <button class="btn btn-accent" onclick="openLearnForAlbum()" id="btn-modal-learn">🎓 Learn</button>
+        <button class="btn" onclick="showAlbumRecPanel()" id="btn-modal-rec">🎙 Record</button>
+        <label class="btn" style="cursor:pointer">📷<input type="file" accept="image/*" style="display:none" onchange="uploadArtwork(event)"></label>
+        <button class="btn btn-ghost" onclick="toggleReorderMode()" id="btn-reorder">⇅</button>
+        <button class="btn btn-ghost" onclick="clearAlbumFingerprints()">🗑fp</button>
+        <button class="btn btn-ghost" style="color:var(--red)" onclick="deleteAlbum()">Delete</button>
+        <button class="btn btn-ghost" onclick="closeModal()" style="margin-left:auto">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Learn Overlay -->
+<div class="learn-overlay" id="learn-overlay">
+  <div class="learn-card">
+    <div id="learn-step-setup">
+      <h2 style="font-size:1rem;margin-bottom:0.5rem">🎓 Learn Album Fingerprints</h2>
+      <p style="font-size:0.78rem;color:var(--muted);margin-bottom:0.6rem;line-height:1.4">Play the record — tracks will be detected automatically, fingerprinted, and recorded as FLAC.</p>
+      <div class="form-row"><label>Album</label><input type="text" class="form-input" id="learn-album-input" list="learn-album-list" placeholder="Search artist or album…" autocomplete="off" oninput="onLearnAlbumInput(this.value)"><datalist id="learn-album-list"></datalist><input type="hidden" id="learn-album-id"></div>
+      <div class="form-row"><label>Tracks on this side</label><input type="number" class="form-input" id="learn-track-count" value="5" min="1" max="30" style="width:80px"></div>
+      <label class="device-item" style="border:none;padding:0.4rem 0;gap:0.5rem"><input type="checkbox" id="learn-also-record" checked><span style="font-size:0.8rem">Also record full side as FLAC</span></label>
+      <div style="margin-bottom:0.6rem"><div style="font-size:0.7rem;color:var(--muted);margin-bottom:0.2rem">Input level</div><div style="background:var(--border);border-radius:3px;height:6px;overflow:hidden"><div id="learn-level-bar" style="height:100%;width:0%;background:var(--green);transition:width 0.08s;border-radius:3px"></div></div></div>
+      <div style="display:flex;gap:0.4rem"><button class="btn btn-primary" onclick="startLearnSession()">▶ Start</button><button class="btn btn-ghost" onclick="hideLearnOverlay()">Cancel</button></div>
+    </div>
+    <div id="learn-step-active" style="display:none">
+      <h2 style="font-size:1rem;margin-bottom:0.5rem">🎓 Learning…</h2>
+      <div style="background:var(--border);border-radius:3px;height:5px;margin-bottom:0.5rem"><div id="learn-progress-bar" style="height:100%;width:0%;background:var(--accent);border-radius:3px;transition:width 0.4s"></div></div>
+      <div id="learn-status-text" style="font-size:0.85rem;font-weight:600;margin-bottom:0.3rem"></div>
+      <div id="learn-next-track" style="font-size:0.75rem;color:var(--muted);margin-bottom:0.5rem"></div>
+      <div id="learn-track-list" style="font-size:0.78rem;max-height:180px;overflow-y:auto;margin-bottom:0.5rem"></div>
+      <button class="btn btn-danger" onclick="stopLearnSession()">■ Stop</button>
+    </div>
+    <div id="learn-step-paused" style="display:none">
+      <h2 style="font-size:1rem;margin-bottom:0.5rem">⏸ Flip Record</h2>
+      <div id="learn-pause-message" style="font-size:0.82rem;margin-bottom:0.5rem;line-height:1.4"></div>
+      <div class="form-row"><label>Tracks on next side</label><input type="number" class="form-input" id="learn-continue-count" value="5" min="1" max="30" style="width:80px"></div>
+      <div style="display:flex;gap:0.4rem"><button class="btn btn-primary" onclick="continueLearnSession()">▶ Continue</button><button class="btn btn-ghost" onclick="finishLearnSession()">✓ Done</button></div>
+    </div>
+    <div id="learn-step-done" style="display:none">
+      <h2 style="font-size:1rem;margin-bottom:0.5rem">✓ Learning Complete</h2>
+      <div id="learn-done-message" style="font-size:0.82rem;margin-bottom:0.5rem"></div>
+      <button class="btn btn-ghost" onclick="hideLearnOverlay()">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- Add Record Modal -->
+<div class="modal-overlay" id="add-modal" onclick="if(event.target===this)hideAddForm()">
+  <div class="modal">
+    <div id="add-step-search">
+      <h2 style="font-size:1rem;margin-bottom:0.6rem">Add Record</h2>
+      <div class="form-cols" style="margin-bottom:0.4rem">
+        <div class="form-row"><label>Artist</label><input type="text" class="form-input" id="s-artist" placeholder="Pearl Jam" onkeydown="if(event.key==='Enter')doSearch()"></div>
+        <div class="form-row"><label>Album</label><input type="text" class="form-input" id="s-album" placeholder="Ten" onkeydown="if(event.key==='Enter')doSearch()"></div>
+      </div>
+      <div style="display:flex;gap:0.4rem;margin-bottom:0.6rem;flex-wrap:wrap">
+        <button class="btn btn-accent" id="btn-search" onclick="doSearch()">Search Discogs</button>
+        <button class="btn btn-ghost" onclick="showManualStep()">Enter Manually</button>
+        <button class="btn btn-ghost" onclick="hideAddForm()">Cancel</button>
       </div>
       <div id="search-results"></div>
     </div>
-
-    <!-- Step 2: Confirm tracks from MusicBrainz -->
     <div id="add-step-confirm" style="display:none">
-      <h2>Confirm Track Listing</h2>
-      <div id="confirm-album-header" style="margin-bottom:0.75rem"></div>
-      <div id="confirm-tracks" style="margin-bottom:0.75rem;max-height:320px;overflow-y:auto"></div>
-      <div style="display:flex;gap:0.5rem;flex-wrap:wrap">
-        <button class="btn-start btn-small" onclick="saveRelease()">Save to Catalog</button>
-        <button class="btn-ghost btn-small" onclick="backToSearch()">← Back</button>
-        <button class="btn-ghost btn-small" onclick="hideAddForm()">Cancel</button>
-      </div>
+      <h2 style="font-size:1rem;margin-bottom:0.6rem">Confirm Tracks</h2>
+      <div id="confirm-album-header" style="margin-bottom:0.5rem"></div>
+      <div id="confirm-tracks" style="margin-bottom:0.5rem;max-height:300px;overflow-y:auto"></div>
+      <div style="display:flex;gap:0.4rem"><button class="btn btn-primary" onclick="saveRelease()">Save to Catalog</button><button class="btn btn-ghost" onclick="backToSearch()">← Back</button></div>
     </div>
-
-    <!-- Step 3: Manual entry fallback -->
     <div id="add-step-manual" style="display:none">
-      <h2>Add Record Manually</h2>
-      <div class="form-cols">
-        <div class="form-row">
-          <label>Album Title *</label>
-          <input type="text" id="m-album-title" placeholder="Abbey Road">
-        </div>
-        <div class="form-row">
-          <label>Artist *</label>
-          <input type="text" id="m-artist" placeholder="The Beatles">
-        </div>
-      </div>
-      <div class="form-cols">
-        <div class="form-row">
-          <label>Year</label>
-          <input type="number" id="m-year" placeholder="1969" min="1900" max="2099">
-        </div>
-        <div class="form-row">
-          <label>Genre</label>
-          <input type="text" id="m-genre" placeholder="Rock">
-        </div>
-      </div>
-      <div class="form-cols">
-        <div class="form-row">
-          <label>Label</label>
-          <input type="text" id="m-label" placeholder="Epic Records">
-        </div>
-        <div class="form-row">
-          <label>Notes</label>
-          <input type="text" id="m-notes" placeholder="UK pressing, 1991">
-        </div>
-      </div>
-      <div class="form-row" style="margin-top:0.25rem">
-        <label>Side A Tracks (one per line)</label>
-        <textarea id="m-tracks-a" rows="5" style="resize:vertical;font-size:0.85rem"
-                  placeholder="Once&#10;Even Flow&#10;Alive&#10;Why Go&#10;Black"></textarea>
-      </div>
-      <div class="form-row">
-        <label>Side B Tracks (one per line)</label>
-        <textarea id="m-tracks-b" rows="5" style="resize:vertical;font-size:0.85rem"
-                  placeholder="Jeremy&#10;Oceans&#10;Porch&#10;Garden&#10;Deep&#10;Release"></textarea>
-      </div>
-      <div style="display:flex;gap:0.5rem;margin-top:0.5rem;flex-wrap:wrap">
-        <button class="btn-start btn-small" onclick="submitManual()">Save to Catalog</button>
-        <button class="btn-ghost btn-small" onclick="backToSearch()">← Back to Search</button>
-        <button class="btn-ghost btn-small" onclick="hideAddForm()">Cancel</button>
-      </div>
-    </div>
-
-  </div>
-
-</div><!-- /tab-catalog -->
-
-<!-- ═══════════════════════ HISTORY TAB ═══════════════════════ -->
-<div id="tab-history" class="tab-pane">
-  <div class="card" style="max-width:480px;margin:1rem auto">
-    <h2>Recently Played</h2>
-    <div id="history-list">
-      <div class="device-empty">No plays recorded yet</div>
+      <h2 style="font-size:1rem;margin-bottom:0.6rem">Add Manually</h2>
+      <div class="form-cols"><div class="form-row"><label>Album Title *</label><input type="text" class="form-input" id="m-album-title" placeholder="Abbey Road"></div><div class="form-row"><label>Artist *</label><input type="text" class="form-input" id="m-artist" placeholder="The Beatles"></div></div>
+      <div class="form-cols"><div class="form-row"><label>Year</label><input type="number" class="form-input" id="m-year" placeholder="1969"></div><div class="form-row"><label>Genre</label><input type="text" class="form-input" id="m-genre" placeholder="Rock"></div></div>
+      <div class="form-cols"><div class="form-row"><label>Label</label><input type="text" class="form-input" id="m-label" placeholder="Epic"></div><div class="form-row"><label>Notes</label><input type="text" class="form-input" id="m-notes" placeholder="UK pressing"></div></div>
+      <div class="form-row"><label>Side A Tracks (one per line)</label><textarea class="form-input" id="m-tracks-a" rows="4" style="resize:vertical" placeholder="Once&#10;Even Flow&#10;Alive"></textarea></div>
+      <div class="form-row"><label>Side B Tracks (one per line)</label><textarea class="form-input" id="m-tracks-b" rows="4" style="resize:vertical" placeholder="Jeremy&#10;Oceans&#10;Porch"></textarea></div>
+      <div style="display:flex;gap:0.4rem;margin-top:0.4rem"><button class="btn btn-primary" onclick="submitManual()">Save</button><button class="btn btn-ghost" onclick="backToSearch()">← Back</button></div>
     </div>
   </div>
 </div>
 
-
-<!-- ═══════════════════════ RECORDINGS TAB ═══════════════════════ -->
-<div id="tab-recordings" class="tab-pane">
-
-
-  <!-- Recordings List -->
-  <div class="card" style="max-width:480px;margin:1rem auto">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.9rem">
-      <h2 style="margin:0">Saved MP3s</h2>
-      <div style="display:flex;gap:0.5rem">
-        <button class="btn-ghost btn-small" onclick="loadRecordings()">↻</button>
-        <a id="btn-dl-all" href="/api/recordings/zip/all" class="btn-ghost btn-small"
-           style="text-decoration:none;padding:0.35rem 0.8rem;border-radius:8px;
-                  border:1px solid var(--border);color:var(--muted);font-size:0.8rem;
-                  font-weight:600;display:inline-block">
-          ⬇ Download All
-        </a>
-        <button class="btn-stop btn-small" onclick="deleteAllRecordings()">🗑 Delete All</button>
-      </div>
+<!-- Settings Modal -->
+<div class="modal-overlay" id="settings-modal" onclick="if(event.target===this)hideSettings()">
+  <div class="modal" style="max-width:420px">
+    <h2 style="font-size:1rem;margin-bottom:0.8rem">⚙ Settings</h2>
+    <div class="settings-section"><h3>AirPlay Devices</h3><div id="settings-device-list" style="margin-bottom:0.5rem"><div style="color:var(--muted);font-size:0.8rem">Press scan to find devices</div></div><button class="btn" onclick="scanDevices()">⟳ Scan for Devices</button></div>
+    <div class="settings-section"><h3>Vinyl Streaming</h3>
+      <div style="display:flex;gap:0.4rem;margin-bottom:0.5rem"><button class="btn btn-primary" id="btn-start-stream" onclick="startStream()">▶ Start Streaming</button><button class="btn btn-danger" id="btn-stop-stream" onclick="stopStream()" style="display:none">■ Stop</button></div>
+      <label class="device-item" style="border:none;padding:0.3rem 0;gap:0.5rem"><input type="checkbox" id="auto-stream-enabled" onchange="saveAutoStreamSettings()"><span style="font-size:0.8rem">Auto-stream when record plays</span></label>
+      <div class="form-row" style="margin-top:0.3rem"><label>Default device</label><div style="display:flex;gap:0.4rem;align-items:center"><select class="form-input" id="auto-stream-device-select" onchange="saveAutoStreamSettings()" style="flex:1"><option value="">— Select —</option></select><button class="btn btn-ghost" onclick="scanAutoStreamDevices()" style="padding:0.3rem 0.5rem">↺</button></div></div>
+      <div id="auto-stream-status" style="font-size:0.72rem;color:var(--muted);margin-top:0.2rem"></div>
     </div>
-    <div id="recordings-list">
-      <div class="device-empty">No recordings yet</div>
-    </div>
-  </div>
-
-</div>
-<!-- ═══════════════════════ SETTINGS TAB ═══════════════════════ -->
-<div id="tab-settings" class="tab-pane">
-
-  <!-- ── Auto-Stream Card ── -->
-  <div class="card" style="max-width:480px;margin:1rem auto">
-    <h2>Auto-Stream</h2>
-    <p style="font-size:0.82rem;color:var(--muted);margin-bottom:0.75rem;line-height:1.5">
-      When enabled, the Pi listens for audio from the turntable and automatically
-      starts streaming to the default device when a record plays.
-    </p>
-
-    <!-- Enable toggle -->
-    <label class="device-item" style="gap:0.75rem;border:none;padding:0.4rem 0;margin-bottom:0.75rem">
-      <input type="checkbox" id="auto-stream-enabled"
-             style="accent-color:var(--accent);width:16px;height:16px;flex-shrink:0"
-             onchange="saveAutoStreamSettings()">
-      <span>
-        <strong style="font-size:0.85rem">Enable auto-stream</strong>
-        <span style="display:block;font-size:0.75rem;color:var(--muted)">
-          Automatically starts streaming when the turntable is detected playing.
-        </span>
-      </span>
-    </label>
-
-    <!-- Default device picker -->
-    <div class="form-row" style="margin-bottom:0.5rem">
-      <label style="font-size:0.82rem">Default device</label>
-      <div style="display:flex;gap:0.5rem;align-items:center">
-        <select id="auto-stream-device-select"
-                onchange="saveAutoStreamSettings()"
-                style="flex:1;background:var(--surface,#1e1e2e);border:1px solid var(--border);
-                       color:var(--text);padding:0.4rem 0.6rem;border-radius:8px;font-size:0.85rem">
-          <option value="">— Select a device —</option>
-        </select>
-        <button class="btn-ghost btn-small" onclick="scanAutoStreamDevices()" title="Scan for AirPlay devices">↺</button>
-      </div>
-    </div>
-    <div id="auto-stream-status" style="font-size:0.78rem;color:var(--muted);margin-top:0.25rem"></div>
-  </div>
-
-  <div class="card" style="max-width:480px;margin:1rem auto">
-    <h2>Discogs API Token</h2>
-    <p style="font-size:0.82rem;color:var(--muted);margin-bottom:0.75rem;line-height:1.5">
-      Optional but recommended — increases Discogs rate limits from 25 to 60 requests/min
-      and enables cover art downloads. Get a free personal access token at
-      <a href="https://www.discogs.com/settings/developers" target="_blank"
-         style="color:var(--accent)">discogs.com/settings/developers</a>.
-    </p>
-    <div class="form-row">
-      <label>Token</label>
-      <input type="password" id="discogs-token" placeholder="Paste your Discogs token here">
-    </div>
-    <div style="display:flex;gap:0.5rem;align-items:center;margin-top:0.25rem">
-      <button class="btn-start btn-small" style="width:auto" onclick="saveDiscogsToken()">Save Token</button>
-      <span id="discogs-saved" style="display:none;color:var(--green);font-size:0.82rem">✓ Saved</span>
-    </div>
-  </div>
-
-  <div class="card" style="max-width:480px;margin:1rem auto">
-    <h2>AcoustID Client Key</h2>
-    <p style="font-size:0.82rem;color:var(--muted);margin-bottom:0.75rem;line-height:1.5">
-      Required for first-time record identification via the public AcoustID service.
-      Create a free (non-commercial) application key at
-      <a href="https://acoustid.org/webservice" target="_blank"
-         style="color:var(--accent)">acoustid.org/webservice</a>.
-      After a record is identified once, it is saved locally and this key is no longer needed
-      for that record.
-    </p>
-    <!-- Enable/disable toggle -->
-    <label class="device-item" style="gap:0.75rem;border:none;padding:0.5rem 0;margin-bottom:0.5rem">
-      <input type="checkbox" id="acoustid-enabled"
-             style="accent-color:var(--accent);width:16px;height:16px;flex-shrink:0"
-             onchange="saveSettings()">
-      <span>
-        <strong style="font-size:0.85rem">Enable AcoustID lookup</strong>
-        <span style="display:block;font-size:0.75rem;color:var(--muted)">
-          Query AcoustID for unrecognised records. Off by default — only needed before
-          fingerprints are learned. Adds CPU load every 30s while streaming.
-        </span>
-      </span>
-    </label>
-    <div class="form-row">
-      <label>API Token</label>
-      <input type="password" id="acoustid-key" placeholder="Paste your AcoustID client key here">
-    </div>
-    <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;margin-top:0.25rem">
-      <button class="btn-start btn-small" style="width:auto" onclick="saveSettings()">Save Key</button>
-      <button class="btn-ghost btn-small" onclick="testAcoustID()">Test Key</button>
-      <span id="settings-saved"  style="display:none;color:var(--green);font-size:0.82rem">✓ Saved</span>
-      <span id="settings-testing" style="display:none;color:var(--muted);font-size:0.82rem">Testing…</span>
-      <span id="settings-result" style="display:none;font-size:0.82rem"></span>
-    </div>
-  </div>
-
-  <div class="card" style="max-width:480px;margin:1rem auto">
-    <h2>Hidden Devices</h2>
-    <p style="font-size:0.82rem;color:var(--muted);margin-bottom:0.75rem;line-height:1.5">
-      Devices checked here are hidden from the streaming list. Scan first to see all available devices.
-    </p>
-    <div id="hidden-device-list">
-      <div class="device-empty">Scan for devices to manage visibility</div>
-    </div>
-    <button class="btn-ghost btn-small" style="margin-top:0.75rem" onclick="scanForHidden()">⟳ Scan Devices</button>
-  </div>
-
-  <div class="card" style="max-width:480px;margin:1rem auto">
-    <h2>About Recognition</h2>
-    <p style="font-size:0.82rem;color:var(--muted);line-height:1.6">
-      When streaming, Vinyl AirPlay samples ~20 seconds of audio on an overlapping window (~every 12 seconds)
-      and generates an acoustic fingerprint using Chromaprint — the same engine
-      used by services like Last.fm.<br><br>
-      It first checks your <strong>local catalog</strong>. If the record is already
-      known, it matches instantly with no internet connection. If it's a new record
-      and you have an AcoustID client key, it queries
-      <a href="https://acoustid.org" target="_blank" style="color:var(--accent)">AcoustID</a>
-      (Chromaprint-based fingerprint lookup). Only the fingerprint (not raw audio) is sent.
-      After that, the match + metadata are stored locally, so the lookup never repeats.
-    </p>
+    <div class="settings-section"><h3>Audio Input</h3><select class="form-input" id="audio-select"><option value="">Loading…</option></select></div>
+    <div class="settings-section"><h3>Discogs Token</h3><p style="font-size:0.75rem;color:var(--muted);margin-bottom:0.4rem;line-height:1.4">Optional — increases rate limits and enables cover art. <a href="https://www.discogs.com/settings/developers" target="_blank" style="color:var(--accent)">Get token</a></p><div style="display:flex;gap:0.4rem;align-items:center"><input type="password" class="form-input" id="discogs-token" placeholder="Paste token" style="flex:1"><button class="btn btn-accent" onclick="saveDiscogsToken()">Save</button></div><span id="discogs-saved" style="display:none;color:var(--green);font-size:0.75rem">✓ Saved</span></div>
+    <div class="settings-section"><h3>Hidden Devices</h3><div id="hidden-device-list" style="font-size:0.8rem;color:var(--muted)">Scan to manage</div></div>
+    <button class="btn btn-ghost" onclick="hideSettings()" style="width:100%;margin-top:0.5rem">Close</button>
   </div>
 </div>
-
-<!-- ═══════════════════════ ALBUM DETAIL MODAL ═══════════════════════ -->
-<div class="modal-overlay" id="album-modal" onclick="closeModal(event)">
-  <div class="modal">
-    <div class="modal-header">
-      <img id="modal-art" class="modal-art" src="" alt="" onerror="this.style.display='none'">
-      <div>
-        <div class="modal-title"  id="modal-title"></div>
-        <div class="modal-artist" id="modal-artist"></div>
-        <div class="modal-meta"   id="modal-meta"></div>
-      </div>
-    </div>
-    <div class="track-list" id="modal-tracks"></div>
-
-    <!-- Album Audio Files (recorded sides) -->
-    <div id="modal-audio-section" style="display:none;margin-top:0.75rem">
-      <div style="font-size:0.72rem;font-weight:600;text-transform:uppercase;letter-spacing:0.08em;color:var(--muted);margin-bottom:0.4rem">
-        Recorded Audio
-      </div>
-      <div id="modal-audio-list"></div>
-    </div>
-
-    <!-- Album Recording Panel -->
-    <div class="album-rec-panel" id="album-rec-panel" style="display:none">
-      <div id="album-rec-setup">
-        <h3>🎙 Record Album</h3>
-        <p style="font-size:0.82rem;color:var(--muted);margin-bottom:0.6rem;line-height:1.4">
-          Records a full side to lossless FLAC while fingerprinting each track.
-        </p>
-        <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:0.75rem">
-          <label style="font-size:0.82rem;font-weight:600;flex-shrink:0">Side</label>
-          <select id="album-rec-side" style="width:80px;padding:0.4rem 0.6rem;font-size:0.85rem">
-            <option value="A">A</option><option value="B">B</option>
-          </select>
-          <span id="album-rec-side-info" style="font-size:0.78rem;color:var(--muted)"></span>
-        </div>
-        <div style="display:flex;gap:0.5rem;flex-wrap:wrap">
-          <button class="btn-start btn-small" onclick="startAlbumRecording()">⏺ Start Recording</button>
-          <button class="btn-ghost btn-small" onclick="hideAlbumRecPanel()">Cancel</button>
-        </div>
-      </div>
-      <div id="album-rec-active" style="display:none">
-        <h3>⏺ Recording Side <span id="album-rec-active-side">A</span></h3>
-        <div class="album-rec-timer" id="album-rec-timer">00:00</div>
-        <div id="album-rec-status-text" style="font-size:0.9rem;font-weight:600;margin-bottom:0.5rem">Waiting for audio…</div>
-        <div class="album-rec-tracks" id="album-rec-track-log"></div>
-        <div style="display:flex;gap:0.5rem;flex-wrap:wrap">
-          <button class="btn-blue btn-small" onclick="flipAlbumRecording()" id="btn-album-rec-flip">⟳ Flip — Side B</button>
-          <button class="btn-stop btn-small" onclick="stopAlbumRecording()">■ Stop &amp; Save</button>
-          <button class="btn-ghost btn-small" onclick="cancelAlbumRecording()">✕ Cancel</button>
-        </div>
-      </div>
-      <div id="album-rec-saving" style="display:none">
-        <h3>💿 Encoding FLAC…</h3>
-        <p style="font-size:0.85rem;color:var(--muted)">Please wait…</p>
-      </div>
-      <div id="album-rec-flip-prompt" style="display:none">
-        <h3 style="color:var(--green)">✓ Side <span id="album-rec-done-side">A</span> saved!</h3>
-        <p style="font-size:0.85rem;color:var(--muted);margin-bottom:0.6rem">Flip the record and press continue when ready.</p>
-        <div style="display:flex;gap:0.5rem;flex-wrap:wrap">
-          <button class="btn-start btn-small" onclick="startNextSideRecording()">⏺ Record Side <span id="album-rec-next-side-label">B</span></button>
-          <button class="btn-ghost btn-small" onclick="finishAlbumRecSession()">Done — No More Sides</button>
-        </div>
-      </div>
-    </div>
-
-    <div class="modal-actions">
-      <button class="btn-start btn-small" onclick="playAlbumToAirPlay()" id="btn-play-album" style="background:var(--green)">▶ Play to AirPlay</button>
-      <label class="btn-start btn-small" style="cursor:pointer;display:inline-block;padding:0.35rem 0.8rem;font-size:0.8rem;background:var(--accent);color:#fff;border-radius:8px;font-weight:600">
-        📷 Upload Photo
-        <input type="file" accept="image/*" style="display:none" onchange="uploadArtwork(event)">
-      </label>
-      <button class="btn-blue  btn-small" onclick="learnAlbum()" id="btn-learn">🎵 Learn — This is Playing</button>
-      <button class="btn-start btn-small" onclick="showAlbumRecPanel()" id="btn-album-rec" style="background:var(--red)">🎙 Record Album</button>
-      <button class="btn-ghost btn-small" onclick="clearAlbumFingerprints()" id="btn-clear-fp" title="Clear all learned fingerprints so the album can be re-learned from scratch">🗑 Clear Fingerprints</button>
-      <button class="btn-ghost btn-small" onclick="toggleReorderMode()" id="btn-reorder">⇅ Reorder Tracks</button>
-      <button class="btn-ghost btn-small" onclick="closeModalDirect()">Close</button>
-      <button class="btn-stop  btn-small" onclick="deleteAlbum()">Delete</button>
-    </div>
-  </div>
-</div>
-
 <script>
-  let ws;
-  let eqTimeout = null;
-  let currentAlbumId = null;
+let ws,currentAlbumId=null,_catalogAlbums=[],_playerActive=false,_playerSource=null,_learnLog=[],_learnLevelInterval=null,_audioPlayer=null,_audioPlayingId=null,_reorderMode=false,_pendingRelease=null,_recTimerInterval=null;
 
-  // ── Tabs ─────────────────────────────────────────────────────────────────
+function esc(s){if(!s)return'';const d=document.createElement('div');d.textContent=s;return d.innerHTML}
+function fmtTime(s){return Math.floor(s/60)+':'+String(Math.floor(s%60)).padStart(2,'0')}
+function showError(msg){const el=document.getElementById('error-msg');el.textContent='\u26A0 '+msg;el.style.display='block';setTimeout(()=>el.style.display='none',5000)}
+function showToast(msg){const el=document.getElementById('toast-msg');el.textContent=msg;el.style.display='block';setTimeout(()=>el.style.display='none',3000)}
 
-  function showTab(name) {
-    document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
-    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-    document.getElementById('tab-' + name).classList.add('active');
-    const idx = ['stream','catalog','history','recordings','settings'].indexOf(name);
-    document.querySelectorAll('.tab-btn')[idx].classList.add('active');
-    if (name === 'catalog')    { loadCatalog(); populateLearnAlbumSelect(); }
-    if (name === 'history')    loadHistory();
-    if (name === 'recordings') { loadRecordings(); loadRecAlbums(); }
-    if (name === 'settings')    renderHiddenDevices();
-  }
+function connectWS(){const p=location.protocol==='https:'?'wss':'ws';ws=new WebSocket(`${p}://${location.host}/ws`);ws.onmessage=e=>{try{handleEvent(JSON.parse(e.data))}catch(err){console.warn('WS',err)}};ws.onclose=()=>setTimeout(connectWS,2000)}
 
-  // ── WebSocket ─────────────────────────────────────────────────────────────
+function handleEvent(d){
+  if(d.event==='status')setStatus(d);
+  if(d.event==='error')showError(d.message);
+  if(d.event==='now_playing')renderNowPlaying(d);
+  if(d.event==='player_status')onPlayerStatus(d);
+  if(d.event==='learn_audio_detected')onLearnAudioDetected(d);
+  if(d.event==='learn_end_of_side')onLearnEndOfSide(d);
+  if(d.event==='learn_update')onLearnUpdate(d);
+  if(d.event==='learn_paused')onLearnPaused(d);
+  if(d.event==='learn_done')onLearnDone(d);
+  if(d.event==='album_recording_status')onAlbumRecStatus(d);
+  if(d.event==='album_recording_side_saved')onAlbumRecSideSaved(d);
+  if(d.event==='auto_stream_starting')showToast('\uD83D\uDCFB '+(d.message||'Auto-streaming\u2026'));
+  if(d.event==='level')onLevel(d);
+  if(d.eq)applyEQValues(d.eq.bass,d.eq.treble,d.eq.volume);
+}
 
-  function connectWS() {
-    ws = new WebSocket(`ws://${location.host}/ws`);
-    ws.onmessage = e => handleEvent(JSON.parse(e.data));
-    ws.onclose   = () => setTimeout(connectWS, 2000);
-  }
+function setStatus(d){
+  const s=d.streaming;
+  document.getElementById('dot').className='status-dot'+(s?' on':'');
+  let msg=d.message||(s?'Streaming':'Idle');
+  if(s&&d.devices&&d.devices.length)msg='Streaming to '+d.devices.join(', ');
+  if(d.listening)msg='Listening (audio capture active)';
+  document.getElementById('status-text').textContent=msg;
+  const bs=document.getElementById('btn-start-stream'),bt=document.getElementById('btn-stop-stream');
+  if(bs)bs.style.display=s?'none':'';if(bt)bt.style.display=s?'':'none';
+  if(s&&!_playerActive){_playerSource='vinyl';showNPFooter()}
+  if(!s&&_playerSource==='vinyl'&&!_playerActive)hideNPFooter();
+}
+function showNPFooter(){const f=document.getElementById('np-footer');f.classList.remove('hidden');f.style.display=''}
+function hideNPFooter(){const f=document.getElementById('np-footer');f.classList.add('hidden');f.style.display='none';_playerSource=null}
 
-  function handleEvent(data) {
-    if (data.event === 'status')     setStatus(data.streaming, data.message, data.devices);
-    if (data.event === 'error')      showError(data.message);
-    if (data.event === 'now_playing')     renderNowPlaying(data);
-    if (data.event === 'player_status')  onPlayerStatus(data);
-    if (data.event === 'recording_status') onRecordingStatus(data);
-    if (data.event === 'learn_audio_detected') onLearnAudioDetected(data);
-    if (data.event === 'learn_end_of_side')    onLearnEndOfSide(data);
-    if (data.event === 'auto_stream_starting') showToast('📻 ' + (data.message || 'Auto-stream starting…'));
-    if (data.event === 'learn_update')  onLearnUpdate(data);
-    if (data.event === 'learn_paused')  onLearnPaused(data);
-    if (data.event === 'learn_done')    onLearnDone(data);
-    if (data.event === 'recording_saved')  onRecordingSaved(data);
-    if (data.event === 'album_recording_status')    onAlbumRecStatus(data);
-    if (data.event === 'album_recording_side_saved') onAlbumRecSideSaved(data);
-    if (data.eq) applyEQValues(data.eq.bass, data.eq.treble, data.eq.volume);
-  }
+async function loadCatalog(){
+  try{const d=await fetch('/api/catalog').then(r=>r.json());_catalogAlbums=d.albums||[];renderCatalog(_catalogAlbums)}
+  catch(e){showError('Failed to load catalog')}
+}
+function renderCatalog(albums){
+  const g=document.getElementById('album-grid');
+  if(!albums.length){g.innerHTML='<div class="catalog-empty">No albums yet.<br>Tap \uFF0B to add your first record.</div>';return}
+  g.innerHTML=albums.map(a=>{
+    const art=a.user_artwork_path||a.artwork_path;
+    const artH=art?`<img src="/artwork/${art.split('/').pop()}?t=${a.id}" alt="" loading="lazy">`:'<div class="album-art-placeholder">\uD83D\uDCBF</div>';
+    const has=a.audio_count>0;
+    const badge=has?'':'<div class="album-badge unrecorded">not recorded</div>';
+    return `<div class="album-card" onclick="onAlbumTap(${a.id},${has})"><div class="album-art-wrap">${artH}<button class="album-info-btn" onclick="event.stopPropagation();openAlbumDetail(${a.id})" title="Details">\u2139</button>${badge}</div><div class="album-meta"><div class="title">${esc(a.title)}</div><div class="artist">${esc(a.artist)}</div></div></div>`;
+  }).join('');
+}
+function filterCatalog(q){if(!q){renderCatalog(_catalogAlbums);return}const ql=q.toLowerCase();renderCatalog(_catalogAlbums.filter(a=>(a.title||'').toLowerCase().includes(ql)||(a.artist||'').toLowerCase().includes(ql)||(a.genre||'').toLowerCase().includes(ql)))}
 
-  // ── Status ────────────────────────────────────────────────────────────────
+function onAlbumTap(id,has){if(has)playAlbum(id);else openAlbumDetail(id)}
+async function playAlbum(id){showToast('Starting playback\u2026');const r=await fetch('/api/player/play',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({album_id:id})}).then(r=>r.json());if(!r.ok)showError(r.error||'Playback failed')}
+async function shufflePlay(){const p=_catalogAlbums.filter(a=>a.audio_count>0);if(!p.length){showToast('No recorded albums to shuffle');return}const a=p[Math.floor(Math.random()*p.length)];showToast(`Shuffling: ${a.artist} \u2014 ${a.title}`);playAlbum(a.id)}
 
-  function setStatus(streaming, message, devices) {
-    document.getElementById('dot').className = 'status-dot' + (streaming ? ' on' : '');
-    let statusMsg = message || (streaming ? 'Streaming' : 'Idle');
-    if (streaming && devices && devices.length) {
-      statusMsg = 'Streaming to ' + devices.join(', ');
-    }
-    document.getElementById('status-text').textContent = statusMsg;
-    document.getElementById('btn-start').style.display = streaming ? 'none' : 'block';
-    document.getElementById('btn-stop').style.display  = streaming ? 'block' : 'none';
+function renderNowPlaying(d){
+  if(!d.track_title){if(!_playerActive)hideNPFooter();return}
+  showNPFooter();_playerSource=d.source||'vinyl';
+  const w=document.getElementById('np-art-wrap');
+  if(d.artwork_url)w.outerHTML=`<img class="np-art" id="np-art-wrap" src="${d.artwork_url}?t=${Date.now()}" alt="">`;
+  else w.outerHTML='<div class="np-art-placeholder" id="np-art-wrap">\uD83D\uDCBF</div>';
+  document.getElementById('np-title').innerHTML=esc(d.track_title)+(d.source==='player'?'<span class="np-source-badge">catalog</span>':'');
+  document.getElementById('np-artist-album').textContent=[d.track_artist||d.album_artist||'',d.album_title||''].filter(Boolean).join(' \u2014 ')+(d.year?' ('+d.year+')':'');
+  document.getElementById('np-transport').style.display=d.source==='player'?'flex':'none';
+  document.getElementById('np-progress-row').style.display=d.source==='player'?'flex':'none';
+}
 
-    const npCard = document.getElementById('now-playing-card');
-    if (streaming) {
-      npCard.style.display = 'block';
-      if (!document.getElementById('np-track-title')) renderNowPlayingScanning();
-    } else if (!_playerActive) {
-      npCard.style.display = 'none';
-    }
-  }
+function onPlayerStatus(d){
+  if(d.state==='stopped'){_playerActive=false;document.getElementById('np-transport').style.display='none';document.getElementById('np-progress-row').style.display='none';if(_playerSource==='player')hideNPFooter();return}
+  _playerActive=true;_playerSource='player';showNPFooter();
+  document.getElementById('np-transport').style.display='flex';document.getElementById('np-progress-row').style.display='flex';
+  document.getElementById('np-play-pause').textContent=d.state==='paused'?'\u25B6':'\u23F8';
+  const pos=d.position_secs||0,dur=d.duration_secs||1;
+  document.getElementById('np-progress-fill').style.width=Math.min(100,(pos/dur)*100)+'%';
+  document.getElementById('np-time-cur').textContent=fmtTime(pos);document.getElementById('np-time-dur').textContent=fmtTime(dur);
+}
 
-  function showError(msg) {
-    const el = document.getElementById('error-msg');
-    el.textContent = '⚠ ' + msg;
-    el.style.display = 'block';
-    setTimeout(() => el.style.display = 'none', 6000);
-  }
+async function playerToggle(){await fetch('/api/player/pause',{method:'POST'})}
+async function playerStop(){await fetch('/api/player/stop',{method:'POST'})}
+async function playerNext(){await fetch('/api/player/next',{method:'POST'})}
+async function playerPrev(){await fetch('/api/player/prev',{method:'POST'})}
+function playerSeekClick(e){const b=e.currentTarget,r=b.getBoundingClientRect(),pct=(e.clientX-r.left)/r.width,pts=document.getElementById('np-time-dur').textContent.split(':'),dur=parseInt(pts[0])*60+parseInt(pts[1]);fetch('/api/player/seek',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({position_secs:pct*dur})})}
 
-  // ── Now Playing ───────────────────────────────────────────────────────────
+let _eqT=null;
+function sendEQ(){clearTimeout(_eqT);_eqT=setTimeout(()=>{fetch('/api/eq',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({bass:parseInt(document.getElementById('eq-bass').value),treble:parseInt(document.getElementById('eq-treble').value)})})},150)}
+function sendVolume(){clearTimeout(_eqT);_eqT=setTimeout(()=>{fetch('/api/volume',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({volume:parseInt(document.getElementById('eq-volume').value)})})},150)}
+function applyEQValues(b,t,v){document.getElementById('eq-bass').value=b;document.getElementById('eq-treble').value=t;document.getElementById('eq-volume').value=v}
 
-  let _playerActive = false;
+async function openAlbumDetail(id){
+  currentAlbumId=id;
+  const [cd,td]=await Promise.all([fetch('/api/catalog').then(r=>r.json()),fetch(`/api/catalog/${id}/tracks`).then(r=>r.json())]);
+  const a=cd.albums.find(x=>x.id===id);if(!a)return;
+  const art=a.user_artwork_path||a.artwork_path;
+  const artEl=document.getElementById('modal-art');artEl.src=art?`/artwork/${art.split('/').pop()}?t=${Date.now()}`:'';artEl.style.display=art?'':'none';
+  document.getElementById('modal-title').textContent=a.title;document.getElementById('modal-artist').textContent=a.artist;
+  document.getElementById('modal-meta').textContent=[a.year,a.genre,a.label].filter(Boolean).join(' \xB7 ');
+  td.tracks.sort((a,b)=>(a.side||'').localeCompare(b.side||'')||parseInt(a.track_number||0)-parseInt(b.track_number||0));
+  window._modalTracks=td.tracks.slice();renderModalTracks(window._modalTracks,false);
+  const ad=await fetch('/api/album-audio/'+id).then(r=>r.json());
+  document.getElementById('btn-modal-play').style.display=(ad.audio&&ad.audio.length)?'':'none';
+  loadAlbumAudio(id);hideAlbumRecPanel();document.getElementById('album-modal').classList.add('open');
+}
+function closeModal(){document.getElementById('album-modal').classList.remove('open');currentAlbumId=null}
+function playAlbumFromModal(){if(currentAlbumId){playAlbum(currentAlbumId);closeModal()}}
 
-  function renderNowPlayingScanning() {
-    document.getElementById('np-inner').innerHTML = `
-      <div class="np-art-placeholder">🎵</div>
-      <div class="np-info">
-        <div class="np-scanning">Listening for record…</div>
-      </div>`;
-  }
-
-  function renderNowPlaying(data) {
-    const inner = document.getElementById('np-inner');
-    if (!data.track_title) {
-      renderNowPlayingScanning();
-      return;
-    }
-    const artHtml = data.artwork_url
-      ? `<img class="np-art" src="${data.artwork_url}?t=${Date.now()}" alt="Album art">`
-      : `<div class="np-art-placeholder">💿</div>`;
-    const side = data.side ? `Side ${data.side}` : '';
-    const num  = data.track_number ? `Track ${data.track_number}` : '';
-    const badge = [side, num].filter(Boolean).join(' · ');
-    inner.innerHTML = `
-      ${artHtml}
-      <div class="np-info">
-        <div class="np-title" id="np-track-title">${esc(data.track_title)}</div>
-        <div class="np-artist">${esc(data.track_artist || data.album_artist || '')}</div>
-        <div class="np-album">${esc(data.album_title || '')}${data.year ? ' (' + data.year + ')' : ''}</div>
-        ${badge ? `<span class="np-badge">${esc(badge)}</span>` : ''}
-        ${data.source === 'player' ? '<span class="player-source-badge">CATALOG</span>' : ''}
-      </div>`;
-  }
-
-  // ── Player Controls ─────────────────────────────────────────────────────
-
-  function onPlayerStatus(data) {
-    const controls = document.getElementById('player-controls');
-    const npCard   = document.getElementById('now-playing-card');
-
-    if (data.state === 'stopped') {
-      _playerActive = false;
-      controls.style.display = 'none';
-      // Hide NP card if not vinyl streaming
-      if (!document.querySelector('.status-dot.on')) {
-        npCard.style.display = 'none';
-      }
-      return;
-    }
-
-    _playerActive = true;
-    npCard.style.display = 'block';
-    controls.style.display = 'flex';
-
-    // Update play/pause button
-    const btn = document.getElementById('player-play-pause');
-    if (data.state === 'paused') {
-      btn.textContent = '▶'; btn.title = 'Play';
-    } else {
-      btn.textContent = '⏸'; btn.title = 'Pause';
-    }
-
-    // Update progress
-    const pos = data.position_secs || 0;
-    const dur = data.duration_secs || 1;
-    const pct = Math.min(100, (pos / dur) * 100);
-    document.getElementById('player-progress-fill').style.width = pct + '%';
-    document.getElementById('player-time-cur').textContent = fmtTime(pos);
-    document.getElementById('player-time-dur').textContent = fmtTime(dur);
-  }
-
-  function fmtTime(secs) {
-    const m = Math.floor(secs / 60);
-    const s = Math.floor(secs % 60);
-    return m + ':' + String(s).padStart(2, '0');
-  }
-
-  async function playAlbumToAirPlay() {
-    if (!currentAlbumId) return;
-
-    // Check for recorded audio first
-    const audioData = await fetch('/api/album-audio/' + currentAlbumId).then(r => r.json());
-    if (!audioData.audio || !audioData.audio.length) {
-      showError('No recorded audio for this album. Record it first with 🎙 Record Album.');
-      return;
-    }
-
-    const res = await fetch('/api/player/play', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ album_id: currentAlbumId }),
-    }).then(r => r.json());
-
-    if (!res.ok) {
-      showError(res.error || 'Playback failed');
-    } else {
-      closeModalDirect();
-    }
-  }
-
-  async function playerToggle() {
-    await fetch('/api/player/pause', { method: 'POST' });
-  }
-
-  async function playerStop() {
-    await fetch('/api/player/stop', { method: 'POST' });
-  }
-
-  async function playerNext() {
-    await fetch('/api/player/next', { method: 'POST' });
-  }
-
-  async function playerPrev() {
-    await fetch('/api/player/prev', { method: 'POST' });
-  }
-
-  function playerSeekClick(event) {
-    const bar = document.getElementById('player-progress-bar');
-    const rect = bar.getBoundingClientRect();
-    const pct = (event.clientX - rect.left) / rect.width;
-    const durText = document.getElementById('player-time-dur').textContent;
-    const parts = durText.split(':');
-    const dur = parseInt(parts[0]) * 60 + parseInt(parts[1]);
-    const pos = pct * dur;
-    fetch('/api/player/seek', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ position_secs: pos }),
+function renderModalTracks(tracks,reorder){
+  const c=document.getElementById('modal-tracks');c.classList.toggle('reorder-mode',reorder);
+  if(!tracks.length){c.innerHTML='<div style="color:var(--muted);font-size:0.8rem;padding:0.5rem 0">No tracks</div>';return}
+  const sides={};tracks.forEach(t=>{if(!sides[t.side])sides[t.side]=[];sides[t.side].push(t)});
+  let h='';Object.keys(sides).sort().forEach(side=>{
+    h+=`<div class="side-label">Side ${side}</div>`;
+    sides[side].forEach((t,i)=>{
+      const dur=t.duration_secs?fmtTime(t.duration_secs):'';
+      const learned=(t.fingerprint_count||0)>0;
+      const fp=learned?`<span style="color:var(--green);font-size:0.68rem">\u2713 ${t.fingerprint_count}fp</span>`:'<span style="color:var(--muted);font-size:0.68rem">unlearned</span>';
+      const handle=reorder?'<span class="drag-handle">\u2807</span>':'';
+      const click=t.start_secs!=null&&!reorder?`onclick="seekToTrack(${t.id})"`:'';
+      h+=`<div class="track-row" data-id="${t.id}" data-idx="${i}" ${click}>${handle}<span class="track-num">${esc(t.track_number||'')}</span><span style="flex:1">${esc(t.title)}</span>${fp}<span style="color:var(--muted);font-size:0.7rem;min-width:2.5rem;text-align:right">${dur}</span></div>`;
     });
-  }
-
-  // ── Device Scan ───────────────────────────────────────────────────────────
-
-  async function scanDevices() {
-    const btn = document.getElementById('btn-scan');
-    btn.textContent = '⟳ Scanning…'; btn.disabled = true;
-    try {
-      const data = await fetch('/api/scan').then(r => r.json());
-      renderDevices(data.devices);
-    } catch(e) { showError('Scan failed: ' + e.message); }
-    finally { btn.textContent = '⟳ Scan for Devices'; btn.disabled = false; }
-  }
-
-  function renderDevices(devices) {
-    const list = document.getElementById('device-list');
-    const visible = devices.filter(d => !d.hidden);
-    if (!visible.length) {
-      const allHidden = devices.length > 0;
-      list.innerHTML = `<div class="device-empty">${allHidden ? 'All devices hidden — unhide in Settings' : 'No devices found'}</div>`;
-      return;
-    }
-    list.innerHTML = visible.map(d => {
-      const paired = d.paired !== false;  // treat missing as paired (HomePods)
-      const needsPairing = d.needs_pairing && !paired;
-      return `
-      <label class="device-item" style="opacity:${needsPairing ? '0.6' : '1'}">
-        <input type="checkbox" name="device" value="${esc(d.id)}" data-name="${esc(d.name)}"
-               ${needsPairing ? 'disabled title="Pair this device first"' : ''}>
-        <span style="flex:1">
-          ${esc(d.name)}
-          ${needsPairing
-            ? '<span style="font-size:0.72rem;color:var(--red);margin-left:0.4rem">⚠ Not paired</span>'
-            : (d.needs_pairing
-                ? '<span style="font-size:0.72rem;color:var(--green);margin-left:0.4rem">✓ Paired</span>'
-                : '')}
-        </span>
-        <span style="color:var(--muted);font-size:0.78rem">${esc(d.address)}</span>
-        ${needsPairing
-          ? `<button class="btn-ghost btn-small" style="margin-left:0.5rem;padding:0.2rem 0.6rem;font-size:0.75rem"
-               onclick="event.preventDefault();startPairing('${esc(d.id)}','${esc(d.name)}')">Pair</button>`
-          : ''}
-      </label>`;
-    }).join('');
-  }
-
-  // ── Audio Devices ─────────────────────────────────────────────────────────
-
-  async function loadAudioDevices() {
-    const data = await fetch('/api/audio-devices').then(r => r.json());
-    document.getElementById('audio-select').innerHTML = data.devices.map(d =>
-      `<option value="${d.index}">${esc(d.name)}</option>`).join('');
-  }
-
-  // ── EQ & Volume ───────────────────────────────────────────────────────────
-
-  function updateEQLabel(band, value) {
-    const sign = value > 0 ? '+' : '';
-    document.getElementById(`${band}-val`).textContent = `${sign}${value} dB`;
-  }
-
-  function applyEQValues(bass, treble, volume) {
-    document.getElementById('bass').value   = bass;
-    document.getElementById('treble').value = treble;
-    updateEQLabel('bass', bass); updateEQLabel('treble', treble);
-    if (volume !== undefined) {
-      document.getElementById('volume').value = volume;
-      document.getElementById('vol-val').textContent = volume + '%';
-    }
-  }
-
-  function sendEQ() {
-    clearTimeout(eqTimeout);
-    eqTimeout = setTimeout(async () => {
-      const bass   = parseInt(document.getElementById('bass').value);
-      const treble = parseInt(document.getElementById('treble').value);
-      await fetch('/api/eq', { method:'POST', headers:{'Content-Type':'application/json'},
-                               body: JSON.stringify({bass, treble}) });
-    }, 200);
-  }
-
-  function resetEQ() { applyEQValues(0, 0); sendEQ(); }
-
-  async function sendVolume() {
-    const volume = parseInt(document.getElementById('volume').value);
-    await fetch('/api/volume', { method:'POST', headers:{'Content-Type':'application/json'},
-                                 body: JSON.stringify({volume}) });
-  }
-
-  // ── Stream Controls ───────────────────────────────────────────────────────
-
-  async function startStream() {
-    const checked = [...document.querySelectorAll('input[name=device]:checked')];
-    if (!checked.length) { showError('Select at least one device first.'); return; }
-    document.getElementById('error-msg').style.display = 'none';
-    await fetch('/api/start', {
-      method: 'POST', headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({
-        devices:            checked.map(el => ({id:el.value, name:el.dataset.name})),
-        volume:             parseInt(document.getElementById('volume').value),
-        audio_device_index: parseInt(document.getElementById('audio-select').value),
-      })
-    });
-  }
-
-  async function stopStream() {
-    await fetch('/api/stop', {method:'POST'});
-  }
-
-
-
-  // ── Learn Session ─────────────────────────────────────────────────────────
-
-  let _learnLog = [];  // learned track names for the session log
-
-  function showLearnPanel() {
-    populateLearnAlbumSelect();
-    document.getElementById('learn-panel').style.display = 'block';
-    showLearnStep('setup');
-    document.getElementById('learn-panel').scrollIntoView({behavior:'smooth', block:'nearest'});
-  }
-
-  function hideLearnPanel() {
-    document.getElementById('learn-panel').style.display = 'none';
-    document.getElementById('learn-album-input').value = '';
-    document.getElementById('learn-album-id').value    = '';
-    _learnLog = [];
-  }
-
-  function showLearnStep(name) {
-    ['setup','active','paused','done'].forEach(s =>
-      document.getElementById('learn-step-' + s).style.display = s === name ? 'block' : 'none'
-    );
-  }
-
-  let _learnAlbums = [];  // cache for lookup by label
-
-  async function populateLearnAlbumSelect() {
-    try {
-      const data = await fetch('/api/catalog').then(r => r.json());
-      _learnAlbums = (data.albums || []).map(a => ({
-        id:    a.id,
-        label: `${a.artist} — ${a.title}${a.year ? ' (' + a.year + ')' : ''}`,
-      }));
-      const dl = document.getElementById('learn-album-list');
-      dl.innerHTML = _learnAlbums
-        .map(a => `<option value="${esc(a.label)}" data-id="${a.id}">`)
-        .join('');
-    } catch(e) { console.warn('populateLearnAlbumSelect failed:', e); }
-  }
-
-  function onLearnAlbumInput(val) {
-    // Resolve typed/selected label back to an album ID
-    const match = _learnAlbums.find(a => a.label.toLowerCase() === val.toLowerCase());
-    document.getElementById('learn-album-id').value = match ? match.id : '';
-  }
-
-  async function startLearnSession() {
-    const albumId    = parseInt(document.getElementById('learn-album-id').value);
-    const trackCount = parseInt(document.getElementById('learn-track-count').value) || 1;
-    if (!albumId) { showError('Please select an album — type to search.'); return; }
-
-    // Show starting state immediately
-    document.getElementById('learn-status-text').textContent = '⏳ Starting audio capture…';
-    showLearnStep('active');
-
-    const res = await fetch('/api/learn/start', {
-      method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({album_id: albumId, track_count: trackCount,
-                            also_record: document.getElementById('learn-also-record').checked})
-    }).then(r => r.json());
-
-    if (!res.ok) { showLearnStep('setup'); showError(res.error); return; }
-
-    _learnLog = [];
-    showLearnStep('active');
-    document.getElementById('learn-status-text').textContent = `⏳ Waiting for audio… drop the needle when ready`;
-    document.getElementById('learn-next-track').textContent  = res.first_track || '';
-    document.getElementById('learn-progress-bar').style.width = '0%';
-    document.getElementById('learn-track-list').innerHTML = '';
-  }
-
-  async function stopLearnSession() {
-    await fetch('/api/learn/stop', {method:'POST'});
-    showLearnStep('setup');
-  }
-
-  async function continueLearnSession() {
-    const moreCount = parseInt(document.getElementById('learn-continue-count').value) || 1;
-    const res = await fetch('/api/learn/continue', {
-      method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({track_count: moreCount})
-    }).then(r => r.json());
-    if (!res.ok) { showError(res.error); return; }
-    showLearnStep('active');
-  }
-
-  function finishLearnSession() {
-    fetch('/api/learn/stop', {method:'POST'});
-    showLearnStep('done');
-    document.getElementById('learn-done-message').textContent =
-      `Session complete — ${_learnLog.length} track(s) learned this session.`;
-  }
-
-  function onLearnEndOfSide(data) {
-    // End-of-side auto-detected: final track flushed, show paused/flip prompt
-    clearInterval(_learnLevelInterval); _learnLevelInterval = null;
-    const remaining = data.track_count - data.learned;
-    if (remaining > 0) {
-      // More tracks to go — show flip prompt
-      document.getElementById('learn-pause-message').innerHTML =
-        `✓ Learned <strong>${data.learned}</strong> of <strong>${data.track_count}</strong> tracks.<br>
-         End of side detected — flip the record and press Continue.`;
-      document.getElementById('learn-continue-count').value = remaining;
-      showLearnStep('paused');
-    } else {
-      // All done
-      document.getElementById('learn-done-message').textContent =
-        `All ${data.learned} tracks learned successfully.`;
-      showLearnStep('done');
-    }
-  }
-
-  function onLearnAudioDetected(data) {
-    // Startup gate opened — first track is now being captured
-    const trackNum = data.learned + 1;
-    document.getElementById('learn-status-text').textContent =
-      `⏺ Track ${trackNum} of ${data.track_count} — recording…`;
-    document.getElementById('learn-next-track').textContent =
-      data.next_track ? `Capturing: ${data.next_track}` : '';
-  }
-
-  function onLearnUpdate(data) {
-    if (!document.getElementById('learn-step-active').style.display === 'none') return;
-    showLearnStep('active');
-    const pct = Math.round((data.learned / data.track_count) * 100);
-    document.getElementById('learn-progress-bar').style.width = pct + '%';
-    document.getElementById('learn-status-text').textContent  = data.message || '';
-    document.getElementById('learn-next-track').textContent   =
-      data.next_track ? `Next: ${data.next_track}` : '';
-
-    // Append to session log — use learned_track (what just finished), not next_track
-    if (data.learned > _learnLog.length) {
-      _learnLog.push(data.learned_track || `Track ${data.learned}`);
-      const logEl = document.getElementById('learn-track-list');
-      logEl.innerHTML = _learnLog.map((name, i) =>
-        `<div style="padding:0.2rem 0;color:var(--green)">✓ Track ${i+1}: ${esc(name)}</div>`
-      ).join('');
-      logEl.scrollTop = logEl.scrollHeight;  // auto-scroll to latest
-    }
-  }
-
-  function onLearnPaused(data) {
-    showLearnStep('paused');
-    document.getElementById('learn-pause-message').innerHTML =
-      `<strong>${data.learned} track(s) learned</strong><br>${esc(data.message || '')}` +
-      (data.remaining_in_album > 0
-        ? `<br><span style="color:var(--muted)">${data.remaining_in_album} tracks still unlearned on this album.</span>`
-        : '<br><span style="color:var(--green)">All tracks on this album are now learned!</span>');
-    // Pre-fill continue count with remaining if it's a small number
-    if (data.remaining_in_album > 0 && data.remaining_in_album <= 10) {
-      document.getElementById('learn-continue-count').value = data.remaining_in_album;
-    }
-  }
-
-  function onLearnDone(data) {
-    showLearnStep('done');
-    document.getElementById('learn-done-message').textContent =
-      data.message || `${data.learned || 0} track(s) learned.`;
-  }
-
-  // ── Recording ─────────────────────────────────────────────────────────────
-  // Recording is now driven through the Learn Session (🎓 Learn Fingerprints).
-  // These stubs handle server-side events and the saved files list.
-
-  function onRecordingStatus(data) { /* managed by learn session */ }
-
-  function onRecordingSaved(data) {
-    loadRecordings();  // refresh the saved files list in the Recordings tab
-  }
-
-
-  // ── Recording Album Selector ──────────────────────────────────────────────
-
-  async function loadRecAlbums() {
-    const sel = document.getElementById('rec-album-select');
-    try {
-      const data = await fetch('/api/catalog').then(r => r.json());
-      // Keep the "auto" option, rebuild the rest
-      sel.innerHTML = '<option value="">— Use Now Playing (auto) —</option>';
-      (data.albums || []).forEach(a => {
-        const opt = document.createElement('option');
-        opt.value = a.id;
-        opt.textContent = `${a.artist} — ${a.title}${a.year ? ' (' + a.year + ')' : ''}`;
-        sel.appendChild(opt);
-      });
-    } catch(e) { console.warn('loadRecAlbums failed:', e); }
-  }
-
-  function getRecAlbumId() {
-    const sel = document.getElementById('rec-album-select');
-    return sel ? (sel.value || null) : null;
-  }
-
-  async function loadRecordings() {
-    const data = await fetch('/api/recordings').then(r => r.json());
-    const list = document.getElementById('recordings-list');
-    if (!data.recordings.length) {
-      list.innerHTML = '<div class="device-empty">No recordings yet — use 🎓 Learn Fingerprints with "Also save as MP3" checked</div>';
-      return;
-    }
-    list.innerHTML = data.recordings.map((r, i) => `
-      <div class="rec-row">
-        <span class="name" title="${esc(r.filename)}">${esc(r.filename)}</span>
-        <span class="size">${r.size_mb} MB</span>
-        <a href="/api/recordings/${encodeURIComponent(r.filename)}"
-           download="${esc(r.filename)}"
-           style="color:var(--accent);font-size:0.8rem;text-decoration:none;flex-shrink:0">⬇</a>
-        <button class="btn-stop btn-small" style="flex-shrink:0"
-                data-filename="${esc(r.filename)}"
-                onclick="deleteRec(this.dataset.filename)">✕</button>
-      </div>`).join('');
-  }
-
-  async function deleteRec(filename) {
-    if (!confirm(`Delete ${filename}?`)) return;
-    await fetch(`/api/recordings/${encodeURIComponent(filename)}`, {method:'DELETE'});
-    loadRecordings();
-  }
-
-  async function deleteAllRecordings() {
-    const data = await fetch('/api/recordings').then(r => r.json());
-    const count = (data.recordings || []).length;
-    if (!count) { showToast('No recordings to delete'); return; }
-    if (!confirm(`Delete all ${count} recording(s)? This cannot be undone.`)) return;
-    for (const r of data.recordings) {
-      await fetch(`/api/recordings/${encodeURIComponent(r.filename)}`, {method:'DELETE'});
-    }
-    loadRecordings();
-    showToast(`Deleted ${count} recording(s)`);
-  }
-
-
-  // ── Device Visibility ──────────────────────────────────────────────────────
-
-  async function scanForHidden() {
-    const btn = event.target;
-    btn.textContent = '⟳ Scanning…'; btn.disabled = true;
-    try {
-      const data = await fetch('/api/scan').then(r => r.json());
-      renderDevices(data.devices);        // also refresh stream tab list
-      renderHiddenDevices(data.devices);
-    } catch(e) { showError('Scan failed: ' + e.message); }
-    finally { btn.textContent = '⟳ Scan Devices'; btn.disabled = false; }
-  }
-
-  function renderHiddenDevices(devices) {
-    // If called without args, use whatever was last scanned
-    if (!devices) {
-      fetch('/api/scan').then(r => r.json()).then(d => renderHiddenDevices(d.devices));
-      return;
-    }
-    const list = document.getElementById('hidden-device-list');
-    if (!devices.length) {
-      list.innerHTML = '<div class="device-empty">No devices found — press Scan</div>';
-      return;
-    }
-    list.innerHTML = devices.map(d => `
-      <label class="device-item" style="gap:0.75rem">
-        <input type="checkbox" ${d.hidden ? 'checked' : ''}
-               onchange="toggleHidden('${d.id}', this.checked)"
-               style="accent-color:var(--red);width:16px;height:16px;flex-shrink:0">
-        <span style="flex:1">${esc(d.name)}</span>
-        <span style="color:var(--muted);font-size:0.75rem">${d.address}</span>
-      </label>`).join('');
-  }
-
-  async function toggleHidden(deviceId, hide) {
-    await fetch(`/api/devices/${encodeURIComponent(deviceId)}/hide`, {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({hidden: hide})
-    });
-    // Refresh stream tab device list with updated hidden state
-    fetch('/api/scan').then(r => r.json()).then(d => renderDevices(d.devices));
-  }
-
-  // ── Catalog ───────────────────────────────────────────────────────────────
-
-  async function loadCatalog() {
-    const grid = document.getElementById('album-grid');
-    grid.innerHTML = '<div class="device-empty" style="grid-column:1/-1">Loading…</div>';
-    const data = await fetch('/api/catalog').then(r => r.json());
-    if (!data.albums.length) {
-      grid.innerHTML = '<div class="device-empty" style="grid-column:1/-1">No records cataloged yet.<br>Play a record and it will be recognized automatically.</div>';
-      return;
-    }
-    grid.innerHTML = data.albums.map(a => {
-      const art = a.user_artwork_path || a.artwork_path;
-      const artHtml = art
-        ? `<img src="/artwork/${art.split('/').pop()}?t=${Date.now()}" style="width:100%;height:100%;object-fit:cover">`
-        : `<span>💿</span>`;
-      return `
-        <div class="album-card" onclick="openAlbum(${a.id})">
-          <div class="album-art">${artHtml}</div>
-          <div class="album-info">
-            <div class="title">${esc(a.title)}</div>
-            <div class="artist">${esc(a.artist)}</div>
-            <div class="meta">${a.year || ''} · ${a.play_count || 0} plays</div>
-          </div>
-        </div>`;
-    }).join('');
-  }
-
-  async function openAlbum(albumId) {
-    currentAlbumId = albumId;
-    const [catData, tracksData] = await Promise.all([
-      fetch('/api/catalog').then(r => r.json()),
-      fetch(`/api/catalog/${albumId}/tracks`).then(r => r.json()),
-    ]);
-    const album = catData.albums.find(a => a.id === albumId);
-    if (!album) return;
-
-    const art = album.user_artwork_path || album.artwork_path;
-    document.getElementById('modal-art').src    = art ? `/artwork/${art.split('/').pop()}?t=${Date.now()}` : '';
-    document.getElementById('modal-title').textContent  = album.title;
-    document.getElementById('modal-artist').textContent = album.artist;
-    document.getElementById('modal-meta').textContent   =
-      [album.year, album.genre, album.label].filter(Boolean).join(' · ');
-
-    tracksData.tracks.sort((a,b) => (a.side||'').localeCompare(b.side||'') || parseInt(a.track_number||0) - parseInt(b.track_number||0));
-    // Store for reorder mode
-    window._modalTracks = tracksData.tracks.slice();
-    renderModalTracks(window._modalTracks, false);
-
-    document.getElementById('album-modal').classList.add('open');
-    loadAlbumAudio(albumId);
-
-    // Show/hide play button based on whether album has recorded audio
-    fetch('/api/album-audio/' + albumId).then(r => r.json()).then(d => {
-      const btn = document.getElementById('btn-play-album');
-      if (btn) btn.style.display = (d.audio && d.audio.length) ? '' : 'none';
-    });
-  }
-
-  // ── Track Reorder ──────────────────────────────────────────────────────────
-
-  let _reorderMode = false;
-
-  function renderModalTracks(tracks, reorderMode) {
-    const container = document.getElementById('modal-tracks');
-    container.classList.toggle('reorder-mode', reorderMode);
-
-    if (!tracks.length) {
-      container.innerHTML = '<div class="device-empty">No tracks recorded</div>';
-      return;
-    }
-
-    container.innerHTML = tracks.map((t, i) => {
-      const learned   = (t.fingerprint_count || 0) > 0;
-      const badge     = learned
-        ? `<span title="${t.fingerprint_count} fingerprint windows" style="color:var(--green);font-size:0.72rem;margin-left:0.4rem">✓ ${t.fingerprint_count}fp</span>`
-        : `<span style="color:var(--muted);font-size:0.72rem;margin-left:0.4rem">unlearned</span>`;
-      const clearBtn  = (!reorderMode && learned)
-        ? `<button onclick="clearTrackFingerprints(${t.id}, event)"
-               title="Clear fingerprints for this track"
-               style="margin-left:0.5rem;background:none;border:none;cursor:pointer;color:var(--muted);font-size:0.8rem;padding:0 0.2rem">✕</button>`
-        : '';
-      const plays     = (!reorderMode && t.play_count)
-        ? `<span style="color:var(--muted);font-size:0.72rem;margin-left:auto">${t.play_count}▶</span>` : '';
-      const handle    = reorderMode
-        ? `<span class="drag-handle" title="Drag to reorder">⠿</span>` : '';
-      const numLabel  = reorderMode
-        ? `<span class="track-num" style="color:var(--muted);min-width:1.8rem">${i+1}</span>`
-        : `<span class="track-num">${esc(t.side||'')}${esc(t.track_number||'')}</span>`;
-
-      return `<div class="track-row" data-id="${t.id}" data-idx="${i}"
-                   style="align-items:center"
-                   ${reorderMode ? 'draggable="true"' : ''}>
-        ${handle}${numLabel}
-        <span style="flex:1">${esc(t.title)}${badge}</span>
-        ${plays}${clearBtn}
-      </div>`;
-    }).join('');
-
-    if (reorderMode) _attachDragHandlers(container);
-  }
-
-  function _attachDragHandlers(container) {
-    let dragSrc = null;
-
-    container.querySelectorAll('.track-row').forEach(row => {
-      row.addEventListener('dragstart', e => {
-        dragSrc = row;
-        e.dataTransfer.effectAllowed = 'move';
-        e.dataTransfer.setData('text/plain', row.dataset.idx);
-        setTimeout(() => row.style.opacity = '0.4', 0);
-      });
-      row.addEventListener('dragend', () => {
-        row.style.opacity = '';
-        container.querySelectorAll('.track-row').forEach(r => r.classList.remove('drag-over'));
-      });
-      row.addEventListener('dragover', e => {
-        e.preventDefault();
-        e.dataTransfer.dropEffect = 'move';
-        container.querySelectorAll('.track-row').forEach(r => r.classList.remove('drag-over'));
-        row.classList.add('drag-over');
-      });
-      row.addEventListener('drop', e => {
-        e.preventDefault();
-        if (!dragSrc || dragSrc === row) return;
-        // Reorder the _modalTracks array
-        const fromIdx = parseInt(dragSrc.dataset.idx);
-        const toIdx   = parseInt(row.dataset.idx);
-        const moved   = window._modalTracks.splice(fromIdx, 1)[0];
-        window._modalTracks.splice(toIdx, 0, moved);
-        renderModalTracks(window._modalTracks, true);
-      });
-    });
-  }
-
-  function toggleReorderMode() {
-    _reorderMode = !_reorderMode;
-    const btn = document.getElementById('btn-reorder');
-
-    if (_reorderMode) {
-      btn.textContent  = '✓ Save Order';
-      btn.style.background = 'var(--accent)';
-      btn.style.color      = '#fff';
-      renderModalTracks(window._modalTracks, true);
-    } else {
-      // Save
-      btn.textContent      = '↺ Saving…';
-      btn.disabled         = true;
-      const ids = window._modalTracks.map(t => t.id);
-      fetch(`/api/catalog/${currentAlbumId}/reorder`, {
-        method: 'POST', headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({track_ids: ids})
-      }).then(r => r.json()).then(res => {
-        btn.textContent      = '⇅ Reorder Tracks';
-        btn.style.background = '';
-        btn.style.color      = '';
-        btn.disabled         = false;
-        if (res.ok) {
-          showToast('✓ Track order saved');
-          openAlbum(currentAlbumId);  // refresh with new numbers from server
-        } else {
-          showError(res.error || 'Reorder failed');
-          renderModalTracks(window._modalTracks, false);
-        }
-      });
-    }
-  }
-
-  async function clearTrackFingerprints(trackId, e) {
-    e.stopPropagation();
-    if (!confirm('Clear fingerprints for this track? It will be marked unlearned.')) return;
-    const res = await fetch(`/api/catalog/track/${trackId}/fingerprints`, {method:'DELETE'}).then(r=>r.json());
-    if (res.ok) {
-      showToast(`✓ ${res.message}`);
-      openAlbumModal(currentAlbumId);  // refresh track list
-    } else {
-      showError(res.error || 'Failed to clear fingerprints');
-    }
-  }
-
-  // ── Auto-Stream Settings ─────────────────────────────────────────────────
-
-  let _autoStreamDevices = [];
-
-  async function scanAutoStreamDevices() {
-    const sel = document.getElementById('auto-stream-device-select');
-    sel.innerHTML = '<option value="">Scanning…</option>';
-    try {
-      const data = await fetch('/api/scan').then(r => r.json());
-      _autoStreamDevices = (data.devices || []).filter(d => !d.hidden);
-      const saved = _autoStreamDeviceFromSettings();
-      sel.innerHTML = '<option value="">— Select a device —</option>' +
-        _autoStreamDevices.map(d =>
-          `<option value="${esc(d.id)}" data-name="${esc(d.name)}" data-address="${esc(d.address||'')}"
-            ${saved && saved.id === d.id ? 'selected' : ''}>${esc(d.name)}</option>`
-        ).join('');
-    } catch(e) {
-      sel.innerHTML = '<option value="">Scan failed — retry</option>';
-    }
-  }
-
-  function _autoStreamDeviceFromSettings() {
-    return window._savedAutoStreamDevice || null;
-  }
-
-  async function saveAutoStreamSettings() {
-    const enabled = document.getElementById('auto-stream-enabled').checked;
-    const sel     = document.getElementById('auto-stream-device-select');
-    const opt     = sel.options[sel.selectedIndex];
-    const device  = opt && opt.value
-      ? { id: opt.value, name: opt.dataset.name, address: opt.dataset.address }
-      : null;
-
-    window._savedAutoStreamDevice = device;
-
-    const statusEl = document.getElementById('auto-stream-status');
-    statusEl.style.color = 'var(--muted)';
-    statusEl.textContent = 'Saving…';
-
-    await fetch('/api/settings', {
-      method: 'POST', headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ auto_stream_enabled: enabled, auto_stream_device: device })
-    });
-
-    statusEl.style.color = 'var(--green)';
-    statusEl.textContent = enabled
-      ? `✓ Auto-stream enabled → ${device ? device.name : 'no device set'}`
-      : '✓ Auto-stream disabled';
-    setTimeout(() => { statusEl.textContent = ''; }, 3000);
-  }
-
-  async function clearAlbumFingerprints() {
-    if (!currentAlbumId) return;
-    if (!confirm('Clear ALL fingerprints for this album? Every track will be marked unlearned.')) return;
-    const res = await fetch(`/api/catalog/${currentAlbumId}/fingerprints`, {method:'DELETE'}).then(r=>r.json());
-    if (res.ok) {
-      showToast(`✓ ${res.message}`);
-      openAlbumModal(currentAlbumId);  // refresh track list
-    } else {
-      showError(res.error || 'Failed to clear fingerprints');
-    }
-  }
-
-  function closeModal(e) {
-    if (e.target === document.getElementById('album-modal')) closeModalDirect();
-  }
-  function closeModalDirect() {
-    document.getElementById('album-modal').classList.remove('open');
-    currentAlbumId = null;
-  }
-
-  async function uploadArtwork(e) {
-    if (!currentAlbumId || !e.target.files[0]) return;
-    const form = new FormData();
-    form.append('file', e.target.files[0]);
-    const res  = await fetch(`/api/catalog/${currentAlbumId}/artwork`, {
-      method: 'POST', body: form
-    }).then(r => r.json());
-    if (res.ok) {
-      document.getElementById('modal-art').src = res.artwork_url + '?t=' + Date.now();
-      loadCatalog();
-    } else { showError(res.error || 'Upload failed'); }
-  }
-
-  async function learnAlbum() {
-    if (!currentAlbumId) return;
-    const btn = document.getElementById('btn-learn');
-    btn.textContent = 'Learning…'; btn.disabled = true;
-    try {
-      const res = await fetch(`/api/catalog/${currentAlbumId}/learn`, {method:'POST'}).then(r => r.json());
-      if (res.ok) {
-        const done = res.message.startsWith('All');
-        btn.textContent = done ? '✓ All Learned!' : '✓ ' + res.message.split('.')[0];
-        btn.style.background = done ? 'var(--green)' : 'var(--accent)';
-        setTimeout(() => {
-          btn.textContent = '🎵 Learn — This is Playing';
-          btn.style.background = '';
-          btn.disabled = false;
-        }, 4000);
-      } else {
-        showError(res.error || 'Learn failed');
-        btn.textContent = '🎵 Learn — This is Playing';
-        btn.disabled = false;
-      }
-    } catch(e) {
-      showError('Learn failed: ' + e.message);
-      btn.textContent = '🎵 Learn — This is Playing';
-      btn.disabled = false;
-    }
-  }
-
-  async function deleteAlbum() {
-    if (!currentAlbumId) return;
-    if (!confirm('Delete this album from your catalog?')) return;
-    await fetch(`/api/catalog/${currentAlbumId}`, {method:'DELETE'});
-    closeModalDirect();
-    loadCatalog();
-  }
-
-  // ── Add Record Flow ──────────────────────────────────────────────────────────
-
-  let _pendingRelease = null;
-
-  function showAddForm() {
-    document.getElementById('add-form').style.display = 'block';
-    showStep('search');
-    document.getElementById('search-results').innerHTML = '';
-    document.getElementById('s-artist').focus();
-  }
-  function hideAddForm() {
-    document.getElementById('add-form').style.display = 'none';
-    _pendingRelease = null;
-  }
-  function showStep(name) {
-    ['search','confirm','manual'].forEach(s =>
-      document.getElementById('add-step-' + s).style.display = s === name ? 'block' : 'none'
-    );
-  }
-  function backToSearch() { showStep('search'); }
-  function showManualStep() { showStep('manual'); }
-
-  let _searchSource = 'discogs';
-  function setSource(src) {
-    _searchSource = src;
-    document.getElementById('src-mb').style.background      = src === 'mb'      ? 'var(--accent)' : 'var(--surface)';
-    document.getElementById('src-mb').style.color           = src === 'mb'      ? '#fff'          : 'var(--text)';
-    document.getElementById('src-discogs').style.background = src === 'discogs' ? 'var(--accent)' : 'var(--surface)';
-    document.getElementById('src-discogs').style.color      = src === 'discogs' ? '#fff'          : 'var(--text)';
-  }
-
-  async function doSearch() {
-    const artist = document.getElementById('s-artist').value.trim();
-    const album  = document.getElementById('s-album').value.trim();
-    if (!artist && !album) { showError('Enter an artist or album to search.'); return; }
-    const btn = document.getElementById('btn-search');
-    const sourceName = _searchSource === 'discogs' ? 'Discogs' : 'MusicBrainz';
-    btn.textContent = 'Searching…'; btn.disabled = true;
-    const el = document.getElementById('search-results');
-    el.innerHTML = `<div class="device-empty">Searching ${sourceName}…</div>`;
-    try {
-      const url = _searchSource === 'discogs'
-        ? `/api/catalog/search/discogs?artist=${encodeURIComponent(artist)}&album=${encodeURIComponent(album)}`
-        : `/api/catalog/search?artist=${encodeURIComponent(artist)}&album=${encodeURIComponent(album)}`;
-      const data = await fetch(url).then(r => r.json());
-      if (!data.releases.length) {
-        el.innerHTML = `<div class="device-empty">No results on ${sourceName} — try different spelling, switch source, or <a href="#" onclick="showManualStep();return false" style="color:var(--accent)">enter manually</a>.</div>`;
-        return;
-      }
-      el.innerHTML = data.releases.map(r => `
-        <div class="device-item" style="flex-direction:column;align-items:flex-start;padding:0.6rem 0"
-             onclick="selectRelease('${esc(r.id)}', '${r.source || 'mb'}')">
-          <div style="font-weight:600;font-size:0.9rem">${esc(r.title)}</div>
-          <div style="font-size:0.78rem;color:var(--muted)">
-            ${esc(r.artist)}${r.date ? ' · ' + r.date.slice(0,4) : ''}${r.country ? ' · ' + r.country : ''}${r.label ? ' · ' + esc(r.label) : ''}${r.tracks ? ' · ' + r.tracks + ' tracks' : ''}${r.format ? ' · ' + esc(r.format) : ''}${r.catno ? ' · ' + esc(r.catno) : ''}
-          </div>
-        </div>`).join('');
-    } catch(e) {
-      el.innerHTML = `<div class="device-empty" style="color:var(--red)">Search failed: ${esc(e.message)}</div>`;
-    } finally {
-      btn.textContent = 'Search'; btn.disabled = false;
-    }
-  }
-
-  async function selectRelease(releaseId, source) {
-    document.getElementById('search-results').innerHTML = '<div class="device-empty">Loading track listing…</div>';
-    try {
-      const url = source === 'discogs'
-        ? `/api/catalog/release/discogs/${releaseId}`
-        : `/api/catalog/release/${releaseId}`;
-      const data = await fetch(url).then(r => r.json());
-      if (!data.ok) { showError(data.error || 'Failed to load release'); return; }
-      _pendingRelease = data.release;
-      const r = data.release;
-      // Build header
-      document.getElementById('confirm-album-header').innerHTML = `
-        <div style="font-weight:700;font-size:1rem">${esc(r.title)}</div>
-        <div style="font-size:0.82rem;color:var(--muted)">${esc(r.artist)}${r.year?' · '+r.year:''}${r.label?' · '+esc(r.label):''}${r.country?' · '+r.country:''}</div>`;
-      // Group by side
-      const sides = {};
-      (r.tracks||[]).forEach(t => { if(!sides[t.side]) sides[t.side]=[]; sides[t.side].push(t); });
-      Object.keys(sides).forEach(s => sides[s].sort((a,b) => parseInt(a.track_number||0) - parseInt(b.track_number||0)));
-      let html = '';
-      Object.keys(sides).sort().forEach(side => {
-        html += `<div style="font-size:0.72rem;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin:0.6rem 0 0.3rem">Side ${side}</div>`;
-        sides[side].forEach(t => {
-          const dur = t.duration_secs ? Math.floor(t.duration_secs/60)+':'+String(t.duration_secs%60).padStart(2,'0') : '';
-          html += `<div class="track-row"><span class="track-num">${esc(t.track_number||'')}</span><span style="flex:1">${esc(t.title)}</span><span style="color:var(--muted);font-size:0.75rem">${dur}</span></div>`;
-        });
-      });
-      document.getElementById('confirm-tracks').innerHTML = html;
-      showStep('confirm');
-    } catch(e) { showError('Failed to load: ' + e.message); }
-  }
-
-  async function saveRelease() {
-    if (!_pendingRelease) return;
-    const res = await fetch('/api/catalog/release', {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({release: _pendingRelease})
-    }).then(r => r.json());
-    if (res.ok) { hideAddForm(); loadCatalog(); }
-    else { showError(res.error || 'Failed to save'); }
-  }
-
-  // ── Manual Entry (fallback) ───────────────────────────────────────────────
-
-  function showManualForm() { showAddForm(); }  // legacy compat
-
-  async function submitManual() {
-    const albumTitle  = document.getElementById('m-album-title').value.trim();
-    const albumArtist = document.getElementById('m-artist').value.trim();
-    if (!albumTitle || !albumArtist) { showError('Album title and artist are required.'); return; }
-    const tracksA = document.getElementById('m-tracks-a').value
-      .split('\n').map(s=>s.trim()).filter(Boolean)
-      .map((title,i) => ({title, side:'A', track_number:String(i+1)}));
-    const tracksB = document.getElementById('m-tracks-b').value
-      .split('\n').map(s=>s.trim()).filter(Boolean)
-      .map((title,i) => ({title, side:'B', track_number:String(i+1)}));
-    const tracks = [...tracksA, ...tracksB];
-    if (!tracks.length) { showError('Enter at least one track name.'); return; }
-    const body = {
-      album_title:  albumTitle,
-      album_artist: albumArtist,
-      year:         parseInt(document.getElementById('m-year').value) || null,
-      genre:        document.getElementById('m-genre').value.trim() || null,
-      label:        document.getElementById('m-label').value.trim() || null,
-      notes:        document.getElementById('m-notes').value.trim() || null,
-      tracks,
-    };
-    const res = await fetch('/api/catalog/manual', {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify(body)
-    }).then(r => r.json());
-    if (res.ok) { hideAddForm(); loadCatalog(); }
-    else { showError(res.error || 'Failed to save'); }
-  }
-
-
-  // ── History ───────────────────────────────────────────────────────────────
-
-  async function loadHistory() {
-    const data = await fetch('/api/catalog/history').then(r => r.json());
-    const list = document.getElementById('history-list');
-    if (!data.plays.length) {
-      list.innerHTML = '<div class="device-empty">No plays recorded yet</div>'; return;
-    }
-    list.innerHTML = data.plays.map(p => {
-      const art = p.user_artwork_path || p.artwork_path;
-      const artHtml = art
-        ? `<img class="history-art" src="/artwork/${art.split('/').pop()}">`
-        : `<div class="history-art-ph">💿</div>`;
-      const when = new Date(p.played_at + 'Z').toLocaleString();
-      return `
-        <div class="history-row">
-          ${artHtml}
-          <div class="history-info">
-            <div class="track">${esc(p.track_title)}</div>
-            <div class="album">${esc(p.artist)} — ${esc(p.album_title)}</div>
-          </div>
-          <span class="history-time">${when}</span>
-        </div>`;
-    }).join('');
-  }
-
-  // ── Settings ──────────────────────────────────────────────────────────────
-
-  async function saveDiscogsToken() {
-    const token = document.getElementById('discogs-token').value.trim();
-    await fetch('/api/settings', {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({discogs_token: token})
-    });
-    const saved = document.getElementById('discogs-saved');
-    saved.style.display = 'block';
-    setTimeout(() => saved.style.display = 'none', 2000);
-  }
-
-  async function saveSettings() {
-    const key     = document.getElementById('acoustid-key').value.trim();
-    const enabled = document.getElementById('acoustid-enabled').checked;
-    await fetch('/api/settings', {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({acoustid_key: key, acoustid_enabled: enabled})
-    });
-    const saved = document.getElementById('settings-saved');
-    saved.style.display = 'block';
-    setTimeout(() => saved.style.display = 'none', 2000);
-  }
-
-  async function testAcoustID() {
-    // Save first so the test uses whatever is currently in the box
-    await saveSettings();
-    const testing = document.getElementById('settings-testing');
-    const result  = document.getElementById('settings-result');
-    testing.style.display = 'inline'; result.style.display = 'none';
-    try {
-      const r    = await fetch('/api/test-acoustid');
-      const text = await r.text();
-      let data;
-      try { data = JSON.parse(text); }
-      catch { throw new Error("Server returned non-JSON: " + text.slice(0, 100)); }
-      result.textContent   = data.ok ? '✓ ' + data.message : '✗ ' + data.error;
-      result.style.color   = data.ok ? 'var(--green)' : 'var(--red)';
-      result.style.display = 'inline';
-    } catch(e) {
-      result.textContent   = '✗ ' + e.message;
-      result.style.color   = 'var(--red)';
-      result.style.display = 'inline';
-    } finally {
-      testing.style.display = 'none';
-    }
-  }
-
-  // ── Utility ───────────────────────────────────────────────────────────────
-  // ── Album Recording (Full-Side FLAC) ─────────────────────────────────────
-
-  let _albumRecInterval = null, _albumRecStartTime = null, _albumRecSide = 'A', _albumRecNextSide = null;
-
-  function showToast(msg) {
-    const el = document.getElementById('error-msg');
-    el.textContent = msg; el.style.display = 'block';
-    el.style.background = 'var(--surface2)'; el.style.borderColor = 'var(--green)';
-    setTimeout(() => { el.style.display='none'; el.style.background=''; el.style.borderColor=''; }, 4000);
-  }
-
-  function showAlbumRecPanel() {
-    if (!currentAlbumId) return;
-    document.getElementById('album-rec-panel').style.display = 'block';
-    document.getElementById('album-rec-setup').style.display = 'block';
-    document.getElementById('album-rec-active').style.display = 'none';
-    document.getElementById('album-rec-saving').style.display = 'none';
-    document.getElementById('album-rec-flip-prompt').style.display = 'none';
-    document.getElementById('btn-album-rec').style.display = 'none';
-    const tracks = window._modalTracks || [];
-    const sides = [...new Set(tracks.map(t => t.side || 'A'))].sort();
-    const sel = document.getElementById('album-rec-side');
-    sel.innerHTML = sides.length
-      ? sides.map(s => '<option value="'+s+'">Side '+s+'</option>').join('')
-      : '<option value="A">A</option><option value="B">B</option>';
-    updateSideInfo(); sel.onchange = updateSideInfo;
-  }
-
-  function updateSideInfo() {
-    const side = document.getElementById('album-rec-side').value;
-    const ct = (window._modalTracks||[]).filter(t=>(t.side||'A')===side).length;
-    document.getElementById('album-rec-side-info').textContent =
-      ct ? ct+' tracks on this side' : 'No tracks on this side';
-  }
-
-  function hideAlbumRecPanel() {
-    document.getElementById('album-rec-panel').style.display = 'none';
-    document.getElementById('album-rec-flip-prompt').style.display = 'none';
-    document.getElementById('btn-album-rec').style.display = '';
-  }
-
-  async function startAlbumRecording() {
-    if (!currentAlbumId) return;
-    _albumRecSide = document.getElementById('album-rec-side').value;
-    document.getElementById('album-rec-setup').style.display = 'none';
-    document.getElementById('album-rec-active').style.display = 'block';
-    document.getElementById('album-rec-active-side').textContent = _albumRecSide;
-    document.getElementById('album-rec-timer').textContent = '00:00';
-    document.getElementById('album-rec-status-text').textContent = 'Starting…';
-    document.getElementById('album-rec-track-log').innerHTML = '';
-    var ns = String.fromCharCode(_albumRecSide.charCodeAt(0)+1);
-    document.getElementById('btn-album-rec-flip').textContent = '\u27F3 Flip \u2014 Side '+ns;
-    try {
-      var res = await fetch('/api/album-recording/start', {
-        method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({album_id:currentAlbumId, side:_albumRecSide})
-      }).then(r=>r.json());
-      if (!res.ok) { showError(res.error||'Failed'); hideAlbumRecPanel(); return; }
-      _albumRecStartTime = Date.now();
-      _albumRecInterval = setInterval(updateAlbumRecTimer, 1000);
-      document.getElementById('album-rec-status-text').textContent = 'Drop the needle \u2014 recording when audio detected\u2026';
-    } catch(e) { showError('Failed: '+e.message); hideAlbumRecPanel(); }
-  }
-
-  function updateAlbumRecTimer() {
-    if (!_albumRecStartTime) return;
-    var s = Math.floor((Date.now()-_albumRecStartTime)/1000);
-    document.getElementById('album-rec-timer').textContent =
-      String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0');
-  }
-
-  async function flipAlbumRecording() {
-    var ns = String.fromCharCode(_albumRecSide.charCodeAt(0)+1);
-    clearInterval(_albumRecInterval);
-    document.getElementById('album-rec-active').style.display = 'none';
-    document.getElementById('album-rec-saving').style.display = 'block';
-    try {
-      var res = await fetch('/api/album-recording/flip', {
-        method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({side:ns})
-      }).then(r=>r.json());
-      if (!res.ok) { showError(res.error||'Flip failed'); hideAlbumRecPanel(); return; }
-      _albumRecSide = ns; _albumRecStartTime = Date.now();
-      _albumRecInterval = setInterval(updateAlbumRecTimer, 1000);
-      document.getElementById('album-rec-saving').style.display = 'none';
-      document.getElementById('album-rec-active').style.display = 'block';
-      document.getElementById('album-rec-active-side').textContent = ns;
-      document.getElementById('album-rec-timer').textContent = '00:00';
-      document.getElementById('album-rec-status-text').textContent = 'Side '+ns+' \u2014 flip the record and drop the needle';
-      document.getElementById('album-rec-track-log').innerHTML = '';
-      var fs = String.fromCharCode(ns.charCodeAt(0)+1);
-      document.getElementById('btn-album-rec-flip').textContent = '\u27F3 Flip \u2014 Side '+fs;
-    } catch(e) { showError('Flip failed: '+e.message); hideAlbumRecPanel(); }
-  }
-
-  async function stopAlbumRecording() {
-    clearInterval(_albumRecInterval); _albumRecInterval = null;
-    document.getElementById('album-rec-active').style.display = 'none';
-    document.getElementById('album-rec-saving').style.display = 'block';
-    try {
-      var res = await fetch('/api/album-recording/stop', {method:'POST'}).then(r=>r.json());
-      if (res.ok) showToast('\u2713 Side '+_albumRecSide+' saved');
-      else showError(res.error||'Stop failed');
-    } catch(e) { showError('Stop failed: '+e.message); }
-    hideAlbumRecPanel();
-    if (currentAlbumId) openAlbum(currentAlbumId);
-  }
-
-  async function cancelAlbumRecording() {
-    clearInterval(_albumRecInterval); _albumRecInterval = null;
-    await fetch('/api/album-recording/cancel', {method:'POST'});
-    hideAlbumRecPanel(); showToast('Recording cancelled');
-  }
-
-  async function startNextSideRecording() {
-    // Called from flip prompt — start recording the next side directly
-    if (!currentAlbumId || !_albumRecNextSide) return;
-    _albumRecSide = _albumRecNextSide;
-    _albumRecNextSide = null;
-    document.getElementById('album-rec-flip-prompt').style.display = 'none';
-    document.getElementById('album-rec-active').style.display = 'block';
-    document.getElementById('album-rec-active-side').textContent = _albumRecSide;
-    document.getElementById('album-rec-timer').textContent = '00:00';
-    document.getElementById('album-rec-status-text').textContent = 'Starting…';
-    document.getElementById('album-rec-track-log').innerHTML = '';
-    var ns = String.fromCharCode(_albumRecSide.charCodeAt(0)+1);
-    document.getElementById('btn-album-rec-flip').textContent = '\u27F3 Flip \u2014 Side '+ns;
-    try {
-      var res = await fetch('/api/album-recording/start', {
-        method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({album_id:currentAlbumId, side:_albumRecSide})
-      }).then(r=>r.json());
-      if (!res.ok) { showError(res.error||'Failed'); hideAlbumRecPanel(); return; }
-      _albumRecStartTime = Date.now();
-      _albumRecInterval = setInterval(updateAlbumRecTimer, 1000);
-      document.getElementById('album-rec-status-text').textContent = 'Side '+_albumRecSide+' \u2014 flip the record and drop the needle\u2026';
-    } catch(e) { showError('Failed: '+e.message); hideAlbumRecPanel(); }
-  }
-
-  function finishAlbumRecSession() {
-    // Called from flip prompt "Done" button — no more sides to record
-    hideAlbumRecPanel();
-    if (currentAlbumId) openAlbum(currentAlbumId);
-  }
-
-  function onAlbumRecStatus(data) {
-    var el = document.getElementById('album-rec-status-text');
-    if (el && data.message) el.textContent = data.message;
-    // Server auto-stopped the recording (end-of-side detected)
-    if (data.recording === false) {
-      clearInterval(_albumRecInterval); _albumRecInterval = null;
-      // If saving panel is not already shown, show it briefly
-      var activeEl = document.getElementById('album-rec-active');
-      var savingEl = document.getElementById('album-rec-saving');
-      if (activeEl && activeEl.style.display !== 'none') {
-        activeEl.style.display = 'none';
-        if (savingEl) savingEl.style.display = 'block';
-      }
-      if (data.message && data.message.indexOf('\u2713') >= 0) {
-        // Side saved — check if there's a next side to prompt for
-        var doneSide = _albumRecSide || 'A';
-        var nextSide = String.fromCharCode(doneSide.charCodeAt(0) + 1);
-        var tracks = window._modalTracks || [];
-        var sides = [...new Set(tracks.map(t => t.side || 'A'))].sort();
-        var hasNextSide = sides.indexOf(nextSide) >= 0;
-
-        // Refresh audio list in the background
-        if (currentAlbumId) loadAlbumAudio(currentAlbumId);
-
-        if (hasNextSide) {
-          // Show flip prompt instead of closing
-          document.getElementById('album-rec-saving').style.display = 'none';
-          document.getElementById('album-rec-active').style.display = 'none';
-          document.getElementById('album-rec-setup').style.display = 'none';
-          var flipPrompt = document.getElementById('album-rec-flip-prompt');
-          flipPrompt.style.display = 'block';
-          document.getElementById('album-rec-done-side').textContent = doneSide;
-          document.getElementById('album-rec-next-side-label').textContent = nextSide;
-          _albumRecNextSide = nextSide;
-        } else {
-          // Last side — close the panel
-          hideAlbumRecPanel();
-          if (currentAlbumId) openAlbum(currentAlbumId);
-        }
-      }
-    }
-  }
-
-  function onAlbumRecSideSaved(data) {
-    showToast('\uD83D\uDCBF Side '+data.side+' saved \u2014 '+data.tracks_captured+' tracks');
-    if (currentAlbumId && currentAlbumId===data.album_id) loadAlbumAudio(currentAlbumId);
-  }
-
-  let _audioPlayer = null;
-  let _audioPlayingId = null;
-
-  async function loadAlbumAudio(albumId) {
-    try {
-      var data = await fetch('/api/album-audio/'+albumId).then(r=>r.json());
-      var section = document.getElementById('modal-audio-section');
-      var list = document.getElementById('modal-audio-list');
-      if (!data.audio || !data.audio.length) { section.style.display='none'; return; }
-      section.style.display = 'block';
-      list.innerHTML = data.audio.map(function(a) {
-        var dur = a.duration_secs ? Math.floor(a.duration_secs/60)+':'+String(Math.floor(a.duration_secs%60)).padStart(2,'0') : '?';
-        var sz = a.file_size ? (a.file_size/(1024*1024)).toFixed(1)+' MB' : '';
-        var isPlaying = _audioPlayingId === a.id;
-        return '<div class="album-audio-row" id="audio-row-'+a.id+'">'
-          +'<button class="album-audio-play" data-album="'+albumId+'" data-audio="'+a.id+'" onclick="toggleAlbumAudio(this)" title="'+(isPlaying?'Pause':'Play')+'">'+(isPlaying?'\u275A\u275A':'\u25B6')+'</button>'
-          +'<button class="album-audio-stop" data-audio="'+a.id+'" onclick="stopAlbumAudio()" title="Stop" style="display:'+(isPlaying?'flex':'none')+'">\u25A0</button>'
-          +'<span style="font-weight:600">Side '+(a.side||'?')+'</span>'
-          +'<span style="color:var(--muted)">'+dur+'</span>'
-          +'<span style="color:var(--muted);margin-left:auto">'+sz+'</span>'
-          +'<button class="album-audio-delete" data-album="'+albumId+'" data-audio="'+a.id+'" onclick="deleteAlbumAudio(this)" title="Delete side">\u2715</button>'
-          +'</div>';
-      }).join('');
-    } catch(e) { console.warn('loadAlbumAudio failed:', e); }
-  }
-
-  function toggleAlbumAudio(btn) {
-    var albumId = parseInt(btn.dataset.album);
-    var audioId = parseInt(btn.dataset.audio);
-
-    // If already playing this audio — toggle pause/resume
-    if (_audioPlayer && _audioPlayingId === audioId) {
-      if (_audioPlayer.paused) {
-        _audioPlayer.play();
-        btn.textContent = '\u275A\u275A'; btn.title = 'Pause';
-        _showStopBtn(audioId, true);
-      } else {
-        _audioPlayer.pause();
-        btn.textContent = '\u25B6'; btn.title = 'Play';
-      }
-      return;
-    }
-
-    // Stop any existing playback
-    stopAlbumAudio();
-
-    // Start new playback
-    _audioPlayer = new Audio('/api/album-audio/'+albumId+'/play/'+audioId);
-    _audioPlayingId = audioId;
-    _audioPlayer.play();
-    btn.textContent = '\u275A\u275A'; btn.title = 'Pause';
-    _showStopBtn(audioId, true);
-
-    // When audio ends naturally, reset UI
-    _audioPlayer.addEventListener('ended', function() {
-      _resetAudioUI();
-    });
-  }
-
-  function stopAlbumAudio() {
-    if (_audioPlayer) {
-      _audioPlayer.pause();
-      _audioPlayer.currentTime = 0;
-      _audioPlayer = null;
-    }
-    _resetAudioUI();
-  }
-
-  function _resetAudioUI() {
-    var oldId = _audioPlayingId;
-    _audioPlayingId = null;
-    if (oldId) {
-      var row = document.getElementById('audio-row-'+oldId);
-      if (row) {
-        var playBtn = row.querySelector('.album-audio-play');
-        if (playBtn) { playBtn.textContent = '\u25B6'; playBtn.title = 'Play'; }
-        _showStopBtn(oldId, false);
-      }
-    }
-  }
-
-  function _showStopBtn(audioId, show) {
-    var row = document.getElementById('audio-row-'+audioId);
-    if (!row) return;
-    var stopBtn = row.querySelector('.album-audio-stop');
-    if (stopBtn) stopBtn.style.display = show ? 'flex' : 'none';
-  }
-
-  async function deleteAlbumAudio(btn) {
-    var albumId = parseInt(btn.dataset.album);
-    var audioId = parseInt(btn.dataset.audio);
-    var row = btn.closest('.album-audio-row');
-    var side = row ? row.querySelector('span[style*="font-weight"]').textContent : 'this recording';
-    if (!confirm('Delete '+side+'?')) return;
-
-    // Stop playback if we're deleting the currently playing audio
-    if (_audioPlayingId === audioId) stopAlbumAudio();
-
-    try {
-      var res = await fetch('/api/album-audio/'+albumId+'/'+audioId, {method:'DELETE'}).then(r=>r.json());
-      if (res.ok) {
-        showToast(side+' deleted');
-        loadAlbumAudio(albumId);
-      } else {
-        showError(res.error || 'Delete failed');
-      }
-    } catch(e) { showError('Delete failed: '+e.message); }
-  }
-
-
-  function esc(s) {
-    if (!s) return '';
-    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
-                    .replace(/"/g,'&quot;');
-  }
-
-  // ── Device Pairing ───────────────────────────────────────────────────────
-
-  let _pairingDeviceId = null;
-
-  function _showPairModal(show) {
-    const el = document.getElementById('pair-modal');
-    el.style.display = show ? 'flex' : 'none';
-  }
-
-  async function startPairing(deviceId, deviceName) {
-    _pairingDeviceId = deviceId;
-    document.getElementById('pair-title').textContent = `Pair: ${deviceName}`;
-    document.getElementById('pair-msg').textContent =
-      'Starting pairing… look for a PIN on the device screen.';
-    document.getElementById('pair-pin-step').style.display = 'none';
-    document.getElementById('pair-progress').style.display = 'none';
-    document.getElementById('pair-result').style.display = 'none';
-    _showPairModal(true);
-
-    // Try RAOP first
-    try {
-      const res = await fetch(`/api/devices/${encodeURIComponent(deviceId)}/pair/start`,
-        {method:'POST', headers:{'Content-Type':'application/json'},
-         body: JSON.stringify({protocol: 'raop'})}).then(r => r.json());
-
-      if (!res.ok) {
-        showPairResult(false, res.error || 'Failed to start pairing');
-        return;
-      }
-
-      if (res.device_provides_pin) {
-        document.getElementById('pair-msg').textContent =
-          'A PIN is now showing on the device screen. Enter it below:';
-        document.getElementById('pair-pin-input').value = '';
-        document.getElementById('pair-pin-step').style.display = 'block';
-        setTimeout(() => document.getElementById('pair-pin-input').focus(), 100);
-      } else {
-        // Device doesn't show a PIN — we might need to provide one (rare)
-        document.getElementById('pair-msg').textContent =
-          'Enter a PIN of your choice (4 digits) — it will be shown on the device:';
-        document.getElementById('pair-pin-input').value = '';
-        document.getElementById('pair-pin-step').style.display = 'block';
-        setTimeout(() => document.getElementById('pair-pin-input').focus(), 100);
-      }
-    } catch(e) {
-      showPairResult(false, e.message);
-    }
-  }
-
-  async function submitPairingPin() {
-    const pin = document.getElementById('pair-pin-input').value.trim();
-    if (!pin || pin.length !== 4) {
-      alert('Please enter the 4-digit PIN shown on the device');
-      return;
-    }
-    document.getElementById('pair-pin-step').style.display = 'none';
-    document.getElementById('pair-progress').style.display = 'block';
-    document.getElementById('pair-progress-text').textContent = 'Verifying PIN…';
-
-    try {
-      const res = await fetch(
-        `/api/devices/${encodeURIComponent(_pairingDeviceId)}/pair/pin`,
-        {method:'POST', headers:{'Content-Type':'application/json'},
-         body: JSON.stringify({pin})}).then(r => r.json());
-
-      document.getElementById('pair-progress').style.display = 'none';
-
-      if (!res.ok) {
-        showPairResult(false, res.error || 'Pairing failed');
-        return;
-      }
-
-      // If more protocols need pairing, chain them
-      if (res.remaining_protocols && res.remaining_protocols.length) {
-        document.getElementById('pair-msg').textContent =
-          `RAOP paired ✓ — now pairing ${res.remaining_protocols[0].toUpperCase()}…`;
-        await _pairNextProtocol(res.remaining_protocols[0]);
-      } else {
-        showPairResult(true, res.message || 'Device paired successfully!');
-        // Refresh device list to reflect new paired state
-        fetch('/api/scan').then(r => r.json()).then(d => renderDevices(d.devices));
-      }
-    } catch(e) {
-      document.getElementById('pair-progress').style.display = 'none';
-      showPairResult(false, e.message);
-    }
-  }
-
-  async function _pairNextProtocol(protocol) {
-    try {
-      const res = await fetch(
-        `/api/devices/${encodeURIComponent(_pairingDeviceId)}/pair/start`,
-        {method:'POST', headers:{'Content-Type':'application/json'},
-         body: JSON.stringify({protocol})}).then(r => r.json());
-
-      if (!res.ok) {
-        showPairResult(false, res.error);
-        return;
-      }
-      document.getElementById('pair-msg').textContent =
-        `Enter the PIN for ${protocol.toUpperCase()} shown on screen:`;
-      document.getElementById('pair-pin-input').value = '';
-      document.getElementById('pair-pin-step').style.display = 'block';
-      setTimeout(() => document.getElementById('pair-pin-input').focus(), 100);
-    } catch(e) {
-      showPairResult(false, e.message);
-    }
-  }
-
-  function showPairResult(success, msg) {
-    document.getElementById('pair-result-text').textContent = msg;
-    document.getElementById('pair-result-text').style.color =
-      success ? 'var(--green)' : 'var(--red)';
-    document.getElementById('pair-result').style.display = 'block';
-    document.getElementById('pair-pin-step').style.display = 'none';
-    document.getElementById('pair-progress').style.display = 'none';
-    if (success) {
-      fetch('/api/scan').then(r => r.json()).then(d => renderDevices(d.devices));
-    }
-  }
-
-  async function cancelPairing() {
-    if (_pairingDeviceId) {
-      await fetch(`/api/devices/${encodeURIComponent(_pairingDeviceId)}/pair/cancel`,
-        {method:'POST'}).catch(() => {});
-    }
-    closePairModal();
-  }
-
-  function closePairModal() {
-    _pairingDeviceId = null;
-    _showPairModal(false);
-  }
-
-  // ── Init ──────────────────────────────────────────────────────────────────
-
-  async function init() {
-    await loadAudioDevices();
-    const data = await fetch('/api/status').then(r => r.json());
-    setStatus(data.streaming, data.streaming ? 'Streaming' : 'Idle', data.active_devices);
-    if (data.eq) applyEQValues(data.eq.bass, data.eq.treble, data.eq.volume);
-    if (data.now_playing?.track_title) renderNowPlaying(data.now_playing);
-    if (data.player && data.player.state !== 'stopped') onPlayerStatus(data.player);
-    if (data.settings?.acoustid_key || data.settings?.audd_key)
-      document.getElementById('acoustid-key').value = data.settings.acoustid_key || data.settings.audd_key;
-    if ('acoustid_enabled' in (data.settings || {}))
-      document.getElementById('acoustid-enabled').checked = data.settings.acoustid_enabled;
-    if (data.settings?.discogs_token)
-      document.getElementById('discogs-token').value = data.settings.discogs_token;
-    if (data.settings?.auto_stream_enabled !== undefined) {
-      document.getElementById('auto-stream-enabled').checked = data.settings.auto_stream_enabled;
-      if (data.settings.auto_stream_device) {
-        window._savedAutoStreamDevice = data.settings.auto_stream_device;
-        // Scan and pre-select saved device
-        scanAutoStreamDevices();
-      }
-      const statusEl = document.getElementById('auto-stream-status');
-      if (data.settings.auto_stream_enabled && data.settings.auto_stream_device) {
-        statusEl.textContent = `Auto-streaming to: ${data.settings.auto_stream_device.name}`;
-      }
-    }
-    connectWS();
-  }
-
-  init();
-</script>
-  <!-- ── Pairing Modal ──────────────────────────────────────────────────── -->
-  <div id="pair-modal" style="display:none;position:fixed;inset:0;background:rgba(59,42,26,0.6);
-       z-index:1000;display:none;align-items:center;justify-content:center">
-    <div style="background:var(--card);border-radius:12px;padding:1.5rem;width:min(400px,90vw);
-                border:1px solid var(--border)">
-      <h3 id="pair-title" style="margin:0 0 0.75rem">Pair Device</h3>
-      <p id="pair-msg" style="font-size:0.85rem;color:var(--muted);margin:0 0 1rem;line-height:1.5"></p>
-
-      <!-- PIN entry step -->
-      <div id="pair-pin-step" style="display:none">
-        <p style="font-size:0.85rem;margin:0 0 0.75rem">
-          Enter the PIN shown on the device screen:
-        </p>
-        <input id="pair-pin-input" type="text" inputmode="numeric" maxlength="4"
-               placeholder="1234"
-               style="width:100%;box-sizing:border-box;font-size:1.5rem;text-align:center;
-                      letter-spacing:0.4em;padding:0.5rem;border-radius:6px;
-                      background:var(--surface);border:1px solid var(--border);color:var(--text);"
-               onkeydown="if(event.key==='Enter')submitPairingPin()">
-        <div style="display:flex;gap:0.5rem;margin-top:0.75rem">
-          <button class="btn-start btn-small" style="flex:1" onclick="submitPairingPin()">
-            Submit PIN
-          </button>
-          <button class="btn-ghost btn-small" onclick="cancelPairing()">Cancel</button>
-        </div>
-      </div>
-
-      <!-- Progress / result -->
-      <div id="pair-progress" style="display:none;color:var(--muted);font-size:0.85rem">
-        <span id="pair-progress-text">Working…</span>
-      </div>
-      <div id="pair-result" style="display:none">
-        <p id="pair-result-text" style="font-size:0.85rem;margin:0 0 0.75rem"></p>
-        <button class="btn-start btn-small" onclick="closePairModal()">Done</button>
-      </div>
-    </div>
-  </div>
-
-</body>
-</html>
+  });
+  c.innerHTML=h;if(reorder)initDragReorder();
+}
+function seekToTrack(tid){if(!_playerActive)return;fetch('/api/player/seek',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({track_id:tid})})}
+async function refreshModalTracks(aid){if(currentAlbumId!==aid)return;try{const d=await fetch(`/api/catalog/${aid}/tracks`).then(r=>r.json());d.tracks.sort((a,b)=>(a.side||'').localeCompare(b.side||'')||parseInt(a.track_number||0)-parseInt(b.track_number||0));window._modalTracks=d.tracks.slice();renderModalTracks(window._modalTracks,false)}catch(e){}}
+
+async function loadAlbumAudio(id){
+  try{const d=await fetch('/api/album-audio/'+id).then(r=>r.json());const s=document.getElementById('modal-audio-section'),l=document.getElementById('modal-audio-list');
+  if(!d.audio||!d.audio.length){s.style.display='none';return}s.style.display='block';
+  l.innerHTML=d.audio.map(a=>{const dur=a.duration_secs?fmtTime(a.duration_secs):'?',sz=a.file_size?(a.file_size/(1024*1024)).toFixed(1)+' MB':'',playing=_audioPlayingId===a.id;
+    return `<div class="audio-row" id="audio-row-${a.id}"><button class="audio-play-btn" data-album="${id}" data-audio="${a.id}" onclick="toggleBrowserAudio(this)">${playing?'\u23F8':'\u25B6'}</button><span style="font-weight:600">Side ${a.side||'?'}</span><span style="color:var(--muted)">${dur}</span><span style="color:var(--muted);margin-left:auto">${sz}</span><button class="audio-del-btn" data-album="${id}" data-audio="${a.id}" onclick="deleteAudioSide(this)">\u2715</button></div>`;
+  }).join('')}catch(e){}}
+function toggleBrowserAudio(btn){const aid=parseInt(btn.dataset.album),id=parseInt(btn.dataset.audio);if(_audioPlayer&&_audioPlayingId===id){if(_audioPlayer.paused){_audioPlayer.play();btn.textContent='\u23F8'}else{_audioPlayer.pause();btn.textContent='\u25B6'}return}stopBrowserAudio();_audioPlayer=new Audio('/api/album-audio/'+aid+'/play/'+id);_audioPlayingId=id;_audioPlayer.play();btn.textContent='\u23F8';_audioPlayer.addEventListener('ended',()=>stopBrowserAudio())}
+function stopBrowserAudio(){if(_audioPlayer){_audioPlayer.pause();_audioPlayer=null}if(_audioPlayingId){const r=document.getElementById('audio-row-'+_audioPlayingId);if(r){const b=r.querySelector('.audio-play-btn');if(b)b.textContent='\u25B6'}}_audioPlayingId=null}
+async function deleteAudioSide(btn){const aid=parseInt(btn.dataset.album),id=parseInt(btn.dataset.audio);if(!confirm('Delete this recorded side?'))return;await fetch(`/api/album-audio/${aid}/${id}`,{method:'DELETE'});loadAlbumAudio(aid);loadCatalog()}
+async function uploadArtwork(e){const f=e.target.files[0];if(!f||!currentAlbumId)return;const fd=new FormData();fd.append('file',f);const r=await fetch(`/api/catalog/${currentAlbumId}/artwork`,{method:'POST',body:fd}).then(r=>r.json());if(r.ok){openAlbumDetail(currentAlbumId);loadCatalog()}else showError(r.error||'Upload failed')}
+async function clearAlbumFingerprints(){if(!currentAlbumId||!confirm('Clear all fingerprints? You will need to re-learn.'))return;await fetch(`/api/catalog/${currentAlbumId}/fingerprints`,{method:'DELETE'});showToast('Fingerprints cleared');openAlbumDetail(currentAlbumId)}
+async function deleteAlbum(){if(!currentAlbumId||!confirm('Delete this album and all its data?'))return;await fetch(`/api/catalog/${currentAlbumId}`,{method:'DELETE'});closeModal();loadCatalog()}
+
+function toggleReorderMode(){_reorderMode=!_reorderMode;document.getElementById('btn-reorder').classList.toggle('btn-accent',_reorderMode);renderModalTracks(window._modalTracks||[],_reorderMode)}
+function initDragReorder(){const c=document.getElementById('modal-tracks');let de=null;c.querySelectorAll('.track-row').forEach(r=>{r.draggable=true;r.addEventListener('dragstart',e=>{de=r;r.classList.add('dragging');e.dataTransfer.effectAllowed='move'});r.addEventListener('dragend',()=>{r.classList.remove('dragging');de=null});r.addEventListener('dragover',e=>{e.preventDefault();e.dataTransfer.dropEffect='move';if(de&&de!==r){const rect=r.getBoundingClientRect(),mid=rect.top+rect.height/2;if(e.clientY<mid)c.insertBefore(de,r);else c.insertBefore(de,r.nextSibling)}})});c.addEventListener('drop',async e=>{e.preventDefault();const ids=[...c.querySelectorAll('.track-row')].map(r=>parseInt(r.dataset.id));await fetch(`/api/catalog/${currentAlbumId}/reorder`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({track_ids:ids})});showToast('Track order saved');_reorderMode=false;document.getElementById('btn-reorder').classList.remove('btn-accent');openAlbumDetail(currentAlbumId)})}
+
+function showAlbumRecPanel(){document.getElementById('album-rec-panel').style.display='block';document.getElementById('album-rec-setup').style.display='block';document.getElementById('album-rec-active').style.display='none';document.getElementById('album-rec-saving').style.display='none';document.getElementById('album-rec-flip-prompt').style.display='none'}
+function hideAlbumRecPanel(){document.getElementById('album-rec-panel').style.display='none'}
+async function startAlbumRecording(){const side=document.getElementById('album-rec-side').value;const r=await fetch('/api/album-recording/start',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({album_id:currentAlbumId,side:side})}).then(r=>r.json());if(!r.ok){showError(r.error||'Failed');return}document.getElementById('album-rec-setup').style.display='none';document.getElementById('album-rec-active').style.display='block';document.getElementById('album-rec-active-side').textContent=side;document.getElementById('album-rec-timer').textContent='00:00';document.getElementById('album-rec-track-log').innerHTML='';const st=Date.now();clearInterval(_recTimerInterval);_recTimerInterval=setInterval(()=>{const s=Math.floor((Date.now()-st)/1000);document.getElementById('album-rec-timer').textContent=String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0')},1000)}
+async function stopAlbumRecording(){clearInterval(_recTimerInterval);document.getElementById('album-rec-active').style.display='none';document.getElementById('album-rec-saving').style.display='block';await fetch('/api/album-recording/stop',{method:'POST'})}
+async function cancelAlbumRecording(){clearInterval(_recTimerInterval);await fetch('/api/album-recording/cancel',{method:'POST'});hideAlbumRecPanel()}
+function flipAlbumRecording(){stopAlbumRecording()}
+function onAlbumRecStatus(d){if(!d.recording&&d.message)document.getElementById('album-rec-status-text').textContent=d.message}
+function onAlbumRecSideSaved(d){clearInterval(_recTimerInterval);document.getElementById('album-rec-active').style.display='none';document.getElementById('album-rec-saving').style.display='none';document.getElementById('album-rec-flip-prompt').style.display='block';document.getElementById('album-rec-done-side').textContent=d.side||'?';const ns=String.fromCharCode((d.side||'A').charCodeAt(0)+1);document.getElementById('album-rec-next-side-label').textContent=ns;if(currentAlbumId){loadAlbumAudio(currentAlbumId);loadCatalog()}}
+function startNextSideRecording(){const ns=document.getElementById('album-rec-next-side-label').textContent;document.getElementById('album-rec-side').value=ns;document.getElementById('album-rec-flip-prompt').style.display='none';startAlbumRecording()}
+function finishAlbumRecSession(){hideAlbumRecPanel();if(currentAlbumId){loadAlbumAudio(currentAlbumId);loadCatalog()}}
+
+function openLearnForAlbum(){if(!currentAlbumId)return;const a=_catalogAlbums.find(x=>x.id===currentAlbumId);if(!a)return;document.getElementById('learn-album-input').value=a.artist+' \u2014 '+a.title;document.getElementById('learn-album-id').value=currentAlbumId;const sa=(window._modalTracks||[]).filter(t=>t.side==='A').length;document.getElementById('learn-track-count').value=sa||5;closeModal();showLearnOverlay()}
+function showLearnOverlay(){document.getElementById('learn-overlay').classList.add('open');showLearnStep('setup');populateLearnAlbumSelect()}
+function hideLearnOverlay(){document.getElementById('learn-overlay').classList.remove('open');loadCatalog()}
+function showLearnStep(s){['setup','active','paused','done'].forEach(x=>document.getElementById('learn-step-'+x).style.display=(x===s)?'block':'none')}
+function populateLearnAlbumSelect(){document.getElementById('learn-album-list').innerHTML=_catalogAlbums.map(a=>`<option value="${esc(a.artist)} \u2014 ${esc(a.title)}" data-id="${a.id}">`).join('')}
+function onLearnAlbumInput(v){const dl=document.getElementById('learn-album-list');const o=[...dl.options].find(x=>x.value===v);if(o){document.getElementById('learn-album-id').value=o.dataset.id;fetch(`/api/catalog/${o.dataset.id}/tracks`).then(r=>r.json()).then(d=>{const sa=(d.tracks||[]).filter(t=>t.side==='A').length;if(sa)document.getElementById('learn-track-count').value=sa})}}
+function onLevel(d){const b=document.getElementById('learn-level-bar');if(b){const pct=Math.min(100,Math.max(0,(d.db+60)/60*100));b.style.width=pct+'%'}}
+async function startLearnSession(){const aid=parseInt(document.getElementById('learn-album-id').value),tc=parseInt(document.getElementById('learn-track-count').value)||1;if(!aid){showError('Please select an album');return}showLearnStep('active');document.getElementById('learn-status-text').textContent='\u23F3 Starting audio capture\u2026';const r=await fetch('/api/learn/start',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({album_id:aid,track_count:tc,also_record:document.getElementById('learn-also-record').checked})}).then(r=>r.json());if(!r.ok){showLearnStep('setup');showError(r.error);return}_learnLog=[];document.getElementById('learn-status-text').textContent='\u23F3 Waiting for audio\u2026 drop the needle';document.getElementById('learn-next-track').textContent=r.first_track||'';document.getElementById('learn-progress-bar').style.width='0%';document.getElementById('learn-track-list').innerHTML=''}
+async function stopLearnSession(){await fetch('/api/learn/stop',{method:'POST'});showLearnStep('setup')}
+async function continueLearnSession(){const c=parseInt(document.getElementById('learn-continue-count').value)||1;const r=await fetch('/api/learn/continue',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({track_count:c})}).then(r=>r.json());if(!r.ok){showError(r.error);return}showLearnStep('active')}
+function finishLearnSession(){fetch('/api/learn/stop',{method:'POST'});showLearnStep('done');document.getElementById('learn-done-message').textContent=`${_learnLog.length} track(s) learned this session.`}
+function onLearnAudioDetected(d){document.getElementById('learn-status-text').textContent=`\u23FA Track ${d.learned+1} of ${d.track_count} \u2014 recording\u2026`;document.getElementById('learn-next-track').textContent=d.next_track?`Capturing: ${d.next_track}`:''}
+function onLearnUpdate(d){showLearnStep('active');document.getElementById('learn-progress-bar').style.width=Math.round((d.learned/d.track_count)*100)+'%';document.getElementById('learn-status-text').textContent=d.message||'';document.getElementById('learn-next-track').textContent=d.next_track?`Next: ${d.next_track}`:'';if(d.learned>_learnLog.length){_learnLog.push(d.learned_track||`Track ${d.learned}`);const el=document.getElementById('learn-track-list');el.innerHTML=_learnLog.map((n,i)=>`<div style="padding:0.15rem 0;color:var(--green)">\u2713 Track ${i+1}: ${esc(n)}</div>`).join('');el.scrollTop=el.scrollHeight}if(d.album_id)refreshModalTracks(d.album_id)}
+function onLearnPaused(d){showLearnStep('paused');document.getElementById('learn-pause-message').innerHTML=`<strong>${d.learned} track(s) learned</strong><br>${esc(d.message||'')}`+(d.remaining_in_album>0?`<br><span style="color:var(--muted)">${d.remaining_in_album} tracks still unlearned.</span>`:'<br><span style="color:var(--green)">All tracks learned!</span>');if(d.remaining_in_album>0&&d.remaining_in_album<=10)document.getElementById('learn-continue-count').value=d.remaining_in_album;if(d.album_id)refreshModalTracks(d.album_id)}
+function onLearnDone(d){showLearnStep('done');document.getElementById('learn-done-message').textContent=d.message||`${d.learned||0} track(s) learned.`;if(d.album_id)refreshModalTracks(d.album_id);loadCatalog()}
+function onLearnEndOfSide(d){const rem=d.track_count-d.learned;if(rem>0){document.getElementById('learn-pause-message').innerHTML=`\u2713 Learned <strong>${d.learned}</strong> of <strong>${d.track_count}</strong> tracks.<br>End of side detected \u2014 flip the record and press Continue.`;document.getElementById('learn-continue-count').value=rem;showLearnStep('paused')}else{document.getElementById('learn-done-message').textContent=`All ${d.learned} tracks learned successfully.`;showLearnStep('done');loadCatalog()}}
+
+function showAddForm(){document.getElementById('add-modal').classList.add('open');showAddStep('search');document.getElementById('s-artist').value='';document.getElementById('s-album').value='';document.getElementById('search-results').innerHTML=''}
+function hideAddForm(){document.getElementById('add-modal').classList.remove('open');_pendingRelease=null}
+function showAddStep(s){['search','confirm','manual'].forEach(x=>document.getElementById('add-step-'+x).style.display=(x===s)?'block':'none')}
+function backToSearch(){showAddStep('search')}
+function showManualStep(){showAddStep('manual')}
+async function doSearch(){const a=document.getElementById('s-artist').value.trim(),al=document.getElementById('s-album').value.trim();if(!a&&!al){showError('Enter an artist or album');return}const btn=document.getElementById('btn-search');btn.disabled=true;btn.textContent='Searching\u2026';try{const r=await fetch('/api/catalog/search',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({artist:a,album:al,source:'discogs'})}).then(r=>r.json());const el=document.getElementById('search-results');if(!r.results||!r.results.length){el.innerHTML='<div style="color:var(--muted);font-size:0.82rem;padding:0.5rem 0">No results. Try different terms or enter manually.</div>';return}el.innerHTML=r.results.map((r,i)=>{const art=r.thumb?`<img src="${r.thumb}" style="width:40px;height:40px;border-radius:4px;object-fit:cover">`:'<div style="width:40px;height:40px;border-radius:4px;background:var(--border);display:flex;align-items:center;justify-content:center">\uD83D\uDCBF</div>';return `<div style="display:flex;gap:0.5rem;align-items:center;padding:0.4rem 0;border-bottom:1px solid var(--border);cursor:pointer" onclick="selectResult(${i})">${art}<div style="flex:1;min-width:0"><div style="font-size:0.82rem;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.title)}</div><div style="font-size:0.72rem;color:var(--muted)">${esc(r.artist||'')}${r.year?' \xB7 '+r.year:''}${r.label?' \xB7 '+esc(r.label):''}${r.country?' \xB7 '+r.country:''}</div></div></div>`}).join('');window._searchResults=r.results}catch(e){showError('Search failed: '+e.message)}finally{btn.disabled=false;btn.textContent='Search Discogs'}}
+async function selectResult(idx){const r=window._searchResults[idx];if(!r)return;try{const d=await fetch('/api/catalog/search',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({release_id:r.id,source:r.source||'discogs'})}).then(r=>r.json());if(!d.release){showError('Could not load details');return}_pendingRelease=d.release;document.getElementById('confirm-album-header').innerHTML=`<div style="font-weight:600">${esc(d.release.title)}</div><div style="font-size:0.78rem;color:var(--muted)">${esc(d.release.artist||'')}${d.release.year?' \xB7 '+d.release.year:''}${d.release.label?' \xB7 '+esc(d.release.label):''}</div>`;const sides={};(d.release.tracks||[]).forEach(t=>{if(!sides[t.side])sides[t.side]=[];sides[t.side].push(t)});Object.keys(sides).forEach(s=>sides[s].sort((a,b)=>parseInt(a.track_number||0)-parseInt(b.track_number||0)));let h='';Object.keys(sides).sort().forEach(side=>{h+=`<div class="side-label">Side ${side}</div>`;sides[side].forEach(t=>{const dur=t.duration_secs?fmtTime(t.duration_secs):'';h+=`<div class="track-row"><span class="track-num">${esc(t.track_number||'')}</span><span style="flex:1">${esc(t.title)}</span><span style="color:var(--muted);font-size:0.72rem">${dur}</span></div>`})});document.getElementById('confirm-tracks').innerHTML=h;showAddStep('confirm')}catch(e){showError('Failed: '+e.message)}}
+async function saveRelease(){if(!_pendingRelease)return;const r=await fetch('/api/catalog/release',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({release:_pendingRelease})}).then(r=>r.json());if(r.ok){hideAddForm();loadCatalog()}else showError(r.error||'Failed to save')}
+async function submitManual(){const t=document.getElementById('m-album-title').value.trim(),a=document.getElementById('m-artist').value.trim();if(!t||!a){showError('Album title and artist required');return}const ta=document.getElementById('m-tracks-a').value.split('\n').map(s=>s.trim()).filter(Boolean).map((x,i)=>({title:x,side:'A',track_number:String(i+1)}));const tb=document.getElementById('m-tracks-b').value.split('\n').map(s=>s.trim()).filter(Boolean).map((x,i)=>({title:x,side:'B',track_number:String(i+1)}));const tracks=[...ta,...tb];if(!tracks.length){showError('Enter at least one track');return}const r=await fetch('/api/catalog/manual',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({album_title:t,album_artist:a,year:parseInt(document.getElementById('m-year').value)||null,genre:document.getElementById('m-genre').value.trim()||null,label:document.getElementById('m-label').value.trim()||null,notes:document.getElementById('m-notes').value.trim()||null,tracks})}).then(r=>r.json());if(r.ok){hideAddForm();loadCatalog()}else showError(r.error||'Failed')}
+
+function showSettings(){document.getElementById('settings-modal').classList.add('open')}
+function hideSettings(){document.getElementById('settings-modal').classList.remove('open')}
+async function scanDevices(){try{const d=await fetch('/api/scan').then(r=>r.json());renderSettingsDevices(d.devices);renderHiddenDevices(d.devices)}catch(e){showError('Scan failed')}}
+function renderSettingsDevices(devs){const l=document.getElementById('settings-device-list');const v=(devs||[]).filter(d=>!d.hidden);if(!v.length){l.innerHTML='<div style="color:var(--muted);font-size:0.8rem">No devices found</div>';return}l.innerHTML=v.map(d=>{const np=d.needs_pairing&&d.paired===false;return `<label class="device-item" style="opacity:${np?'0.6':'1'}"><input type="checkbox" class="dev-check" value='${JSON.stringify({id:d.id,name:d.name}).replace(/'/g,"&apos;")}'><span style="flex:1">${esc(d.name)}</span>${np?`<button class="btn btn-ghost" onclick="pairDevice('${d.id}')">Pair</button>`:''}</label>`}).join('')}
+function getSelectedDevices(){return[...document.querySelectorAll('.dev-check:checked')].map(c=>JSON.parse(c.value))}
+async function startStream(){const devs=getSelectedDevices();if(!devs.length){showError('Select at least one device');return}await fetch('/api/start',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({devices:devs,volume:parseInt(document.getElementById('eq-volume').value)})})}
+async function stopStream(){await fetch('/api/stop',{method:'POST'})}
+async function pairDevice(did){const r=await fetch('/api/pair',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({device_id:did,protocol:'raop'})}).then(r=>r.json());if(r.ok){showToast('Check device for PIN');const pin=prompt('Enter PIN:');if(pin){const f=await fetch('/api/pair',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({device_id:did,protocol:'raop',pin})}).then(r=>r.json());if(f.ok){showToast('Paired!');scanDevices()}else showError(f.error||'Failed')}}else showError(r.error||'Failed')}
+function renderHiddenDevices(devs){const l=document.getElementById('hidden-device-list');if(!devs||!devs.length){l.innerHTML='<div style="color:var(--muted);font-size:0.8rem">Scan to manage</div>';return}l.innerHTML=devs.map(d=>`<label class="device-item" style="gap:0.5rem"><input type="checkbox" ${d.hidden?'checked':''} onchange="toggleHidden('${d.id}',this.checked)" style="accent-color:var(--red)"><span style="font-size:0.8rem">${esc(d.name)}${d.hidden?' (hidden)':''}</span></label>`).join('')}
+async function toggleHidden(did,hide){await fetch('/api/device/hide',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({device_id:did,hidden:hide})})}
+async function saveAutoStreamSettings(){const en=document.getElementById('auto-stream-enabled').checked,sel=document.getElementById('auto-stream-device-select'),opt=sel.options[sel.selectedIndex],dev=opt&&opt.value?{id:opt.value,name:opt.textContent}:null;await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({auto_stream_enabled:en,auto_stream_device:dev})});document.getElementById('auto-stream-status').textContent=en&&dev?`Auto-streaming to: ${dev.name}`:''}
+async function scanAutoStreamDevices(){const sel=document.getElementById('auto-stream-device-select');sel.innerHTML='<option value="">Scanning\u2026</option>';try{const d=await fetch('/api/scan').then(r=>r.json());sel.innerHTML='<option value="">\u2014 Select \u2014</option>';(d.devices||[]).filter(d=>!d.hidden).forEach(d=>{const o=document.createElement('option');o.value=d.id;o.textContent=d.name;sel.appendChild(o)});if(window._savedAutoStreamDevice)sel.value=window._savedAutoStreamDevice.id}catch(e){sel.innerHTML='<option value="">Scan failed</option>'}}
+async function saveDiscogsToken(){const t=document.getElementById('discogs-token').value.trim();await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({discogs_token:t})});const el=document.getElementById('discogs-saved');el.style.display='inline';setTimeout(()=>el.style.display='none',2000)}
+async function loadAudioDevices(){try{const d=await fetch('/api/audio-devices').then(r=>r.json());document.getElementById('audio-select').innerHTML=d.devices.map(d=>`<option value="${d.index}">${esc(d.name)}</option>`).join('')}catch(e){}}
+
+async function init(){
+  connectWS();await loadAudioDevices();
+  const d=await fetch('/api/status').then(r=>r.json());
+  setStatus(d);
+  if(d.eq)applyEQValues(d.eq.bass,d.eq.treble,d.eq.volume);
+  if(d.now_playing&&d.now_playing.track_title)renderNowPlaying(d.now_playing);
+  if(d.player&&d.player.state!=='stopped')onPlayerStatus(d.player);
+  if(d.settings){
+    if(d.settings.discogs_token)document.getElementById('discogs-token').value=d.settings.discogs_token;
+    if(d.settings.auto_stream_enabled!==undefined){document.getElementById('auto-stream-enabled').checked=d.settings.auto_stream_enabled;if(d.settings.auto_stream_device){window._savedAutoStreamDevice=d.settings.auto_stream_device;scanAutoStreamDevices()}const st=document.getElementById('auto-stream-status');if(d.settings.auto_stream_enabled&&d.settings.auto_stream_device)st.textContent=`Auto-streaming to: ${d.settings.auto_stream_device.name}`}
+  }
+  loadCatalog();
+}
+init();
+</script></body></html>
