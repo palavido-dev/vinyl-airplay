@@ -99,6 +99,7 @@ class RecordingBuffer:
         # Adapts automatically to any pressing's loudness.
         self._signal_level = 0.03          # initial estimate; refined once audio starts
         self._silence_log_countdown = 0    # rate-limit diagnostic prints
+        self._above_entry_count = 0        # consecutive chunks above entry threshold while in silence
 
         # Expected duration of the current track (from catalog metadata).
         # When > 0, suppresses track splits until at least 50% of expected has elapsed.
@@ -122,6 +123,7 @@ class RecordingBuffer:
             self._audio_seen           = False
             self._signal_level         = 0.03
             self._silence_log_countdown = 0
+            self._above_entry_count     = 0
             self._end_of_side_fired    = False
             self.expected_track_secs   = 0.0
         print(f"[recorder] Recording started (auto_split={auto_split})")
@@ -230,12 +232,39 @@ class RecordingBuffer:
         # exceed the threshold before resetting. Without this, smoothed RMS hovering
         # right at the threshold boundary oscillates in/out and resets silence_secs.
         # Entry: smoothed < threshold
-        # Exit:  smoothed >= threshold * 1.3 (30% above — must be clearly music, not noise)
+        # Exit:  smoothed >= threshold * 1.2 (20% above — must be clearly music, not noise)
+        # Note: 1.3 was too aggressive — quiet tracks (e.g. Purity Ring ambient intros)
+        # at RMS ~0.016-0.018 couldn't exceed 0.01422 * 1.3 = 0.01849, causing false
+        # end-of-side detection while music was playing. 1.2 gives exit = 0.01706,
+        # still well above vinyl noise (~0.014) but reachable by quiet music.
+        #
+        # Sustained-music escape: hysteresis can trap quiet passages where smoothed RMS
+        # is consistently ABOVE the entry threshold but below the exit threshold (e.g.
+        # smooth 0.015-0.018, entry 0.016, exit 0.019). If 20+ consecutive chunks (~2s)
+        # have smoothed RMS above the entry threshold, this is sustained music, not a
+        # noise spike — force-exit silence regardless of hysteresis.
+        SUSTAINED_EXIT_CHUNKS = 20  # ~2 seconds of consecutive above-entry-threshold
         in_silence = self._silence_secs > 0
         if in_silence:
-            exit_threshold = silence_threshold * 1.3
-            is_silent = self._smoothed_rms < exit_threshold
+            # Track consecutive chunks above entry threshold
+            if self._smoothed_rms >= silence_threshold:
+                self._above_entry_count += 1
+            else:
+                self._above_entry_count = 0
+            # Check both: hysteresis exit OR sustained-music escape
+            exit_threshold = silence_threshold * 1.2
+            if self._smoothed_rms >= exit_threshold:
+                is_silent = False
+                self._above_entry_count = 0
+            elif self._above_entry_count >= SUSTAINED_EXIT_CHUNKS:
+                is_silent = False
+                print(f"[recorder] Sustained music detected ({self._above_entry_count} chunks above entry threshold)"
+                      f" — forcing silence exit at {self._silence_secs:.1f}s")
+                self._above_entry_count = 0
+            else:
+                is_silent = True
         else:
+            self._above_entry_count = 0
             is_silent = self._smoothed_rms < silence_threshold
 
         if is_silent:
@@ -288,6 +317,7 @@ class RecordingBuffer:
                               f" — treating as quiet passage")
                         self._silence_secs       = 0.0
                         self._silence_start_byte = 0
+                        self._above_entry_count  = 0
                         return
                 # Sustained silence ended — split track
                 self._split_track()
