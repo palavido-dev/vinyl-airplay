@@ -79,6 +79,7 @@ class RecordingBuffer:
         self._silence_secs  = 0.0
         self._last_rms      = 0.0
         self._block_secs    = 1024 / SAMPLE_RATE  # seconds per callback block (approx)
+        self._smoothed_rms  = 0.0   # EMA-smoothed RMS for silence decisions (avoids noise spikes)
 
         # Track where silence started so we can trim it from the end
         self._silence_start_byte = 0
@@ -106,6 +107,7 @@ class RecordingBuffer:
             self._auto_split    = auto_split
             self._silence_secs  = 0.0
             self._silence_start_byte = 0
+            self._smoothed_rms  = 0.0
             self._sustained_audio_secs = 0.0
             self._audio_seen           = False
             self._signal_level         = 0.03
@@ -175,9 +177,9 @@ class RecordingBuffer:
                 self._sustained_audio_secs += chunk_secs
                 if self._sustained_audio_secs >= STARTUP_AUDIO_SECS:
                     self._audio_seen = True
-                    # Seed signal level from the startup burst so threshold is
-                    # calibrated before the first track even ends
+                    # Seed signal level and smoothed RMS from the startup burst
                     self._signal_level = rms
+                    self._smoothed_rms = rms
                     thresh = max(SILENCE_RATIO_MIN, rms * SILENCE_RATIO)
                     print(f"[recorder] Audio detected — silence detection active"
                           f"  signal={rms:.5f}  silence_threshold={thresh:.5f}")
@@ -189,6 +191,15 @@ class RecordingBuffer:
             return  # don't do split logic until gate is open
 
         # Adaptive silence detection (gate is open)
+        # Smooth the RMS with an EMA to prevent vinyl surface noise spikes from
+        # resetting the silence counter. A single 0.014 spike among 0.010 chunks
+        # won't break silence detection when the AVERAGE is clearly below threshold.
+        SMOOTH_ALPHA = 0.15  # ~7 chunk window (~0.7s) — smooths noise, still responsive
+        if self._smoothed_rms == 0.0:
+            self._smoothed_rms = rms  # seed on first call
+        else:
+            self._smoothed_rms += SMOOTH_ALPHA * (rms - self._smoothed_rms)
+
         # Compute dynamic threshold from current signal level estimate.
         # When we know expected track duration and are past it, boost the ratio
         # so vinyl surface noise in between-track gaps reliably registers as silence.
@@ -205,7 +216,9 @@ class RecordingBuffer:
 
         silence_threshold = max(SILENCE_RATIO_MIN, self._signal_level * effective_ratio)
 
-        if rms < silence_threshold:
+        # Use smoothed RMS for silence/audio decision (prevents noise spikes from
+        # resetting the silence counter), but raw RMS for signal level tracking
+        if self._smoothed_rms < silence_threshold:
             self._silence_secs += chunk_secs
             if self._silence_start_byte == 0:
                 with self._lock:
@@ -214,7 +227,8 @@ class RecordingBuffer:
             self._silence_log_countdown -= 1
             if self._silence_log_countdown <= 0:
                 ratio_info = f"  ratio={effective_ratio:.2f}" if effective_ratio > SILENCE_RATIO else ""
-                print(f"[recorder] Gap: RMS={rms:.5f}  threshold={silence_threshold:.5f}"
+                print(f"[recorder] Gap: RMS={rms:.5f}  smooth={self._smoothed_rms:.5f}"
+                      f"  threshold={silence_threshold:.5f}"
                       f"  signal={self._signal_level:.5f}  silence={self._silence_secs:.1f}s{ratio_info}")
                 self._silence_log_countdown = 20  # log every ~20 chunks
             # End-of-side detection: long silence = needle lifted / run-out groove
@@ -228,7 +242,7 @@ class RecordingBuffer:
                 if self._on_end_of_side:
                     self._on_end_of_side()
         else:
-            # Update signal level EMA while music is playing
+            # Update signal level EMA while music is playing (use raw RMS, not smoothed)
             self._signal_level += SIGNAL_ADAPT_RATE * (rms - self._signal_level)
             self._silence_log_countdown = 0  # reset so next gap logs immediately
             self._end_of_side_fired = False  # reset if audio returns (e.g. between sides)
