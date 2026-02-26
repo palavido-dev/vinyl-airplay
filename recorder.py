@@ -47,6 +47,9 @@ END_OF_SIDE_SECS  = 20.0            # silence this long = end of side — auto-f
 SILENCE_PAD_SECS  = 0.5            # keep this much silence at end of track (natural fade)
 MIN_TRACK_SECS    = 15              # ignore tracks shorter than this (needle drop, interludes)
 STARTUP_AUDIO_SECS = 2.0            # sustained audio required before silence detection begins
+STARTUP_MIN_RMS    = 0.015          # minimum RMS to count as music for startup gate
+                                    # vinyl groove noise is ~0.006-0.012, music is typically 0.02+
+                                    # 0.015 avoids opening the gate on run-in groove noise
 
 
 # ── Recording Buffer ──────────────────────────────────────────────────────────
@@ -175,7 +178,7 @@ class RecordingBuffer:
         chunk_secs = len(pcm_chunk) / (SAMPLE_RATE * CHANNELS * 2)
 
         if not self._audio_seen:
-            if rms >= SILENCE_RATIO_MIN:
+            if rms >= STARTUP_MIN_RMS:
                 self._sustained_audio_secs += chunk_secs
                 if self._sustained_audio_secs >= STARTUP_AUDIO_SECS:
                     self._audio_seen = True
