@@ -1020,7 +1020,7 @@ async def get_release(mb_release_id: str):
 
 @app.post("/api/catalog/release")
 async def save_release(body: dict):
-    """Save a MusicBrainz release to the catalog."""
+    """Save a MusicBrainz or Discogs release to the catalog."""
     release_data = body.get("release", {})
     if not release_data:
         return {"ok": False, "error": "No release data"}
@@ -1030,14 +1030,21 @@ async def save_release(body: dict):
     )
     if album_id is None:
         return {"ok": False, "error": "Failed to save"}
-    # Try to fetch artwork
+    # Try to fetch artwork — MusicBrainz Cover Art Archive first, then Discogs URL
+    art = None
     mb_id = release_data.get("mb_release_id")
     if mb_id:
         art = await loop.run_in_executor(
             None, lambda: cat.fetch_artwork(mb_id, album_id)
         )
-        if art:
-            cat.update_album_artwork(album_id, art, user=False)
+    if not art and release_data.get("artwork_url"):
+        token = state.settings.get("discogs_token", "")
+        artwork_url = release_data["artwork_url"]
+        art = await loop.run_in_executor(
+            None, lambda: cat.fetch_artwork_from_url(artwork_url, album_id, token)
+        )
+    if art:
+        cat.update_album_artwork(album_id, art, user=False)
     return {"ok": True, "album_id": album_id}
 
 

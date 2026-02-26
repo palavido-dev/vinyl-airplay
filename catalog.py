@@ -857,6 +857,9 @@ def get_discogs_release(discogs_id: str, token: str = "") -> dict:
                 except Exception:
                     pass
 
+            print(f"[catalog] Discogs track {pos}: '{t.get('title','')}' "
+                  f"duration='{dur_str}' → {dur_secs}s")
+
             tracks.append({
                 "title":         t.get("title", ""),
                 "track_number":  num,
@@ -865,10 +868,14 @@ def get_discogs_release(discogs_id: str, token: str = "") -> dict:
                 "musicbrainz_track_id": None,
             })
 
-        # Cover art: use primary image if available
+        # Cover art: use primary image if available, fall back to thumb
         images    = data.get("images") or []
         art_url   = next((i["uri"] for i in images if i.get("type") == "primary"), None)
         art_url   = art_url or (images[0]["uri"] if images else None)
+        # Without Discogs auth, images may be empty — use thumb as fallback
+        if not art_url:
+            art_url = data.get("thumb") or None
+        print(f"[catalog] Discogs artwork: {len(images)} images, url={art_url or 'none'}")
 
         return {
             "ok": True,
@@ -1054,6 +1061,28 @@ def fetch_artwork(mb_release_id: str, album_id: int) -> Optional[str]:
 
     except Exception as e:
         print(f"[catalog] Artwork fetch failed: {e}")
+        return None
+
+
+def fetch_artwork_from_url(url: str, album_id: int, token: str = "") -> Optional[str]:
+    """
+    Download artwork from an arbitrary URL (e.g. Discogs image URL).
+    Saves as JPEG to artwork/ dir. Returns relative path or None.
+    """
+    if not url:
+        return None
+    try:
+        headers = {"User-Agent": MB_APP}
+        if token and "discogs" in url.lower():
+            headers["Authorization"] = f"Discogs token={token}"
+        req = urllib.request.Request(url, headers=headers)
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            data = resp.read()
+        path = _save_artwork(data, album_id, user=False)
+        print(f"[catalog] Artwork downloaded from URL: {url[:80]}")
+        return path
+    except Exception as e:
+        print(f"[catalog] Artwork URL fetch failed: {e}")
         return None
 
 
