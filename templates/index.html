@@ -103,6 +103,46 @@
                   border-radius: 4px; padding: 0.1rem 0.4rem; margin-top: 0.4rem; }
     .np-scanning { color: var(--muted); font-size: 0.85rem; font-style: italic; }
 
+    /* ── Player Transport ── */
+    .player-controls {
+      display: flex; align-items: center; gap: 0.5rem;
+      margin-top: 0.6rem; padding-top: 0.6rem;
+      border-top: 1px solid var(--border);
+    }
+    .player-btn {
+      width: 36px; height: 36px; border-radius: 50%;
+      background: var(--surface); border: 1px solid var(--border);
+      color: var(--text); font-size: 1rem; cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      padding: 0; transition: background 0.15s, border-color 0.15s;
+    }
+    .player-btn:hover { border-color: var(--accent); background: var(--card); }
+    .player-btn.play-pause {
+      width: 42px; height: 42px; font-size: 1.1rem;
+      background: var(--accent); color: #fff; border-color: var(--accent);
+    }
+    .player-btn.play-pause:hover { background: #e06840; }
+    .player-progress-wrap {
+      flex: 1; display: flex; align-items: center; gap: 0.4rem;
+    }
+    .player-progress-bar {
+      flex: 1; height: 4px; background: var(--border); border-radius: 2px;
+      cursor: pointer; position: relative; overflow: hidden;
+    }
+    .player-progress-fill {
+      height: 100%; background: var(--accent); border-radius: 2px;
+      transition: width 0.3s linear;
+    }
+    .player-time {
+      font-size: 0.7rem; color: var(--muted); min-width: 35px;
+      text-align: center; font-variant-numeric: tabular-nums;
+    }
+    .player-source-badge {
+      font-size: 0.65rem; background: var(--accent); color: #fff;
+      border-radius: 3px; padding: 0.1rem 0.35rem; margin-left: 0.4rem;
+      vertical-align: middle; letter-spacing: 0.03em;
+    }
+
     /* ── Status dot ── */
     .status-dot {
       display: inline-block; width: 8px; height: 8px; border-radius: 50%;
@@ -317,6 +357,19 @@
       <div class="np-info">
         <div class="np-scanning">Listening for record…</div>
       </div>
+    </div>
+    <div class="player-controls" id="player-controls" style="display:none">
+      <button class="player-btn" onclick="playerPrev()" title="Previous">⏮</button>
+      <button class="player-btn play-pause" id="player-play-pause" onclick="playerToggle()" title="Pause">⏸</button>
+      <button class="player-btn" onclick="playerNext()" title="Next">⏭</button>
+      <div class="player-progress-wrap">
+        <span class="player-time" id="player-time-cur">0:00</span>
+        <div class="player-progress-bar" id="player-progress-bar" onclick="playerSeekClick(event)">
+          <div class="player-progress-fill" id="player-progress-fill" style="width:0%"></div>
+        </div>
+        <span class="player-time" id="player-time-dur">0:00</span>
+      </div>
+      <button class="player-btn" onclick="playerStop()" title="Stop">⏹</button>
     </div>
   </div>
 
@@ -815,6 +868,7 @@
     </div>
 
     <div class="modal-actions">
+      <button class="btn-start btn-small" onclick="playAlbumToAirPlay()" id="btn-play-album" style="background:var(--green)">▶ Play to AirPlay</button>
       <label class="btn-start btn-small" style="cursor:pointer;display:inline-block;padding:0.35rem 0.8rem;font-size:0.8rem;background:var(--accent);color:#fff;border-radius:8px;font-weight:600">
         📷 Upload Photo
         <input type="file" accept="image/*" style="display:none" onchange="uploadArtwork(event)">
@@ -860,6 +914,7 @@
     if (data.event === 'status')     setStatus(data.streaming, data.message, data.devices);
     if (data.event === 'error')      showError(data.message);
     if (data.event === 'now_playing')     renderNowPlaying(data);
+    if (data.event === 'player_status')  onPlayerStatus(data);
     if (data.event === 'recording_status') onRecordingStatus(data);
     if (data.event === 'learn_audio_detected') onLearnAudioDetected(data);
     if (data.event === 'learn_end_of_side')    onLearnEndOfSide(data);
@@ -889,7 +944,7 @@
     if (streaming) {
       npCard.style.display = 'block';
       if (!document.getElementById('np-track-title')) renderNowPlayingScanning();
-    } else {
+    } else if (!_playerActive) {
       npCard.style.display = 'none';
     }
   }
@@ -902,6 +957,8 @@
   }
 
   // ── Now Playing ───────────────────────────────────────────────────────────
+
+  let _playerActive = false;
 
   function renderNowPlayingScanning() {
     document.getElementById('np-inner').innerHTML = `
@@ -930,7 +987,105 @@
         <div class="np-artist">${esc(data.track_artist || data.album_artist || '')}</div>
         <div class="np-album">${esc(data.album_title || '')}${data.year ? ' (' + data.year + ')' : ''}</div>
         ${badge ? `<span class="np-badge">${esc(badge)}</span>` : ''}
+        ${data.source === 'player' ? '<span class="player-source-badge">CATALOG</span>' : ''}
       </div>`;
+  }
+
+  // ── Player Controls ─────────────────────────────────────────────────────
+
+  function onPlayerStatus(data) {
+    const controls = document.getElementById('player-controls');
+    const npCard   = document.getElementById('now-playing-card');
+
+    if (data.state === 'stopped') {
+      _playerActive = false;
+      controls.style.display = 'none';
+      // Hide NP card if not vinyl streaming
+      if (!document.querySelector('.status-dot.on')) {
+        npCard.style.display = 'none';
+      }
+      return;
+    }
+
+    _playerActive = true;
+    npCard.style.display = 'block';
+    controls.style.display = 'flex';
+
+    // Update play/pause button
+    const btn = document.getElementById('player-play-pause');
+    if (data.state === 'paused') {
+      btn.textContent = '▶'; btn.title = 'Play';
+    } else {
+      btn.textContent = '⏸'; btn.title = 'Pause';
+    }
+
+    // Update progress
+    const pos = data.position_secs || 0;
+    const dur = data.duration_secs || 1;
+    const pct = Math.min(100, (pos / dur) * 100);
+    document.getElementById('player-progress-fill').style.width = pct + '%';
+    document.getElementById('player-time-cur').textContent = fmtTime(pos);
+    document.getElementById('player-time-dur').textContent = fmtTime(dur);
+  }
+
+  function fmtTime(secs) {
+    const m = Math.floor(secs / 60);
+    const s = Math.floor(secs % 60);
+    return m + ':' + String(s).padStart(2, '0');
+  }
+
+  async function playAlbumToAirPlay() {
+    if (!currentAlbumId) return;
+
+    // Check for recorded audio first
+    const audioData = await fetch('/api/album-audio/' + currentAlbumId).then(r => r.json());
+    if (!audioData.audio || !audioData.audio.length) {
+      showError('No recorded audio for this album. Record it first with 🎙 Record Album.');
+      return;
+    }
+
+    const res = await fetch('/api/player/play', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ album_id: currentAlbumId }),
+    }).then(r => r.json());
+
+    if (!res.ok) {
+      showError(res.error || 'Playback failed');
+    } else {
+      closeModalDirect();
+    }
+  }
+
+  async function playerToggle() {
+    await fetch('/api/player/pause', { method: 'POST' });
+  }
+
+  async function playerStop() {
+    await fetch('/api/player/stop', { method: 'POST' });
+  }
+
+  async function playerNext() {
+    await fetch('/api/player/next', { method: 'POST' });
+  }
+
+  async function playerPrev() {
+    await fetch('/api/player/prev', { method: 'POST' });
+  }
+
+  function playerSeekClick(event) {
+    const bar = document.getElementById('player-progress-bar');
+    const rect = bar.getBoundingClientRect();
+    const pct = (event.clientX - rect.left) / rect.width;
+    const durText = document.getElementById('player-time-dur').textContent;
+    const parts = durText.split(':');
+    const dur = parseInt(parts[0]) * 60 + parseInt(parts[1]);
+    const pos = pct * dur;
+    fetch('/api/player/seek', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ position_secs: pos }),
+    });
   }
 
   // ── Device Scan ───────────────────────────────────────────────────────────
@@ -1181,11 +1336,6 @@
       ).join('');
       logEl.scrollTop = logEl.scrollHeight;  // auto-scroll to latest
     }
-
-    // Refresh the album track list so fingerprint badges update live
-    if (currentAlbumId && data.album_id === currentAlbumId) {
-      refreshModalTracks(currentAlbumId);
-    }
   }
 
   function onLearnPaused(data) {
@@ -1199,14 +1349,12 @@
     if (data.remaining_in_album > 0 && data.remaining_in_album <= 10) {
       document.getElementById('learn-continue-count').value = data.remaining_in_album;
     }
-    if (currentAlbumId) refreshModalTracks(currentAlbumId);
   }
 
   function onLearnDone(data) {
     showLearnStep('done');
     document.getElementById('learn-done-message').textContent =
       data.message || `${data.learned || 0} track(s) learned.`;
-    if (currentAlbumId) refreshModalTracks(currentAlbumId);
   }
 
   // ── Recording ─────────────────────────────────────────────────────────────
@@ -1375,6 +1523,12 @@
 
     document.getElementById('album-modal').classList.add('open');
     loadAlbumAudio(albumId);
+
+    // Show/hide play button based on whether album has recorded audio
+    fetch('/api/album-audio/' + albumId).then(r => r.json()).then(d => {
+      const btn = document.getElementById('btn-play-album');
+      if (btn) btn.style.display = (d.audio && d.audio.length) ? '' : 'none';
+    });
   }
 
   // ── Track Reorder ──────────────────────────────────────────────────────────
@@ -1402,9 +1556,6 @@
         : '';
       const plays     = (!reorderMode && t.play_count)
         ? `<span style="color:var(--muted);font-size:0.72rem;margin-left:auto">${t.play_count}▶</span>` : '';
-      const dur       = t.duration_secs > 0
-        ? `<span style="color:var(--muted);font-size:0.72rem;margin-left:auto;white-space:nowrap">${Math.floor(t.duration_secs/60)}:${String(t.duration_secs%60).padStart(2,'0')}</span>`
-        : '';
       const handle    = reorderMode
         ? `<span class="drag-handle" title="Drag to reorder">⠿</span>` : '';
       const numLabel  = reorderMode
@@ -1416,21 +1567,11 @@
                    ${reorderMode ? 'draggable="true"' : ''}>
         ${handle}${numLabel}
         <span style="flex:1">${esc(t.title)}${badge}</span>
-        ${dur}${plays}${clearBtn}
+        ${plays}${clearBtn}
       </div>`;
     }).join('');
 
     if (reorderMode) _attachDragHandlers(container);
-  }
-
-  async function refreshModalTracks(albumId) {
-    try {
-      const data = await fetch(`/api/catalog/${albumId}/tracks`).then(r => r.json());
-      if (!data.tracks) return;
-      data.tracks.sort((a,b) => (a.side||'').localeCompare(b.side||'') || parseInt(a.track_number||0) - parseInt(b.track_number||0));
-      window._modalTracks = data.tracks.slice();
-      renderModalTracks(window._modalTracks, _reorderMode);
-    } catch(e) { /* silent — non-critical UI refresh */ }
   }
 
   function _attachDragHandlers(container) {
@@ -2296,6 +2437,7 @@
     setStatus(data.streaming, data.streaming ? 'Streaming' : 'Idle', data.active_devices);
     if (data.eq) applyEQValues(data.eq.bass, data.eq.treble, data.eq.volume);
     if (data.now_playing?.track_title) renderNowPlaying(data.now_playing);
+    if (data.player && data.player.state !== 'stopped') onPlayerStatus(data.player);
     if (data.settings?.acoustid_key || data.settings?.audd_key)
       document.getElementById('acoustid-key').value = data.settings.acoustid_key || data.settings.audd_key;
     if ('acoustid_enabled' in (data.settings || {}))
