@@ -1606,12 +1606,20 @@ def update_album_artwork(album_id: int, path: str, user: bool = True):
 
 
 def delete_album(album_id: int):
-    # Delete associated FLAC files and album_audio records first
+    # Delete associated FLAC files first (before DB records)
     delete_album_audio(album_id)
     db = get_db()
     try:
+        # Delete children in dependency order — plays lacks ON DELETE CASCADE
+        db.execute("""
+            DELETE FROM fingerprints
+            WHERE track_id IN (SELECT id FROM tracks WHERE album_id = ?)
+        """, (album_id,))
+        db.execute("DELETE FROM plays WHERE album_id = ?", (album_id,))
+        db.execute("DELETE FROM tracks WHERE album_id = ?", (album_id,))
         db.execute("DELETE FROM albums WHERE id = ?", (album_id,))
         db.commit()
+        _refresh_fingerprint_cache(db, force=True)
     finally:
         db.close()
 
