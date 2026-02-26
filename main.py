@@ -171,6 +171,7 @@ class AppState:
         self.rec_album_id: Optional[int] = None  # manually chosen album for tagging
         self.learn_session: Optional["LearnSession"] = None
         self.album_recorder: Optional[rec.AlbumRecorder] = None  # full-side capture
+        self.airplay_metadata = None  # MediaMetadata for now-playing display
 
 
 state = AppState()
