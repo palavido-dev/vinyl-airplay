@@ -1451,6 +1451,7 @@ async def album_recording_start(body: dict):
         session = LearnSession(album_id, len(side_tracks), loop, also_record=False)
         if session.pending_tracks:
             state.learn_session = session
+            session._rec_buffer = state.rec_buffer
             if state.recogniser:
                 state.recogniser.set_learning_mode(True)
 
@@ -1463,6 +1464,7 @@ async def album_recording_start(body: dict):
                     state.album_recorder.mark_track_boundary(next_id)
 
             state.rec_buffer._on_track_ready = _on_learn_track_ready
+            state.rec_buffer.expected_track_secs = session.next_track_expected_secs()
             state.rec_buffer.start(auto_split=True)
 
     await broadcast("album_recording_status", {
@@ -1565,6 +1567,7 @@ async def album_recording_flip(body: dict):
         session = LearnSession(album_id, len(side_tracks), loop, also_record=False)
         if session.pending_tracks:
             state.learn_session = session
+            session._rec_buffer = state.rec_buffer
             if state.recogniser:
                 state.recogniser.set_learning_mode(True)
 
@@ -1576,6 +1579,7 @@ async def album_recording_flip(body: dict):
                     state.album_recorder.mark_track_boundary(next_id)
 
             state.rec_buffer._on_track_ready = _on_learn_track_ready
+            state.rec_buffer.expected_track_secs = session.next_track_expected_secs()
             state.rec_buffer.start(auto_split=True)
 
     await broadcast("album_recording_status", {
@@ -1747,6 +1751,7 @@ class LearnSession:
         self.active      = True
         self.also_record = also_record   # also save each track as MP3
         self._loop       = loop
+        self._rec_buffer = None          # set externally to update expected_track_secs
 
         # Get the ordered list of unlearned tracks for this album
         all_tracks = cat.get_album_tracks(album_id)
@@ -1773,6 +1778,12 @@ class LearnSession:
             t = self.pending_tracks[0]
             return f"{t.get('side','')}{t.get('track_number','')} — {t['title']}"
         return "Unknown"
+
+    def next_track_expected_secs(self) -> float:
+        """Return the expected duration (from catalog metadata) of the next pending track, or 0."""
+        if self.pending_tracks:
+            return float(self.pending_tracks[0].get("duration_secs") or 0)
+        return 0.0
 
     def on_track_captured(self, pcm: bytes):
         """Called when a complete track's PCM is ready. Fingerprints and saves it."""
@@ -1852,6 +1863,10 @@ class LearnSession:
 
         self.pending_tracks.pop(0)
         self.learned += 1
+
+        # Update expected duration for the next track on the RecordingBuffer
+        if self._rec_buffer:
+            self._rec_buffer.expected_track_secs = self.next_track_expected_secs()
 
         track_name = self.next_track_name() if self.pending_tracks else "—"
         print(f"[learn] ✓ Track learned ({self.learned}/{self.track_count}): "
@@ -2002,6 +2017,7 @@ async def learn_start(body: dict):
         return {"ok": False, "error": "All tracks for this album are already learned!"}
 
     state.learn_session = session
+    session._rec_buffer = state.rec_buffer
 
     if state.recogniser:
         state.recogniser.set_learning_mode(True)
@@ -2012,6 +2028,7 @@ async def learn_start(body: dict):
         if state.learn_session and state.learn_session.active:
             state.learn_executor.submit(state.learn_session.on_track_captured, pcm)
     state.rec_buffer._on_track_ready = _on_learn_track_ready
+    state.rec_buffer.expected_track_secs = session.next_track_expected_secs()
     state.rec_buffer.start(auto_split=True)
 
     first_track = session.next_track_name()
@@ -2044,6 +2061,7 @@ async def learn_continue(body: dict):
 
     if state.recogniser:
         state.recogniser.set_learning_mode(True)
+    state.rec_buffer.expected_track_secs = session.next_track_expected_secs()
     state.rec_buffer.start(auto_split=True)  # restart capture
 
     first_track = session.next_track_name()

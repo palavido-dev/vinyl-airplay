@@ -94,6 +94,10 @@ class RecordingBuffer:
         self._signal_level = 0.03          # initial estimate; refined once audio starts
         self._silence_log_countdown = 0    # rate-limit diagnostic prints
 
+        # Expected duration of the current track (from catalog metadata).
+        # When > 0, suppresses track splits until at least 50% of expected has elapsed.
+        self.expected_track_secs = 0.0
+
     def start(self, auto_split: bool = True):
         with self._lock:
             self._chunks        = []
@@ -107,6 +111,7 @@ class RecordingBuffer:
             self._signal_level         = 0.03
             self._silence_log_countdown = 0
             self._end_of_side_fired    = False
+            self.expected_track_secs   = 0.0
         print(f"[recorder] Recording started (auto_split={auto_split})")
 
     def stop(self) -> Optional[bytes]:
@@ -214,6 +219,20 @@ class RecordingBuffer:
             self._silence_log_countdown = 0  # reset so next gap logs immediately
             self._end_of_side_fired = False  # reset if audio returns (e.g. between sides)
             if self._silence_secs >= SILENCE_MIN_SECS:
+                # Check if accumulated audio meets expected track duration before splitting.
+                # If we know the track should be ~3 min, don't split after 45 seconds of audio
+                # just because there was a quiet passage.
+                if self.expected_track_secs > 0:
+                    with self._lock:
+                        accumulated_secs = self._silence_start_byte / (SAMPLE_RATE * CHANNELS * 2)
+                    min_secs = self.expected_track_secs * 0.45  # allow 45% tolerance
+                    if accumulated_secs < min_secs:
+                        print(f"[recorder] Suppressed split: {accumulated_secs:.0f}s captured"
+                              f" < {min_secs:.0f}s (45% of expected {self.expected_track_secs:.0f}s)"
+                              f" — treating as quiet passage")
+                        self._silence_secs       = 0.0
+                        self._silence_start_byte = 0
+                        return
                 # Sustained silence ended — split track
                 self._split_track()
             self._silence_secs       = 0.0
