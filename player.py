@@ -333,6 +333,12 @@ class Player:
         entry = self.playlist[self._side_idx]
         pos   = self._position
 
+        if not entry.tracks:
+            if self._current_track_idx == -1:
+                print(f"[player] WARNING: No tracks for Side {entry.side}")
+                self._current_track_idx = -2  # avoid repeated warnings
+            return
+
         # Find which track we're in
         new_idx = -1
         for i, t in enumerate(entry.tracks):
@@ -349,6 +355,11 @@ class Player:
                 if (entry.tracks[i].get("start_secs") or 0.0) <= pos:
                     new_idx = i
                     break
+
+        # Still no match — default to first track (common when timestamps
+        # are offsets from stream start, not from FLAC file start)
+        if new_idx == -1 and entry.tracks:
+            new_idx = 0
 
         if new_idx != self._current_track_idx and new_idx >= 0:
             self._current_track_idx = new_idx
@@ -384,7 +395,7 @@ class Player:
         while not self._stop_event.is_set() and self._side_idx < len(self.playlist):
             entry = self.playlist[self._side_idx]
             print(f"[player] Starting Side {entry.side}: {entry.audio_path} "
-                  f"(at {self._position:.1f}s)")
+                  f"(at {self._position:.1f}s, {len(entry.tracks)} tracks)")
 
             if not Path(entry.audio_path).exists():
                 print(f"[player] File not found: {entry.audio_path}")
