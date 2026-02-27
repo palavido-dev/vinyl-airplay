@@ -267,6 +267,45 @@ def run_device_stream(conf, audio_stream, volume, done_callback):
     done_callback(conf.name, err)
 
 
+# ── Local Audio Output ────────────────────────────────────────────────────────
+
+class LocalOutputStream:
+    """Plays PCM to a local ALSA device. Same put()/stop() interface as AsyncAudioStream."""
+
+    def __init__(self, device_index, samplerate=SAMPLE_RATE, channels=CHANNELS):
+        self._device_index = device_index
+        self._samplerate = samplerate
+        self._channels = channels
+        self._stream = None
+
+    def start(self):
+        self._stream = sd.OutputStream(
+            device=self._device_index, samplerate=self._samplerate,
+            channels=self._channels, dtype="int16", blocksize=BLOCK_SIZE,
+        )
+        self._stream.start()
+        print(f"[local-out] Opened device {self._device_index}")
+
+    def put(self, pcm_bytes):
+        if self._stream is None:
+            return
+        try:
+            data = np.frombuffer(pcm_bytes, dtype=np.int16).reshape(-1, self._channels)
+            self._stream.write(data)
+        except Exception as e:
+            print(f"[local-out] Write error: {e}")
+
+    def stop(self):
+        if self._stream:
+            try:
+                self._stream.stop()
+                self._stream.close()
+            except Exception:
+                pass
+            self._stream = None
+            print("[local-out] Closed")
+
+
 # ── Audio Callback ────────────────────────────────────────────────────────────
 
 def make_callback(streams, eq, fp_buffer):
@@ -722,7 +761,7 @@ async def scan_devices():
             "needs_pairing": bool(needs),
             "paired":   paired,
         })
-    return {"devices": state.available_devices}
+    return {"devices": state.available_devices + _get_local_outputs()}
 
 
 @app.post("/api/devices/{device_id}/pair/start")
@@ -854,13 +893,44 @@ async def toggle_device_hidden(device_id: str, body: dict = {}):
     return {"ok": True, "hidden": hide}
 
 
+def _get_local_outputs():
+    """List local audio output devices (HDMI, headphone, USB DAC)."""
+    custom_names = state.settings.get("device_names", {})
+    hidden = set(state.settings.get("hidden_devices", []))
+    outputs = []
+    try:
+        devices = sd.query_devices()
+        for i, d in enumerate(devices):
+            if d["max_output_channels"] < 2:
+                continue
+            name = d["name"]
+            dev_id = f"local:{i}"
+            # Only include real hardware outputs
+            if not any(k in name.lower() for k in ["hdmi", "headphone", "analog", "bcm", "usb", "dac"]):
+                continue
+            outputs.append({
+                "id": dev_id,
+                "name": name,
+                "custom_name": custom_names.get(dev_id),
+                "address": "local",
+                "hidden": dev_id in hidden,
+                "needs_pairing": False,
+                "paired": True,
+                "type": "local",
+                "hw_index": i,
+            })
+    except Exception as e:
+        print(f"[local-out] Error listing outputs: {e}")
+    return outputs
+
+
 @app.get("/api/devices")
 async def get_cached_devices():
     """Return cached devices from last scan (instant). Use /api/scan to refresh."""
     custom_names = state.settings.get("device_names", {})
     for d in state.available_devices:
         d["custom_name"] = custom_names.get(d["id"])
-    return {"devices": state.available_devices}
+    return {"devices": state.available_devices + _get_local_outputs()}
 
 
 @app.post("/api/devices/{device_id}/rename")
@@ -1851,13 +1921,19 @@ async def _run_playback(album_id: int, targets: list[dict], volume: int,
         title=None, artist=None, album=album_info.get("title"), artwork=None,
     )
 
-    # Scan and connect to AirPlay devices
-    found      = await pyatv.scan(main_loop, timeout=7,
-                                  protocol=pyatv.Protocol.AirPlay)
-    id_to_conf = {d.identifier: d for d in found}
-    confs      = [id_to_conf[t["id"]] for t in targets if t["id"] in id_to_conf]
+    # Separate local targets from AirPlay targets
+    local_targets = [t for t in targets if str(t.get("id", "")).startswith("local:")]
+    airplay_targets = [t for t in targets if not str(t.get("id", "")).startswith("local:")]
 
-    if not confs:
+    # Scan and connect to AirPlay devices
+    confs = []
+    if airplay_targets:
+        found      = await pyatv.scan(main_loop, timeout=7,
+                                      protocol=pyatv.Protocol.AirPlay)
+        id_to_conf = {d.identifier: d for d in found}
+        confs      = [id_to_conf[t["id"]] for t in airplay_targets if t["id"] in id_to_conf]
+
+    if not confs and not local_targets:
         await broadcast("error", {"message": "No paired devices found on network"})
         state.airplay_metadata = None
         return
@@ -1865,12 +1941,36 @@ async def _run_playback(album_id: int, targets: list[dict], volume: int,
     await broadcast("player_status", {
         "state": "loading",
         "album_id": album_id,
-        "message": f"Connecting to {len(confs)} device(s)…",
+        "message": f"Connecting to {len(confs) + len(local_targets)} device(s)…",
     })
 
     audio_streams = {conf.identifier: AsyncAudioStream() for conf in confs}
+    local_streams = []
+
+    # Set up local output streams
+    for lt in local_targets:
+        hw_idx = lt.get("hw_index")
+        if hw_idx is None:
+            try: hw_idx = int(str(lt["id"]).split(":")[1])
+            except (ValueError, IndexError): continue
+        try:
+            lo = LocalOutputStream(hw_idx)
+            lo.start()
+            local_streams.append(lo)
+        except Exception as e:
+            print(f"[player] Failed to open local device {hw_idx}: {e}")
+
+    all_streams = list(audio_streams.values()) + local_streams
+
+    if not all_streams:
+        await broadcast("error", {"message": "No output devices available"})
+        state.airplay_metadata = None
+        return
+
     active_count  = len(confs)
     threads_done  = asyncio.Event()
+    if active_count == 0:
+        threads_done.set()  # No AirPlay threads to wait for
 
     def on_device_done(name, err):
         nonlocal active_count
@@ -1932,7 +2032,7 @@ async def _run_playback(album_id: int, targets: list[dict], volume: int,
     # Create and start the player
     player = plr.Player(
         eq              = state.eq,
-        streams         = list(audio_streams.values()),
+        streams         = all_streams,
         on_track_change = on_track_change,
         on_status_change= on_status_change,
         on_finished     = on_finished,
@@ -1944,8 +2044,8 @@ async def _run_playback(album_id: int, targets: list[dict], volume: int,
     try:
         # Wait for either: player finishes, devices disconnect, or external stop
         while player.state != "stopped":
-            if threads_done.is_set():
-                # All AirPlay devices disconnected
+            if threads_done.is_set() and not local_streams:
+                # All AirPlay devices disconnected and no local fallback
                 player.stop()
                 break
             await asyncio.sleep(0.5)
@@ -1953,6 +2053,8 @@ async def _run_playback(album_id: int, targets: list[dict], volume: int,
         player.stop()
     finally:
         for s in audio_streams.values():
+            s.stop()
+        for s in local_streams:
             s.stop()
         state.player = None
         state.now_playing = None
