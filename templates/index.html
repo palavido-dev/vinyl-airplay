@@ -146,8 +146,11 @@
   .eq-label { font-size: 0.6rem; color: rgba(245,235,216,0.4); text-transform: uppercase; letter-spacing: 0.06em; min-width: 32px; }
   .eq-slider { flex: 1; height: 4px; -webkit-appearance: none; appearance: none; background: rgba(255,255,255,0.1); border-radius: 2px; outline: none; }
   .eq-slider::-webkit-slider-thumb { -webkit-appearance: none; width: 18px; height: 18px; border-radius: 50%; background: linear-gradient(135deg, var(--amber) 0%, var(--amber-dk) 100%); border: 2px solid var(--walnut); cursor: pointer; box-shadow: 0 1px 4px rgba(0,0,0,0.4); }
-  .main-content { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 0.75rem; -webkit-overflow-scrolling: touch; }
-  .album-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 0.7rem; max-width: 960px; margin: 0 auto; }
+  .main-content { flex: 1; overflow: hidden; padding: 0.75rem; -webkit-overflow-scrolling: touch; display: flex; gap: 0.75rem; }
+  .album-grid-wrap { flex-shrink: 0; overflow-y: auto; }
+  .main-content.has-hero .album-grid-wrap { width: 310px; }
+  .main-content:not(.has-hero) .album-grid-wrap { flex: 1; }
+  .album-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 0.7rem; }
   .album-card { background: var(--paper); border: 1px solid rgba(0,0,0,0.1); border-radius: 6px; overflow: hidden; cursor: pointer; transition: transform 0.1s, box-shadow 0.15s; box-shadow: 0 1px 3px rgba(0,0,0,0.08), 0 4px 8px rgba(0,0,0,0.06); position: relative; }
   .album-card:active { transform: scale(0.97); box-shadow: 0 1px 2px rgba(0,0,0,0.1); }
   .album-card .album-art-wrap { width: 100%; aspect-ratio: 1; position: relative; overflow: hidden; background: var(--paper-dk); border-bottom: 1px solid rgba(0,0,0,0.08); }
@@ -160,6 +163,66 @@
   .album-card .album-meta { padding: 0.45rem 0.55rem; }
   .album-card .album-meta .title { font-family: var(--display-font); font-size: 0.78rem; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--ink); }
   .album-card .album-meta .artist { font-size: 0.7rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 0.05rem; }
+
+  /* ── Now Playing Hero ── */
+  .np-hero {
+    flex: 1; display: none; align-items: center; justify-content: center;
+    gap: 1.5rem; padding: 1rem;
+    background: linear-gradient(135deg, rgba(62,39,35,0.06) 0%, rgba(212,162,78,0.06) 100%);
+    border: 1px solid rgba(212,162,78,0.15);
+    border-radius: 10px;
+    min-width: 0;
+  }
+  .np-hero.visible { display: flex; }
+  .np-hero-art {
+    width: 280px; height: 280px; flex-shrink: 0;
+    border-radius: 8px; overflow: hidden;
+    box-shadow: 0 6px 24px rgba(0,0,0,0.2), 0 2px 8px rgba(0,0,0,0.15);
+  }
+  .np-hero-art img {
+    width: 100%; height: 100%; object-fit: cover;
+  }
+  .np-hero-art-placeholder {
+    width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;
+    background: radial-gradient(circle at 50% 50%, #2C1810 18%, #3E2723 20%, #3E2723 38%, #2C1810 40%, #2C1810 42%, #3E2723 44%, #3E2723 58%, #2C1810 60%, #2C1810 62%, #3E2723 64%, #3E2723 78%, #2C1810 80%);
+    border: 3px solid var(--amber-dk);
+    border-radius: 50%;
+    animation: ss-spin 8s linear infinite;
+  }
+  .np-hero-info {
+    flex: 1; min-width: 0;
+    display: flex; flex-direction: column; gap: 0.4rem;
+  }
+  .np-hero-track {
+    font-family: var(--display-font);
+    font-size: 1.6rem; font-weight: 700; line-height: 1.2;
+    color: var(--ink);
+    overflow: hidden; text-overflow: ellipsis;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  }
+  .np-hero-artist {
+    font-size: 1.05rem; color: var(--leather);
+    font-weight: 500;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .np-hero-album {
+    font-size: 0.85rem; color: var(--muted);
+    font-style: italic;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .np-hero-source {
+    display: inline-block; margin-top: 0.3rem;
+    font-size: 0.6rem; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.08em;
+    padding: 0.15rem 0.5rem; border-radius: 3px;
+    width: fit-content;
+  }
+  .np-hero-source.vinyl {
+    background: var(--walnut); color: var(--amber);
+  }
+  .np-hero-source.catalog {
+    background: var(--sage); color: white;
+  }
   .catalog-empty { text-align: center; color: var(--muted); padding: 3rem 1rem; font-family: var(--display-font); font-size: 0.95rem; font-style: italic; }
   .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(44,24,16,0.65); z-index: 100; overflow-y: auto; padding: 0.75rem; backdrop-filter: blur(4px); }
   .modal-overlay.open { display: flex; align-items: flex-start; justify-content: center; }
@@ -211,9 +274,10 @@
   .drag-handle { cursor: grab; color: var(--muted); font-size: 1rem; user-select: none; }
   .track-list.reorder-mode .track-row { cursor: grab; }
   .track-list.reorder-mode .track-row.dragging { opacity: 0.4; }
-  .main-content::-webkit-scrollbar { width: 6px; }
-  .main-content::-webkit-scrollbar-track { background: transparent; }
-  .main-content::-webkit-scrollbar-thumb { background: var(--paper-dk); border-radius: 3px; }
+  .main-content::-webkit-scrollbar { display: none; }
+  .album-grid-wrap::-webkit-scrollbar { width: 6px; }
+  .album-grid-wrap::-webkit-scrollbar-track { background: transparent; }
+  .album-grid-wrap::-webkit-scrollbar-thumb { background: var(--paper-dk); border-radius: 3px; }
   .track-list::-webkit-scrollbar { width: 4px; }
   .track-list::-webkit-scrollbar-thumb { background: var(--paper-dk); border-radius: 2px; }
 
@@ -369,7 +433,18 @@
   <button class="header-btn" onclick="showSettings()" title="Settings">⚙</button>
 </div>
 <div class="status-bar"><span class="status-dot" id="dot"></span><span id="status-text">Connecting…</span></div>
-<div class="main-content" id="main-content"><div class="album-grid" id="album-grid"><div class="catalog-empty">Loading catalog…</div></div></div>
+<div class="main-content" id="main-content">
+  <div class="album-grid-wrap"><div class="album-grid" id="album-grid"><div class="catalog-empty">Loading catalog…</div></div></div>
+  <div class="np-hero" id="np-hero">
+    <div class="np-hero-art" id="np-hero-art"><div class="np-hero-art-placeholder"></div></div>
+    <div class="np-hero-info">
+      <div class="np-hero-track" id="np-hero-track">—</div>
+      <div class="np-hero-artist" id="np-hero-artist">—</div>
+      <div class="np-hero-album" id="np-hero-album"></div>
+      <div class="np-hero-source" id="np-hero-source"></div>
+    </div>
+  </div>
+</div>
 <div class="np-bar hidden" id="np-footer">
   <div class="np-row">
     <div class="np-art-placeholder" id="np-art-wrap">💿</div>
@@ -608,8 +683,8 @@ function setStatus(d){
   if(s&&!_playerActive){_playerSource='vinyl';showNPFooter()}
   if(!s&&_playerSource==='vinyl'&&!_playerActive)hideNPFooter();
 }
-function showNPFooter(){const f=document.getElementById('np-footer');f.classList.remove('hidden');f.style.display=''}
-function hideNPFooter(){const f=document.getElementById('np-footer');f.classList.add('hidden');f.style.display='none';_playerSource=null}
+function showNPFooter(){const f=document.getElementById('np-footer');f.classList.remove('hidden');f.style.display='';document.getElementById('np-hero').classList.add('visible');document.getElementById('main-content').classList.add('has-hero')}
+function hideNPFooter(){const f=document.getElementById('np-footer');f.classList.add('hidden');f.style.display='none';_playerSource=null;document.getElementById('np-hero').classList.remove('visible');document.getElementById('main-content').classList.remove('has-hero')}
 
 async function loadCatalog(){
   try{const d=await fetch('/api/catalog').then(r=>r.json());_catalogAlbums=d.albums||[];renderCatalog(_catalogAlbums)}
@@ -643,6 +718,17 @@ function renderNowPlaying(d){
   document.getElementById('np-artist-album').textContent=[d.track_artist||d.album_artist||'',d.album_title||''].filter(Boolean).join(' \u2014 ')+(d.year?' ('+d.year+')':'');
   document.getElementById('np-transport').style.display=d.source==='player'?'flex':'none';
   document.getElementById('np-progress-row').style.display=d.source==='player'?'flex':'none';
+  // Update hero
+  const ha=document.getElementById('np-hero-art');
+  if(d.artwork_url)ha.innerHTML=`<img src="${d.artwork_url}?t=${Date.now()}" alt="">`;
+  else ha.innerHTML='<div class="np-hero-art-placeholder"></div>';
+  document.getElementById('np-hero-track').textContent=d.track_title||'';
+  document.getElementById('np-hero-artist').textContent=d.track_artist||d.album_artist||'';
+  const albumLine=[d.album_title||'',d.year?'('+d.year+')':''].filter(Boolean).join(' ');
+  document.getElementById('np-hero-album').textContent=albumLine;
+  const src=document.getElementById('np-hero-source');
+  src.textContent=d.source==='player'?'catalog':'vinyl';
+  src.className='np-hero-source '+(d.source==='player'?'catalog':'vinyl');
 }
 
 function onPlayerStatus(d){
@@ -885,7 +971,7 @@ document.addEventListener('input', function(){ _ssActivity('input'); }, {passive
 
 // Scroll on main content
 (function(){
-  var mc = document.getElementById('main-content');
+  var mc = document.querySelector('.album-grid-wrap');
   if(mc) mc.addEventListener('scroll', function(){ _ssActivity('scroll'); }, {passive:true});
 })();
 
