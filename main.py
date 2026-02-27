@@ -907,7 +907,7 @@ async def toggle_device_hidden(device_id: str, body: dict = {}):
 
 
 def _get_local_outputs():
-    """List local audio output devices (HDMI, headphone, USB DAC)."""
+    """List local audio output devices (ALSA software devices that actually work)."""
     custom_names = state.settings.get("device_names", {})
     hidden = set(state.settings.get("hidden_devices", []))
     outputs = []
@@ -918,22 +918,29 @@ def _get_local_outputs():
                 continue
             name = d["name"]
             dev_id = f"local:{i}"
-            # Only include real hardware outputs
-            if not any(k in name.lower() for k in ["hdmi", "headphone", "analog", "bcm", "usb", "dac"]):
-                continue
-            outputs.append({
-                "id": dev_id,
-                "name": name,
-                "custom_name": custom_names.get(dev_id),
-                "address": "local",
-                "hidden": dev_id in hidden,
-                "needs_pairing": False,
-                "paired": True,
-                "type": "local",
-                "hw_index": i,
-            })
+            # Include ALSA software devices (front, default, dmix) which route
+            # through the mixer. Skip raw hardware devices (hw:X) like vc4-hdmi
+            # which often reject all sample formats via sounddevice.
+            n = name.lower()
+            if n.startswith("front") or n.startswith("default") or n.startswith("sysdefault"):
+                outputs.append({
+                    "id": dev_id,
+                    "name": name,
+                    "custom_name": custom_names.get(dev_id),
+                    "address": "local",
+                    "hidden": dev_id in hidden,
+                    "needs_pairing": False,
+                    "paired": True,
+                    "type": "local",
+                    "hw_index": i,
+                })
     except Exception as e:
         print(f"[local-out] Error listing outputs: {e}")
+    # If we found multiple, prefer just "front" to keep the list clean
+    if len(outputs) > 1:
+        front = [o for o in outputs if o["name"].lower().startswith("front")]
+        if front:
+            outputs = front
     return outputs
 
 
