@@ -1554,6 +1554,11 @@ async def album_recording_start(body: dict):
     if side_tracks:
         state.album_recorder.mark_first_track(side_tracks[0]["id"])
 
+    # Tell the recording buffer how many tracks remain so it uses a longer
+    # end-of-side threshold and doesn't stop after the first track
+    if state.rec_buffer:
+        state.rec_buffer.remaining_tracks = len(side_tracks)
+
     # Also start a learn session so fingerprints get learned automatically
     # (reuses existing learn infrastructure)
     if not state.learn_session and state.rec_buffer and _ensure_audio_active():
@@ -1673,6 +1678,10 @@ async def album_recording_flip(body: dict):
 
     if side_tracks:
         state.album_recorder.mark_first_track(side_tracks[0]["id"])
+
+    # Tell the recording buffer how many tracks remain on new side
+    if state.rec_buffer:
+        state.rec_buffer.remaining_tracks = len(side_tracks)
 
     # Restart learn session for new side
     if state.rec_buffer and (state.is_streaming or state.listen_task):

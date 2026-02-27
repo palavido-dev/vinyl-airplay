@@ -31,13 +31,10 @@ RECORDINGS_DIR    = Path(__file__).parent / "recordings"
 # Adaptive silence detection
 # Rather than a fixed RMS threshold (which varies by pressing), we measure the
 # actual playing level and call something "silent" when it drops to a fraction of that.
-SILENCE_RATIO     = 0.50            # silence = RMS drops below this fraction of signal level
-                                    # 0.50 = must be ~6dB quieter than the music
+SILENCE_RATIO     = 0.40            # silence = RMS drops below this fraction of signal level
+                                    # 0.40 = must be 8dB quieter than the music
                                     # Vinyl groove noise is typically 10-20dB below music,
                                     # so this reliably catches inter-track gaps on any pressing
-                                    # (0.40 gave only 7% headroom, 0.45 gave 10%, both too tight —
-                                    # noise at 0.013 vs threshold 0.014 caused constant resets.
-                                    # 0.50 gives ~19% headroom: noise 0.013 vs threshold 0.016)
 SILENCE_RATIO_MIN = 0.006           # absolute floor — never treat above this as silence
 SIGNAL_ADAPT_RATE = 0.002           # EMA rate for signal level tracker (slow — ~500 chunks)
 SILENCE_MIN_SECS  = 1.5             # silence must last this long to split track
@@ -48,9 +45,6 @@ END_OF_SIDE_SECS  = 20.0            # silence this long = end of side — auto-f
 SILENCE_PAD_SECS  = 0.5            # keep this much silence at end of track (natural fade)
 MIN_TRACK_SECS    = 15              # ignore tracks shorter than this (needle drop, interludes)
 STARTUP_AUDIO_SECS = 2.0            # sustained audio required before silence detection begins
-STARTUP_MIN_RMS    = 0.015          # minimum RMS to count as music for startup gate
-                                    # vinyl groove noise is ~0.006-0.012, music is typically 0.02+
-                                    # 0.015 avoids opening the gate on run-in groove noise
 
 
 # ── Recording Buffer ──────────────────────────────────────────────────────────
@@ -85,7 +79,6 @@ class RecordingBuffer:
         self._silence_secs  = 0.0
         self._last_rms      = 0.0
         self._block_secs    = 1024 / SAMPLE_RATE  # seconds per callback block (approx)
-        self._smoothed_rms  = 0.0   # EMA-smoothed RMS for silence decisions (avoids noise spikes)
 
         # Track where silence started so we can trim it from the end
         self._silence_start_byte = 0
@@ -101,16 +94,6 @@ class RecordingBuffer:
         self._signal_level = 0.03          # initial estimate; refined once audio starts
         self._silence_log_countdown = 0    # rate-limit diagnostic prints
 
-        # Expected duration of the current track (from catalog metadata or session estimate).
-        # When > 0, suppresses track splits until a percentage of expected has elapsed.
-        self.expected_track_secs = 0.0
-        self.expected_is_estimate = False  # True = session median (use 60%), False = Discogs (use 45%)
-
-        # Number of tracks remaining on this side (including current).
-        # When > 0, uses a longer end-of-side threshold to avoid false triggers
-        # on records with long inter-track gaps.
-        self.remaining_tracks = 0
-
     def start(self, auto_split: bool = True):
         with self._lock:
             self._chunks        = []
@@ -119,14 +102,11 @@ class RecordingBuffer:
             self._auto_split    = auto_split
             self._silence_secs  = 0.0
             self._silence_start_byte = 0
-            self._smoothed_rms  = 0.0
             self._sustained_audio_secs = 0.0
             self._audio_seen           = False
             self._signal_level         = 0.03
             self._silence_log_countdown = 0
             self._end_of_side_fired    = False
-            self.expected_track_secs   = 0.0
-            self.expected_is_estimate  = False
         print(f"[recorder] Recording started (auto_split={auto_split})")
 
     def stop(self) -> Optional[bytes]:
@@ -186,13 +166,13 @@ class RecordingBuffer:
         chunk_secs = len(pcm_chunk) / (SAMPLE_RATE * CHANNELS * 2)
 
         if not self._audio_seen:
-            if rms >= STARTUP_MIN_RMS:
+            if rms >= SILENCE_RATIO_MIN:
                 self._sustained_audio_secs += chunk_secs
                 if self._sustained_audio_secs >= STARTUP_AUDIO_SECS:
                     self._audio_seen = True
-                    # Seed signal level and smoothed RMS from the startup burst
+                    # Seed signal level from the startup burst so threshold is
+                    # calibrated before the first track even ends
                     self._signal_level = rms
-                    self._smoothed_rms = rms
                     thresh = max(SILENCE_RATIO_MIN, rms * SILENCE_RATIO)
                     print(f"[recorder] Audio detected — silence detection active"
                           f"  signal={rms:.5f}  silence_threshold={thresh:.5f}")
@@ -204,50 +184,10 @@ class RecordingBuffer:
             return  # don't do split logic until gate is open
 
         # Adaptive silence detection (gate is open)
-        # Smooth the RMS with an EMA to prevent vinyl surface noise spikes from
-        # resetting the silence counter. A single 0.014 spike among 0.010 chunks
-        # won't break silence detection when the AVERAGE is clearly below threshold.
-        SMOOTH_ALPHA = 0.08  # ~12 chunk window (~1.2s) — heavy smoothing absorbs noise spikes
-        if self._smoothed_rms == 0.0:
-            self._smoothed_rms = rms  # seed on first call
-        else:
-            self._smoothed_rms += SMOOTH_ALPHA * (rms - self._smoothed_rms)
+        # Compute dynamic threshold from current signal level estimate
+        silence_threshold = max(SILENCE_RATIO_MIN, self._signal_level * SILENCE_RATIO)
 
-        # Compute dynamic threshold from current signal level estimate.
-        # When we know expected track duration and are past it, boost the ratio
-        # so vinyl surface noise in between-track gaps reliably registers as silence.
-        # Only boost for Discogs durations (precise) — session estimates are too rough
-        # and boosting on an inaccurate estimate can trap quiet passages.
-        effective_ratio = SILENCE_RATIO  # 0.50 baseline
-
-        if self.expected_track_secs > 0 and not self.expected_is_estimate:
-            with self._lock:
-                accumulated_secs = self._total_bytes / (SAMPLE_RATE * CHANNELS * 2)
-            overdue_pct = accumulated_secs / self.expected_track_secs
-            if overdue_pct >= 0.80:
-                # Ramp ratio from 0.50 → 0.63 between 80% and 120% of expected
-                boost = min(1.0, (overdue_pct - 0.80) / 0.40)  # 0→1 over range
-                effective_ratio = SILENCE_RATIO + boost * 0.13   # 0.50 → 0.63
-
-        silence_threshold = max(SILENCE_RATIO_MIN, self._signal_level * effective_ratio)
-
-        # Hysteresis: once silence is accumulating, require smoothed RMS to clearly
-        # exceed the threshold before resetting. Without this, smoothed RMS hovering
-        # right at the threshold boundary oscillates in/out and resets silence_secs.
-        # Entry: smoothed < threshold
-        # Exit:  smoothed >= threshold * 1.1 (10% above — must be clearly music, not noise)
-        # With SILENCE_RATIO=0.50 and typical signal=0.032:
-        #   entry threshold = 0.016, exit = 0.0176
-        #   vinyl noise smooth ~0.013 → stays in silence (well below both)
-        #   quiet music smooth ~0.018 → exits silence (above 0.0176)
-        in_silence = self._silence_secs > 0
-        if in_silence:
-            exit_threshold = silence_threshold * 1.1
-            is_silent = self._smoothed_rms < exit_threshold
-        else:
-            is_silent = self._smoothed_rms < silence_threshold
-
-        if is_silent:
+        if rms < silence_threshold:
             self._silence_secs += chunk_secs
             if self._silence_start_byte == 0:
                 with self._lock:
@@ -255,76 +195,25 @@ class RecordingBuffer:
             # Periodic diagnostic log so we can see gap RMS in journalctl
             self._silence_log_countdown -= 1
             if self._silence_log_countdown <= 0:
-                ratio_info = f"  ratio={effective_ratio:.2f}" if effective_ratio > SILENCE_RATIO else ""
-                print(f"[recorder] Gap: RMS={rms:.5f}  smooth={self._smoothed_rms:.5f}"
-                      f"  threshold={silence_threshold:.5f}"
-                      f"  signal={self._signal_level:.5f}  silence={self._silence_secs:.1f}s{ratio_info}")
+                print(f"[recorder] Gap: RMS={rms:.5f}  threshold={silence_threshold:.5f}"
+                      f"  signal={self._signal_level:.5f}  silence={self._silence_secs:.1f}s")
                 self._silence_log_countdown = 20  # log every ~20 chunks
             # End-of-side detection: long silence = needle lifted / run-out groove
-            # Use longer threshold when we know more tracks remain on this side,
-            # because some records have very long inter-track gaps (20s+).
-            # Real end-of-side (needle lift) produces indefinite silence, so
-            # waiting longer is fine — leading/trailing trim removes dead air.
-            eos_threshold = END_OF_SIDE_SECS
-            if self.remaining_tracks > 1:
-                eos_threshold = max(END_OF_SIDE_SECS, 90.0)
             if (not self._end_of_side_fired
-                    and self._silence_secs >= eos_threshold):
-                # Before firing end-of-side, check if accumulated audio makes sense.
-                # If we have expected duration data and haven't reached the minimum,
-                # this is likely a long quiet passage, not the actual end of side.
-                if self.expected_track_secs > 0 and self.remaining_tracks > 1:
-                    with self._lock:
-                        accumulated_secs = self._silence_start_byte / (SAMPLE_RATE * CHANNELS * 2)
-                    min_pct = 0.75 if self.expected_is_estimate else 0.45
-                    min_secs = self.expected_track_secs * min_pct
-                    if accumulated_secs < min_secs:
-                        print(f"[recorder] End-of-side suppressed: {accumulated_secs:.0f}s captured"
-                              f" < {min_secs:.0f}s — not a real end-of-side, resetting silence")
-                        self._silence_secs = 0.0
-                        self._silence_start_byte = 0
-                        return  # skip end-of-side, keep recording
+                    and self._silence_secs >= END_OF_SIDE_SECS):
                 self._end_of_side_fired = True
-                print(f"[recorder] End-of-side detected ({self._silence_secs:.1f}s silence, "
-                      f"threshold={eos_threshold:.0f}s, remaining={self.remaining_tracks})"
+                print(f"[recorder] End-of-side detected ({self._silence_secs:.1f}s silence)"
                       f" — flushing final track (trimmed to music end)")
                 self._split_track()          # trims silence, hands off final track
                 self._audio_seen = False     # re-arm startup gate for next side
                 if self._on_end_of_side:
                     self._on_end_of_side()
         else:
-            # Update signal level EMA while music is playing (use raw RMS, not smoothed)
+            # Update signal level EMA while music is playing
             self._signal_level += SIGNAL_ADAPT_RATE * (rms - self._signal_level)
             self._silence_log_countdown = 0  # reset so next gap logs immediately
             self._end_of_side_fired = False  # reset if audio returns (e.g. between sides)
             if self._silence_secs >= SILENCE_MIN_SECS:
-                # Check if accumulated audio meets expected track duration before splitting.
-                # If we know the track should be ~3 min, don't split after 45 seconds of audio
-                # just because there was a quiet passage.
-                with self._lock:
-                    accumulated_secs = self._silence_start_byte / (SAMPLE_RATE * CHANNELS * 2)
-
-                if self.expected_track_secs > 0:
-                    # Use a higher threshold for session estimates (less precise)
-                    # Discogs: 45% — tight, because the data is exact
-                    # Session estimate: 75% — aggressive, because it's a median of
-                    # learned tracks and we'd rather merge a short gap than split
-                    # a quiet passage. Still safe for short-track albums since the
-                    # median will be proportionally shorter.
-                    if self.expected_is_estimate:
-                        min_pct = 0.75
-                        source = "session est"
-                    else:
-                        min_pct = 0.45
-                        source = "expected"
-                    min_secs = self.expected_track_secs * min_pct
-                    if accumulated_secs < min_secs:
-                        print(f"[recorder] Suppressed split: {accumulated_secs:.0f}s captured"
-                              f" < {min_secs:.0f}s ({min_pct:.0%} of {source} {self.expected_track_secs:.0f}s)"
-                              f" — treating as quiet passage")
-                        self._silence_secs       = 0.0
-                        self._silence_start_byte = 0
-                        return
                 # Sustained silence ended — split track
                 self._split_track()
             self._silence_secs       = 0.0
@@ -352,6 +241,8 @@ class RecordingBuffer:
             return
 
         print(f"[recorder] Auto-split: track ready ({duration:.1f}s)")
+        if self.remaining_tracks > 0:
+            self.remaining_tracks -= 1
         self._on_track_ready(track_pcm, duration)
 
 
