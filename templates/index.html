@@ -223,83 +223,6 @@
   .np-hero-source.catalog {
     background: var(--sage); color: white;
   }
-
-  /* ── Output Picker ── */
-  .output-picker-overlay {
-    display: none; position: fixed; inset: 0; z-index: 200;
-    background: rgba(44,24,16,0.7);
-    align-items: center; justify-content: center;
-    backdrop-filter: blur(4px);
-  }
-  .output-picker-overlay.open { display: flex; }
-  .output-picker {
-    background: linear-gradient(180deg, var(--cream) 0%, var(--paper) 100%);
-    border: 2px solid var(--leather);
-    border-radius: 12px;
-    padding: 1.2rem;
-    width: 90%; max-width: 600px;
-    box-shadow: 0 8px 40px rgba(0,0,0,0.4);
-  }
-  .output-picker-title {
-    font-family: var(--display-font);
-    font-size: 1.1rem; font-weight: 700;
-    color: var(--ink);
-    margin-bottom: 0.3rem;
-  }
-  .output-picker-subtitle {
-    font-size: 0.78rem; color: var(--muted);
-    margin-bottom: 0.8rem;
-  }
-  .output-device-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
-    gap: 0.6rem;
-    margin-bottom: 0.8rem;
-  }
-  .output-device-card {
-    background: var(--paper);
-    border: 2px solid var(--paper-dk);
-    border-radius: 8px;
-    padding: 0.8rem;
-    cursor: pointer;
-    transition: border-color 0.15s, transform 0.1s, box-shadow 0.15s;
-    display: flex; flex-direction: column; align-items: center;
-    gap: 0.4rem;
-    min-height: 100px;
-    position: relative;
-  }
-  .output-device-card:active { transform: scale(0.96); }
-  .output-device-card:hover, .output-device-card.last-used {
-    border-color: var(--amber-dk);
-    box-shadow: 0 2px 12px rgba(212,162,78,0.2);
-  }
-  .output-device-card.last-used::after {
-    content: 'last used';
-    position: absolute; top: 4px; right: 6px;
-    font-size: 0.55rem; color: var(--amber-dk);
-    text-transform: uppercase; letter-spacing: 0.06em; font-weight: 700;
-  }
-  .output-device-icon {
-    font-size: 2rem; line-height: 1;
-  }
-  .output-device-name {
-    font-family: var(--display-font);
-    font-size: 0.85rem; font-weight: 700;
-    color: var(--ink);
-    text-align: center;
-    word-break: break-word;
-  }
-  .output-device-orig {
-    font-size: 0.65rem; color: var(--muted);
-    text-align: center;
-  }
-  .output-device-rename {
-    font-size: 0.6rem; color: var(--amber-dk);
-    cursor: pointer; text-decoration: underline;
-  }
-  .output-picker-actions {
-    display: flex; justify-content: flex-end; gap: 0.5rem;
-  }
   .catalog-empty { text-align: center; color: var(--muted); padding: 3rem 1rem; font-family: var(--display-font); font-size: 0.95rem; font-style: italic; }
   .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(44,24,16,0.65); z-index: 100; overflow-y: auto; padding: 0.75rem; backdrop-filter: blur(4px); }
   .modal-overlay.open { display: flex; align-items: flex-start; justify-content: center; }
@@ -697,20 +620,6 @@
     <button class="btn btn-ghost" onclick="hideSettings()" style="width:100%;margin-top:0.5rem">Close</button>
   </div>
 </div>
-<!-- Output Picker -->
-<div class="output-picker-overlay" id="output-picker-overlay" onclick="if(event.target===this)closeOutputPicker()">
-  <div class="output-picker">
-    <div class="output-picker-title" id="output-picker-title">Where do you want to listen?</div>
-    <div class="output-picker-subtitle" id="output-picker-subtitle">Choose an output for playback</div>
-    <div class="output-device-grid" id="output-device-grid">
-      <div style="color:var(--muted);font-size:0.82rem">Scanning for devices…</div>
-    </div>
-    <div class="output-picker-actions">
-      <button class="btn btn-ghost" onclick="closeOutputPicker()">Cancel</button>
-    </div>
-  </div>
-</div>
-
 <!-- Screensaver -->
 <div class="screensaver" id="screensaver" onclick="wakeSS()" ontouchstart="wakeSS()">
   <div class="ss-content" id="ss-content">
@@ -736,7 +645,7 @@
   <div class="osk-row" id="osk-row-bottom"></div>
 </div>
 <script>
-let ws,currentAlbumId=null,_catalogAlbums=[],_playerActive=false,_playerSource=null,_isStreaming=false,_lastUsedDevice=null,_pendingAlbumId=null,_learnLog=[],_learnLevelInterval=null,_audioPlayer=null,_audioPlayingId=null,_reorderMode=false,_pendingRelease=null,_recTimerInterval=null;
+let ws,currentAlbumId=null,_catalogAlbums=[],_playerActive=false,_playerSource=null,_learnLog=[],_learnLevelInterval=null,_audioPlayer=null,_audioPlayingId=null,_reorderMode=false,_pendingRelease=null,_recTimerInterval=null;
 
 function esc(s){if(!s)return'';const d=document.createElement('div');d.textContent=s;return d.innerHTML}
 function fmtTime(s){return Math.floor(s/60)+':'+String(Math.floor(s%60)).padStart(2,'0')}
@@ -763,7 +672,7 @@ function handleEvent(d){
 }
 
 function setStatus(d){
-  const s=d.streaming;_isStreaming=!!s;
+  const s=d.streaming;
   document.getElementById('dot').className='status-dot'+(s?' on':'');
   let msg=d.message||(s?'Streaming':'Idle');
   if(s&&d.devices&&d.devices.length)msg='Streaming to '+d.devices.join(', ');
@@ -774,10 +683,8 @@ function setStatus(d){
   if(s&&!_playerActive){_playerSource='vinyl';showNPFooter()}
   if(!s&&_playerSource==='vinyl'&&!_playerActive)hideNPFooter();
 }
-function showNPFooter(){const f=document.getElementById('np-footer');f.classList.remove('hidden');f.style.display='';showNPHero()}
-function showNPHero(){document.getElementById('np-hero').classList.add('visible');document.getElementById('main-content').classList.add('has-hero')}
-function hideNPHero(){document.getElementById('np-hero').classList.remove('visible');document.getElementById('main-content').classList.remove('has-hero')}
-function hideNPFooter(){const f=document.getElementById('np-footer');f.classList.add('hidden');f.style.display='none';_playerSource=null;hideNPHero()}
+function showNPFooter(){const f=document.getElementById('np-footer');f.classList.remove('hidden');f.style.display='';document.getElementById('np-hero').classList.add('visible');document.getElementById('main-content').classList.add('has-hero')}
+function hideNPFooter(){const f=document.getElementById('np-footer');f.classList.add('hidden');f.style.display='none';_playerSource=null;document.getElementById('np-hero').classList.remove('visible');document.getElementById('main-content').classList.remove('has-hero')}
 
 async function loadCatalog(){
   try{const d=await fetch('/api/catalog').then(r=>r.json());_catalogAlbums=d.albums||[];renderCatalog(_catalogAlbums)}
@@ -796,114 +703,13 @@ function renderCatalog(albums){
 }
 function filterCatalog(q){if(!q){renderCatalog(_catalogAlbums);return}const ql=q.toLowerCase();renderCatalog(_catalogAlbums.filter(a=>(a.title||'').toLowerCase().includes(ql)||(a.artist||'').toLowerCase().includes(ql)||(a.genre||'').toLowerCase().includes(ql)))}
 
-function onAlbumTap(id,has){if(!has){openAlbumDetail(id);return}if(_isStreaming||_playerActive){playAlbum(id);return}_pendingAlbumId=id;showOutputPicker(id)}
+function onAlbumTap(id,has){if(has)playAlbum(id);else openAlbumDetail(id)}
 async function playAlbum(id){showToast('Starting playback\u2026');const r=await fetch('/api/player/play',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({album_id:id})}).then(r=>r.json());if(!r.ok)showError(r.error||'Playback failed')}
-
-// ── Output Picker ──
-async function showOutputPicker(albumId){
-  const overlay=document.getElementById('output-picker-overlay');
-  const grid=document.getElementById('output-device-grid');
-  const album=_catalogAlbums.find(a=>a.id===albumId);
-  if(album){
-    document.getElementById('output-picker-title').textContent=album.artist+' \u2014 '+album.title;
-    document.getElementById('output-picker-subtitle').textContent='Choose where to play';
-  }
-  grid.innerHTML='<div style="color:var(--muted);font-size:0.82rem">Loading devices\u2026</div>';
-  overlay.classList.add('open');
-  // Try cached devices first (instant), fall back to scan
-  try{
-    let d=await fetch('/api/devices').then(r=>r.json());
-    let devices=(d.devices||[]).filter(dev=>!dev.hidden&&dev.paired!==false);
-    if(!devices.length){
-      grid.innerHTML='<div style="color:var(--muted);font-size:0.82rem">Scanning\u2026</div>';
-      d=await fetch('/api/scan').then(r=>r.json());
-      devices=(d.devices||[]).filter(dev=>!dev.hidden&&dev.paired!==false);
-    }
-    renderOutputCards(devices);
-  }catch(e){grid.innerHTML='<div style="color:var(--rust);font-size:0.82rem">Failed: '+e.message+'</div>'}
-}
-var _outputDevices = [];
-function renderOutputCards(devices){
-  _outputDevices = devices;
-  const grid=document.getElementById('output-device-grid');
-  if(!devices.length){grid.innerHTML='<div style="color:var(--muted);font-size:0.82rem">No devices found. <span style="color:var(--amber-dk);cursor:pointer;text-decoration:underline" onclick="rescanOutputDevices()">Rescan</span></div>';return}
-  grid.innerHTML=devices.map((dev,idx)=>{
-    const name=dev.custom_name||dev.name;
-    const orig=dev.custom_name?dev.name:null;
-    const icon=guessDeviceIcon(dev.name);
-    const last=_lastUsedDevice&&_lastUsedDevice===dev.id;
-    const badge=dev.type==='local'?'<div style="font-size:0.55rem;color:var(--sage);text-transform:uppercase;letter-spacing:0.06em;font-weight:700">Local</div>':'';
-    return '<div class="output-device-card'+(last?' last-used':'')+'" onclick="pickOutput('+idx+')" data-device-id="'+dev.id+'">'
-      +'<div class="output-device-icon">'+icon+'</div>'
-      +'<div class="output-device-name">'+esc(name)+'</div>'
-      +badge
-      +(orig?'<div class="output-device-orig">'+esc(orig)+'</div>':'')
-      +'<div class="output-device-rename" onclick="event.stopPropagation();renameDevice(\''+dev.id+'\',\''+esc(name).replace(/'/g,"\\'")+'\')">rename</div>'
-      +'</div>';
-  }).join('')+'<div style="text-align:center;grid-column:1/-1"><span style="color:var(--amber-dk);cursor:pointer;font-size:0.72rem;text-decoration:underline" onclick="rescanOutputDevices()">Rescan for devices</span></div>';
-}
-async function rescanOutputDevices(){
-  const grid=document.getElementById('output-device-grid');
-  grid.innerHTML='<div style="color:var(--muted);font-size:0.82rem">Scanning\u2026</div>';
-  try{const d=await fetch('/api/scan').then(r=>r.json());renderOutputCards((d.devices||[]).filter(dev=>!dev.hidden&&dev.paired!==false))}
-  catch(e){grid.innerHTML='<div style="color:var(--rust);font-size:0.82rem">Scan failed</div>'}
-}
-function guessDeviceIcon(name){
-  const n=name.toLowerCase();
-  if(n.includes('homepod'))return'\uD83C\uDFDB\uFE0F';
-  if(n.includes('tv')||n.includes('apple tv'))return'\uD83D\uDCFA';
-  if(n.includes('mac')||n.includes('book'))return'\uD83D\uDCBB';
-  if(n.includes('iphone')||n.includes('phone'))return'\uD83D\uDCF1';
-  if(n.includes('ipad')||n.includes('tablet'))return'\uD83D\uDCF1';
-  if(n.includes('sonos'))return'\uD83D\uDD0A';
-  if(n.includes('hdmi'))return'\uD83D\uDCFA';
-  if(n.includes('scarlett'))return'\uD83C\uDFA7';
-  if(n.includes('headphone'))return'\uD83C\uDFA7';
-  return'\uD83D\uDD0A';
-}
-async function pickOutput(idx){
-  const dev=_outputDevices[idx];
-  if(!dev)return;
-  closeOutputPicker();
-  _lastUsedDevice=dev.id;
-  const displayName=dev.custom_name||dev.name;
-  showToast('Connecting to '+displayName+'\u2026');
-  const target={id:dev.id,name:dev.name};
-  if(dev.hw_index!==undefined)target.hw_index=dev.hw_index;
-  if(dev.type)target.type=dev.type;
-  const r=await fetch('/api/start',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({devices:[target]})}).then(r=>r.json());
-  if(!r.ok){showError(r.error||'Failed to connect');return}
-  await new Promise(resolve=>setTimeout(resolve,dev.type==='local'?500:2000));
-  if(_pendingAlbumId){playAlbum(_pendingAlbumId);_pendingAlbumId=null}
-}
-function closeOutputPicker(){document.getElementById('output-picker-overlay').classList.remove('open');_pendingAlbumId=null}
-
-async function renameDevice(deviceId,currentName){
-  hideOSK();
-  const newName=prompt('Custom name for this device:',currentName);
-  if(newName===null)return;
-  await fetch('/api/devices/'+deviceId+'/rename',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:newName})});
-  showToast(newName?'Renamed to '+newName:'Name reset');
-  // Refresh the picker
-  if(_pendingAlbumId)showOutputPicker(_pendingAlbumId);
-}
-async function shufflePlay(){const p=_catalogAlbums.filter(a=>a.audio_count>0);if(!p.length){showToast('No recorded albums to shuffle');return}const a=p[Math.floor(Math.random()*p.length)];if(_isStreaming||_playerActive){showToast(`Shuffling: ${a.artist} \u2014 ${a.title}`);playAlbum(a.id)}else{_pendingAlbumId=a.id;showOutputPicker(a.id)}}
+async function shufflePlay(){const p=_catalogAlbums.filter(a=>a.audio_count>0);if(!p.length){showToast('No recorded albums to shuffle');return}const a=p[Math.floor(Math.random()*p.length)];showToast(`Shuffling: ${a.artist} \u2014 ${a.title}`);playAlbum(a.id)}
 
 function renderNowPlaying(d){
   if(typeof ssOnNowPlaying==='function')ssOnNowPlaying(d);
-  if(!d.track_title){
-    if(_isStreaming||_playerActive){
-      // Show "listening" state in hero
-      showNPFooter();
-      document.getElementById('np-hero-art').innerHTML='<div class="np-hero-art-placeholder"></div>';
-      document.getElementById('np-hero-track').textContent='Listening\u2026';
-      document.getElementById('np-hero-artist').textContent='Waiting for track recognition';
-      document.getElementById('np-hero-album').textContent='';
-      document.getElementById('np-hero-source').textContent='vinyl';
-      document.getElementById('np-hero-source').className='np-hero-source vinyl';
-    } else { hideNPFooter(); }
-    return;
-  }
+  if(!d.track_title){if(!_playerActive)hideNPFooter();return}
   showNPFooter();_playerSource=d.source||'vinyl';
   const w=document.getElementById('np-art-wrap');
   if(d.artwork_url)w.outerHTML=`<img class="np-art" id="np-art-wrap" src="${d.artwork_url}?t=${Date.now()}" alt="">`;
@@ -962,7 +768,7 @@ async function openAlbumDetail(id){
   loadAlbumAudio(id);hideAlbumRecPanel();document.getElementById('album-modal').classList.add('open');
 }
 function closeModal(){document.getElementById('album-modal').classList.remove('open');currentAlbumId=null}
-function playAlbumFromModal(){if(!currentAlbumId)return;if(_isStreaming||_playerActive){playAlbum(currentAlbumId);closeModal()}else{closeModal();_pendingAlbumId=currentAlbumId;showOutputPicker(currentAlbumId)}}
+function playAlbumFromModal(){if(currentAlbumId){playAlbum(currentAlbumId);closeModal()}}
 
 function renderModalTracks(tracks,reorder){
   const c=document.getElementById('modal-tracks');c.classList.toggle('reorder-mode',reorder);
@@ -1064,7 +870,6 @@ async function init(){
   if(d.player&&d.player.state!=='stopped')onPlayerStatus(d.player);
   if(d.settings){
     if(d.settings.discogs_token)document.getElementById('discogs-token').value=d.settings.discogs_token;
-    if(d.settings.saved_devices&&d.settings.saved_devices.length)_lastUsedDevice=d.settings.saved_devices[0].id;
     if(d.settings.auto_stream_enabled!==undefined){document.getElementById('auto-stream-enabled').checked=d.settings.auto_stream_enabled;if(d.settings.auto_stream_device){window._savedAutoStreamDevice=d.settings.auto_stream_device;scanAutoStreamDevices()}const st=document.getElementById('auto-stream-status');if(d.settings.auto_stream_enabled&&d.settings.auto_stream_device)st.textContent=`Auto-streaming to: ${d.settings.auto_stream_device.name}`}
   }
   loadCatalog();
