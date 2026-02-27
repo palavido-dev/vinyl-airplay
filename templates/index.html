@@ -633,6 +633,7 @@ async function playAlbum(id){showToast('Starting playback\u2026');const r=await 
 async function shufflePlay(){const p=_catalogAlbums.filter(a=>a.audio_count>0);if(!p.length){showToast('No recorded albums to shuffle');return}const a=p[Math.floor(Math.random()*p.length)];showToast(`Shuffling: ${a.artist} \u2014 ${a.title}`);playAlbum(a.id)}
 
 function renderNowPlaying(d){
+  if(typeof ssOnNowPlaying==='function')ssOnNowPlaying(d);
   if(!d.track_title){if(!_playerActive)hideNPFooter();return}
   showNPFooter();_playerSource=d.source||'vinyl';
   const w=document.getElementById('np-art-wrap');
@@ -645,6 +646,7 @@ function renderNowPlaying(d){
 }
 
 function onPlayerStatus(d){
+  if(typeof ssOnPlayerStatus==='function')ssOnPlayerStatus(d);
   if(d.state==='stopped'){_playerActive=false;document.getElementById('np-transport').style.display='none';document.getElementById('np-progress-row').style.display='none';if(_playerSource==='player')hideNPFooter();return}
   _playerActive=true;_playerSource='player';showNPFooter();
   document.getElementById('np-transport').style.display='flex';document.getElementById('np-progress-row').style.display='flex';
@@ -788,97 +790,82 @@ async function init(){
 }
 init();
 
+
 /* ── Screensaver / Screen Off ── */
-(function(){
-  const IDLE_SECS = 60;
-  let _idleTimer = null;
-  let _ssActive = false;
-  let _lastNP = null;
+var _ssIdleTimer = null, _ssActive = false, _ssLastNP = null;
+var SS_IDLE_SECS = 60;
 
-  function resetIdle(){
-    if(_ssActive){ wakeSS(); return; }
-    clearTimeout(_idleTimer);
-    _idleTimer = setTimeout(goIdle, IDLE_SECS * 1000);
-  }
+function ssResetIdle(){
+  if(_ssActive){ wakeSS(); return; }
+  clearTimeout(_ssIdleTimer);
+  _ssIdleTimer = setTimeout(ssGoIdle, SS_IDLE_SECS * 1000);
+}
 
-  function goIdle(){
-    if(_ssActive) return;
-    const playing = _playerActive || _playerSource === 'vinyl';
-    const ss = document.getElementById('screensaver');
-    const content = document.getElementById('ss-content');
-    _ssActive = true;
+function ssGoIdle(){
+  if(_ssActive) return;
+  var playing = _playerActive || _playerSource === 'vinyl';
+  var ss = document.getElementById('screensaver');
+  var content = document.getElementById('ss-content');
+  _ssActive = true;
 
-    if(playing && _lastNP){
-      // Now Playing screensaver
-      ss.classList.remove('off');
-      const art = document.getElementById('ss-art');
-      if(_lastNP.artwork_url){
-        art.outerHTML = `<img class="ss-art" id="ss-art" src="${_lastNP.artwork_url}?t=${Date.now()}" alt="">`;
-      } else {
-        art.outerHTML = '<div class="ss-art-placeholder" id="ss-art"></div>';
-      }
-      document.getElementById('ss-track').textContent = _lastNP.track_title || '';
-      document.getElementById('ss-artist-album').textContent = [_lastNP.track_artist||_lastNP.album_artist||'', _lastNP.album_title||''].filter(Boolean).join(' \u2014 ');
-      // Build EQ viz bars
-      const viz = document.getElementById('ss-eq-viz');
-      viz.innerHTML = '';
-      for(let i = 0; i < 12; i++){
-        const bar = document.createElement('div');
-        bar.className = 'ss-eq-bar';
-        bar.style.animationDelay = (i * 0.1) + 's';
-        bar.style.animationDuration = (0.8 + Math.random() * 0.8) + 's';
-        viz.appendChild(bar);
-      }
-      content.style.display = 'flex';
+  if(playing && _ssLastNP){
+    ss.classList.remove('off');
+    var art = document.getElementById('ss-art');
+    if(_ssLastNP.artwork_url){
+      art.outerHTML = '<img class="ss-art" id="ss-art" src="' + _ssLastNP.artwork_url + '?t=' + Date.now() + '" alt="">';
     } else {
-      // Screen off (black)
-      ss.classList.add('off');
-      content.style.display = 'none';
+      art.outerHTML = '<div class="ss-art-placeholder" id="ss-art"></div>';
     }
-    ss.classList.add('active');
+    document.getElementById('ss-track').textContent = _ssLastNP.track_title || '';
+    document.getElementById('ss-artist-album').textContent = [_ssLastNP.track_artist||_ssLastNP.album_artist||'', _ssLastNP.album_title||''].filter(Boolean).join(' \u2014 ');
+    var viz = document.getElementById('ss-eq-viz');
+    viz.innerHTML = '';
+    for(var i = 0; i < 12; i++){
+      var bar = document.createElement('div');
+      bar.className = 'ss-eq-bar';
+      bar.style.animationDelay = (i * 0.1) + 's';
+      bar.style.animationDuration = (0.8 + Math.random() * 0.8) + 's';
+      viz.appendChild(bar);
+    }
+    content.style.display = 'flex';
+  } else {
+    ss.classList.add('off');
+    content.style.display = 'none';
   }
+  ss.classList.add('active');
+}
 
-  window.wakeSS = function(){
-    if(!_ssActive) return;
-    _ssActive = false;
-    const ss = document.getElementById('screensaver');
-    ss.classList.remove('active','off');
-    clearTimeout(_idleTimer);
-    _idleTimer = setTimeout(goIdle, IDLE_SECS * 1000);
-  };
+function wakeSS(){
+  if(!_ssActive) return;
+  _ssActive = false;
+  var ss = document.getElementById('screensaver');
+  ss.classList.remove('active','off');
+  clearTimeout(_ssIdleTimer);
+  _ssIdleTimer = setTimeout(ssGoIdle, SS_IDLE_SECS * 1000);
+}
 
-  // Store latest now_playing data for screensaver
-  const _origRenderNP = renderNowPlaying;
-  window.renderNowPlaying = function(d){
-    if(d && d.track_title) _lastNP = d;
-    else if(!_playerActive) _lastNP = null;
-    _origRenderNP(d);
-    // Update screensaver if active and playing
-    if(_ssActive && _lastNP){
-      document.getElementById('ss-track').textContent = _lastNP.track_title || '';
-      document.getElementById('ss-artist-album').textContent = [_lastNP.track_artist||_lastNP.album_artist||'', _lastNP.album_title||''].filter(Boolean).join(' \u2014 ');
-    }
-  };
+function ssOnNowPlaying(d){
+  if(d && d.track_title) _ssLastNP = d;
+  else if(!_playerActive) _ssLastNP = null;
+  if(_ssActive && _ssLastNP){
+    document.getElementById('ss-track').textContent = _ssLastNP.track_title || '';
+    document.getElementById('ss-artist-album').textContent = [_ssLastNP.track_artist||_ssLastNP.album_artist||'', _ssLastNP.album_title||''].filter(Boolean).join(' \u2014 ');
+  }
+}
 
-  // When player stops, switch screensaver to off mode
-  const _origPlayerStatus = onPlayerStatus;
-  window.onPlayerStatus = function(d){
-    _origPlayerStatus(d);
-    if(d.state === 'stopped' && _ssActive){
-      const ss = document.getElementById('screensaver');
-      ss.classList.add('off');
-      document.getElementById('ss-content').style.display = 'none';
-    }
-  };
+function ssOnPlayerStatus(d){
+  if(d.state === 'stopped' && _ssActive){
+    var ss = document.getElementById('screensaver');
+    ss.classList.add('off');
+    document.getElementById('ss-content').style.display = 'none';
+  }
+}
 
-  // Track activity
-  ['touchstart','mousedown','mousemove','keydown','scroll'].forEach(evt => {
-    document.addEventListener(evt, resetIdle, {passive:true});
-  });
-
-  // Start idle timer
-  _idleTimer = setTimeout(goIdle, IDLE_SECS * 1000);
-})();
+// Only listen for deliberate taps/clicks, NOT mousemove (touchscreens spam those)
+['touchstart','mousedown','keydown'].forEach(function(evt){
+  document.addEventListener(evt, ssResetIdle, {passive:true});
+});
+_ssIdleTimer = setTimeout(ssGoIdle, SS_IDLE_SECS * 1000);
 
 /* ── On-Screen Keyboard ── */
 (function(){
