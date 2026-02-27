@@ -792,13 +792,22 @@ init();
 
 
 /* ── Screensaver / Screen Off ── */
-var _ssIdleTimer = null, _ssActive = false, _ssLastNP = null;
+var _ssActive = false, _ssLastNP = null;
 var SS_IDLE_SECS = 60;
+var _ssLastActivity = Date.now();
+var _ssDebugLog = [];
 
-function ssResetIdle(){
-  if(_ssActive){ wakeSS(); return; }
-  clearTimeout(_ssIdleTimer);
-  _ssIdleTimer = setTimeout(ssGoIdle, SS_IDLE_SECS * 1000);
+function _ssLog(msg){
+  var t = new Date().toLocaleTimeString();
+  _ssDebugLog.push(t + ' ' + msg);
+  if(_ssDebugLog.length > 50) _ssDebugLog.shift();
+  console.log('[SS] ' + msg);
+}
+
+function _ssActivity(reason){
+  _ssLastActivity = Date.now();
+  _ssLog('activity: ' + reason);
+  if(_ssActive) wakeSS();
 }
 
 function ssGoIdle(){
@@ -807,6 +816,7 @@ function ssGoIdle(){
   var ss = document.getElementById('screensaver');
   var content = document.getElementById('ss-content');
   _ssActive = true;
+  _ssLog('going idle, playing=' + playing + ', hasNP=' + !!_ssLastNP);
 
   if(playing && _ssLastNP){
     ss.classList.remove('off');
@@ -837,11 +847,11 @@ function ssGoIdle(){
 
 function wakeSS(){
   if(!_ssActive) return;
+  _ssLog('waking');
   _ssActive = false;
   var ss = document.getElementById('screensaver');
   ss.classList.remove('active','off');
-  clearTimeout(_ssIdleTimer);
-  _ssIdleTimer = setTimeout(ssGoIdle, SS_IDLE_SECS * 1000);
+  _ssLastActivity = Date.now();
 }
 
 function ssOnNowPlaying(d){
@@ -861,11 +871,34 @@ function ssOnPlayerStatus(d){
   }
 }
 
-// Only listen for deliberate taps/clicks, NOT mousemove (touchscreens spam those)
-['touchstart','mousedown','keydown'].forEach(function(evt){
-  document.addEventListener(evt, ssResetIdle, {passive:true});
-});
-_ssIdleTimer = setTimeout(ssGoIdle, SS_IDLE_SECS * 1000);
+// ACTIVITY DETECTION: Only high-level events that phantom hardware can't generate
+// 'click' requires a full tap-and-release cycle — immune to phantom touchstart spam
+document.addEventListener('click', function(e){
+  // Don't count clicks on the screensaver itself (handled by wakeSS)
+  if(!document.getElementById('screensaver').contains(e.target)){
+    _ssActivity('click');
+  }
+}, {capture:true, passive:true});
+
+// Input/change events — only fire on real user typing or slider moves
+document.addEventListener('input', function(){ _ssActivity('input'); }, {passive:true});
+
+// Scroll on main content
+(function(){
+  var mc = document.getElementById('main-content');
+  if(mc) mc.addEventListener('scroll', function(){ _ssActivity('scroll'); }, {passive:true});
+})();
+
+// Poll every 5 seconds to check if idle threshold reached
+var _ssIntervalId = setInterval(function(){
+  if(_ssActive) return;
+  var elapsed = Math.round((Date.now() - _ssLastActivity) / 1000);
+  if(elapsed >= SS_IDLE_SECS){
+    _ssLog('idle threshold reached (' + elapsed + 's)');
+    ssGoIdle();
+  }
+}, 5000);
+_ssLog('screensaver initialized, interval=' + _ssIntervalId);
 
 /* ── On-Screen Keyboard ── */
 (function(){
