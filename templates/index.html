@@ -32,7 +32,7 @@
     --display-font: 'Libre Baskerville', 'Fallback Serif', Georgia, serif;
     --body-font:    'DM Sans', 'Fallback Sans', 'Helvetica Neue', sans-serif;
   }
-  * { margin: 0; padding: 0; box-sizing: border-box; }
+  * { margin: 0; padding: 0; box-sizing: border-box; cursor: none !important; }
   body {
     font-family: var(--body-font);
     background: var(--walnut);
@@ -365,7 +365,7 @@
   <span class="brand"><span class="brand-icon"></span>The Listening Room</span>
   <input type="search" class="search-bar" id="catalog-search" placeholder="Search your collection…" oninput="filterCatalog(this.value)">
   <button class="header-btn" onclick="shufflePlay()" title="Shuffle play">🔀</button>
-  <button class="header-btn" onclick="showAddForm()" title="Add record">＋</button>
+  <button class="header-btn" onclick="showAddForm()" title="Add record" style="font-size:1.5rem;font-weight:700;line-height:1">+</button>
   <button class="header-btn" onclick="showSettings()" title="Settings">⚙</button>
 </div>
 <div class="status-bar"><span class="status-dot" id="dot"></span><span id="status-text">Connecting…</span></div>
@@ -617,7 +617,7 @@ async function loadCatalog(){
 }
 function renderCatalog(albums){
   const g=document.getElementById('album-grid');
-  if(!albums.length){g.innerHTML='<div class="catalog-empty">No albums yet.<br>Tap \uFF0B to add your first record.</div>';return}
+  if(!albums.length){g.innerHTML='<div class="catalog-empty">No albums yet.<br>Tap + to add your first record.</div>';return}
   g.innerHTML=albums.map(a=>{
     const art=a.user_artwork_path||a.artwork_path;
     const artH=art?`<img src="/artwork/${art.split('/').pop()}?t=${a.id}" alt="" loading="lazy">`:'<div class="album-art-placeholder">\uD83D\uDCBF</div>';
