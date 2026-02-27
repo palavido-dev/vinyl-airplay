@@ -680,6 +680,7 @@
     <div class="output-picker-title" id="output-picker-title">Where do you want to listen?</div>
     <div class="output-picker-subtitle" id="output-picker-subtitle">Choose an output for playback</div>
     <div class="output-device-grid" id="output-device-grid"></div>
+    <input type="text" id="rename-input" placeholder="Device name" style="display:none;width:100%;padding:0.5rem;margin-bottom:0.5rem;border:2px solid var(--amber-dk);border-radius:6px;font-family:var(--body-font);font-size:0.9rem" onblur="setTimeout(onRenameDone,200)" onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur()}">
     <div class="output-picker-actions">
       <button class="btn btn-ghost" onclick="closeOutputPicker()">Cancel</button>
     </div>
@@ -775,7 +776,9 @@ async function shufflePlay(){const p=_catalogAlbums.filter(a=>a.audio_count>0);i
 
 // ── Output Picker ──
 var _outputDevices=[];
+var _pickerAlbumId=null;
 async function showOutputPicker(albumId){
+  _pickerAlbumId=albumId;
   var overlay=document.getElementById('output-picker-overlay');
   var grid=document.getElementById('output-device-grid');
   var album=_catalogAlbums.find(function(a){return a.id===albumId});
@@ -805,10 +808,12 @@ function renderOutputCards(devices){
     var orig=dev.custom_name?dev.name:null;
     var icon=guessDeviceIcon(dev.name);
     var last=_lastUsedDevice&&_lastUsedDevice===dev.id;
+    var isLocal=dev.type==='local';
     return '<div class="output-device-card'+(last?' last-used':'')+'" onclick="pickOutput('+idx+')" data-device-id="'+dev.id+'">'
       +'<div class="output-device-icon">'+icon+'</div>'
       +'<div class="output-device-name">'+esc(name)+'</div>'
       +(orig?'<div class="output-device-orig">'+esc(orig)+'</div>':'')
+      +(isLocal?'<div style="font-size:0.6rem;color:var(--amber-dk);font-weight:700;text-transform:uppercase;letter-spacing:0.05em">Local</div>':'')
       +'<div class="output-device-rename" onclick="event.stopPropagation();renameDevice(\''+dev.id+'\',\''+esc(name).replace(/'/g,"\\'")+'\')">rename</div>'
       +'</div>';
   }).join('')+'<div style="text-align:center;grid-column:1/-1"><span style="color:var(--amber-dk);cursor:pointer;font-size:0.72rem;text-decoration:underline" onclick="rescanOutputDevices()">Rescan for devices</span></div>';
@@ -820,6 +825,8 @@ function guessDeviceIcon(name){
   if(n.includes('mac')||n.includes('book'))return'\uD83D\uDCBB';
   if(n.includes('iphone')||n.includes('phone'))return'\uD83D\uDCF1';
   if(n.includes('sonos'))return'\uD83D\uDD0A';
+  if(n.includes('hdmi'))return'\uD83D\uDCFA';
+  if(n.includes('headphone')||n.includes('scarlett'))return'\uD83C\uDFA7';
   return'\uD83D\uDD0A';
 }
 async function pickOutput(idx){
@@ -831,6 +838,7 @@ async function pickOutput(idx){
   var displayName=dev.custom_name||dev.name;
   showToast('Connecting to '+displayName+'\u2026');
   var target={id:dev.id,name:dev.name};
+  if(dev.type==='local')target.hw_index=dev.hw_index;
   fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({saved_devices:[target]})});
   if(aid)playAlbumTo(aid,[target]);
 }
@@ -841,19 +849,31 @@ async function playAlbumTo(id,devices){
   var r=await fetch('/api/player/play',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(function(r){return r.json()});
   if(!r.ok)showError(r.error||'Playback failed');
 }
-function closeOutputPicker(){document.getElementById('output-picker-overlay').classList.remove('open');_pendingAlbumId=null}
+function closeOutputPicker(){document.getElementById('output-picker-overlay').classList.remove('open');_pendingAlbumId=null;_pickerAlbumId=null}
 async function rescanOutputDevices(){
   var grid=document.getElementById('output-device-grid');
   grid.innerHTML='<div style="color:var(--muted);font-size:0.82rem">Scanning\u2026</div>';
   try{var d=await fetch('/api/scan').then(function(r){return r.json()});renderOutputCards((d.devices||[]).filter(function(dev){return !dev.hidden&&dev.paired!==false}))}
   catch(e){grid.innerHTML='<div style="color:var(--rust);font-size:0.82rem">Scan failed</div>'}
 }
+var _renameDeviceId=null;
 async function renameDevice(deviceId,currentName){
-  var newName=prompt('Custom name for this device:',currentName);
-  if(newName===null)return;
-  await fetch('/api/devices/'+deviceId+'/rename',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:newName})});
-  showToast(newName?'Renamed to '+newName:'Name reset');
-  if(_pendingAlbumId)showOutputPicker(_pendingAlbumId);
+  _renameDeviceId=deviceId;
+  var inp=document.getElementById('rename-input');
+  inp.value=currentName||'';
+  inp.style.display='block';
+  inp.focus();
+}
+function onRenameDone(){
+  var inp=document.getElementById('rename-input');
+  var newName=inp.value.trim();
+  inp.style.display='none';
+  if(_renameDeviceId===null)return;
+  var did=_renameDeviceId;_renameDeviceId=null;
+  fetch('/api/devices/'+did+'/rename',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:newName})}).then(function(){
+    showToast(newName?'Renamed to '+newName:'Name reset');
+    if(_pickerAlbumId)showOutputPicker(_pickerAlbumId);
+  });
 }
 
 function renderNowPlaying(d){
