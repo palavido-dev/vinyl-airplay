@@ -791,20 +791,22 @@ async function showOutputPicker(albumId){
   overlay.classList.add('open');
   try{
     var d=await fetch('/api/devices').then(function(r){return r.json()});
-    var devices=(d.devices||[]).filter(function(dev){return !dev.hidden&&dev.paired!==false});
-    if(!devices.length){
+    var allDevices=(d.devices||[]).filter(function(dev){return dev.paired!==false});
+    if(!allDevices.filter(function(dev){return !dev.hidden}).length){
       grid.innerHTML='<div style="color:var(--muted);font-size:0.82rem">Scanning\u2026</div>';
       d=await fetch('/api/scan').then(function(r){return r.json()});
-      devices=(d.devices||[]).filter(function(dev){return !dev.hidden&&dev.paired!==false});
+      allDevices=(d.devices||[]).filter(function(dev){return dev.paired!==false});
     }
-    renderOutputCards(devices);
+    renderOutputCards(allDevices);
   }catch(e){grid.innerHTML='<div style="color:var(--rust);font-size:0.82rem">Failed: '+e.message+'</div>'}
 }
-function renderOutputCards(devices){
-  _outputDevices=devices;
+function renderOutputCards(allDevices){
+  var visible=allDevices.filter(function(d){return !d.hidden});
+  var hidden=allDevices.filter(function(d){return d.hidden});
+  _outputDevices=visible;
   var grid=document.getElementById('output-device-grid');
-  if(!devices.length){grid.innerHTML='<div style="color:var(--muted);font-size:0.82rem">No devices found. <span style="color:var(--amber-dk);cursor:pointer;text-decoration:underline" onclick="rescanOutputDevices()">Rescan</span></div>';return}
-  grid.innerHTML=devices.map(function(dev,idx){
+  if(!visible.length&&!hidden.length){grid.innerHTML='<div style="color:var(--muted);font-size:0.82rem">No devices found. <span style="color:var(--amber-dk);cursor:pointer;text-decoration:underline" onclick="rescanOutputDevices()">Rescan</span></div>';return}
+  var html=visible.map(function(dev,idx){
     var name=dev.custom_name||dev.name;
     var orig=dev.custom_name?dev.name:null;
     var icon=guessDeviceIcon(dev.name);
@@ -816,8 +818,23 @@ function renderOutputCards(devices){
       +(orig?'<div class="output-device-orig">'+esc(orig)+'</div>':'')
       +(isLocal?'<div style="font-size:0.6rem;color:var(--amber-dk);font-weight:700;text-transform:uppercase;letter-spacing:0.05em">Local</div>':'')
       +'<div class="output-device-rename" onclick="event.stopPropagation();renameDevice(\''+dev.id+'\',\''+esc(name).replace(/'/g,"\\'")+'\')">rename</div>'
+      +'<div class="output-device-rename" onclick="event.stopPropagation();hideOutputDevice(\''+dev.id+'\',\''+esc(name).replace(/'/g,"\\'")+'\')">hide</div>'
       +'</div>';
-  }).join('')+'<div style="text-align:center;grid-column:1/-1"><span style="color:var(--amber-dk);cursor:pointer;font-size:0.72rem;text-decoration:underline" onclick="rescanOutputDevices()">Rescan for devices</span></div>';
+  }).join('');
+  html+='<div style="text-align:center;grid-column:1/-1"><span style="color:var(--amber-dk);cursor:pointer;font-size:0.72rem;text-decoration:underline" onclick="rescanOutputDevices()">Rescan for devices</span></div>';
+  if(hidden.length){
+    html+='<div style="grid-column:1/-1;margin-top:0.4rem;border-top:1px solid var(--paper-dk);padding-top:0.4rem">'
+      +'<div style="font-size:0.7rem;color:var(--muted);margin-bottom:0.3rem">Hidden devices</div>'
+      +hidden.map(function(dev){
+        var name=dev.custom_name||dev.name;
+        return '<div style="display:flex;justify-content:space-between;align-items:center;padding:0.15rem 0">'
+          +'<span style="font-size:0.75rem;color:var(--muted)">'+esc(name)+'</span>'
+          +'<span style="font-size:0.6rem;color:var(--amber-dk);cursor:pointer;text-decoration:underline" onclick="unhideDevice(\''+dev.id+'\')">show</span>'
+          +'</div>';
+      }).join('')
+      +'</div>';
+  }
+  grid.innerHTML=html;
 }
 function guessDeviceIcon(name){
   var n=name.toLowerCase();
@@ -859,6 +876,16 @@ async function rescanOutputDevices(){
   grid.innerHTML='<div style="color:var(--muted);font-size:0.82rem">Scanning\u2026</div>';
   try{var d=await fetch('/api/scan').then(function(r){return r.json()});renderOutputCards((d.devices||[]).filter(function(dev){return !dev.hidden&&dev.paired!==false}))}
   catch(e){grid.innerHTML='<div style="color:var(--rust);font-size:0.82rem">Scan failed</div>'}
+}
+async function hideOutputDevice(deviceId,name){
+  await fetch('/api/devices/'+deviceId+'/hide',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({hidden:true})});
+  showToast('Hidden: '+name);
+  if(_pickerAlbumId)showOutputPicker(_pickerAlbumId);
+}
+async function unhideDevice(deviceId){
+  await fetch('/api/devices/'+deviceId+'/hide',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({hidden:false})});
+  showToast('Device restored');
+  if(_pickerAlbumId)showOutputPicker(_pickerAlbumId);
 }
 var _renameDeviceId=null;
 async function renameDevice(deviceId,currentName){
