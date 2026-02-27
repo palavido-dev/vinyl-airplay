@@ -511,6 +511,7 @@
       <button class="np-btn primary" id="np-play-pause" onclick="playerToggle()">⏸</button>
       <button class="np-btn" onclick="playerNext()">⏭</button>
       <button class="np-btn" onclick="playerStop()">⏹</button>
+      <button class="np-btn" onclick="switchOutput()" title="Switch output">🔊</button>
     </div>
   </div>
   <div class="np-progress-row" id="np-progress-row" style="display:none">
@@ -712,7 +713,7 @@
   <div class="osk-row" id="osk-row-bottom"></div>
 </div>
 <script>
-let ws,currentAlbumId=null,_catalogAlbums=[],_playerActive=false,_playerSource=null,_isStreaming=false,_lastUsedDevice=null,_pendingAlbumId=null,_learnLog=[],_learnLevelInterval=null,_audioPlayer=null,_audioPlayingId=null,_reorderMode=false,_pendingRelease=null,_recTimerInterval=null;
+let ws,currentAlbumId=null,_catalogAlbums=[],_playerActive=false,_playerSource=null,_isStreaming=false,_lastUsedDevice=null,_pendingAlbumId=null,_currentDevices=null,_playerAlbumId=null,_learnLog=[],_learnLevelInterval=null,_audioPlayer=null,_audioPlayingId=null,_reorderMode=false,_pendingRelease=null,_recTimerInterval=null;
 
 function esc(s){if(!s)return'';const d=document.createElement('div');d.textContent=s;return d.innerHTML}
 function fmtTime(s){return Math.floor(s/60)+':'+String(Math.floor(s%60)).padStart(2,'0')}
@@ -771,7 +772,7 @@ function renderCatalog(albums){
 function filterCatalog(q){if(!q){renderCatalog(_catalogAlbums);return}const ql=q.toLowerCase();renderCatalog(_catalogAlbums.filter(a=>(a.title||'').toLowerCase().includes(ql)||(a.artist||'').toLowerCase().includes(ql)||(a.genre||'').toLowerCase().includes(ql)))}
 
 function onAlbumTap(id,has){if(!has){openAlbumDetail(id);return}if(_isStreaming||_playerActive){playAlbum(id)}else{_pendingAlbumId=id;showOutputPicker(id)}}
-async function playAlbum(id){showToast('Starting playback\u2026');const r=await fetch('/api/player/play',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({album_id:id})}).then(r=>r.json());if(!r.ok)showError(r.error||'Playback failed')}
+async function playAlbum(id){showToast('Starting playback\u2026');var body={album_id:id};if(_currentDevices)body.devices=_currentDevices;const r=await fetch('/api/player/play',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(r=>r.json());if(!r.ok)showError(r.error||'Playback failed')}
 async function shufflePlay(){const p=_catalogAlbums.filter(a=>a.audio_count>0);if(!p.length){showToast('No recorded albums to shuffle');return}const a=p[Math.floor(Math.random()*p.length)];if(_isStreaming||_playerActive){showToast(`Shuffling: ${a.artist} \u2014 ${a.title}`);playAlbum(a.id)}else{_pendingAlbumId=a.id;showOutputPicker(a.id)}}
 
 // ── Output Picker ──
@@ -840,6 +841,7 @@ async function pickOutput(idx){
   showToast('Connecting to '+displayName+'\u2026');
   var target={id:dev.id,name:dev.name};
   if(dev.type==='local')target.hw_index=dev.hw_index;
+  _currentDevices=[target];
   fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({saved_devices:[target]})});
   if(aid)playAlbumTo(aid,[target]);
 }
@@ -880,6 +882,7 @@ function onRenameDone(){
 function renderNowPlaying(d){
   if(typeof ssOnNowPlaying==='function')ssOnNowPlaying(d);
   if(!d.track_title){if(!_playerActive)hideNPFooter();return}
+  if(d.album_id)_playerAlbumId=d.album_id;
   showNPFooter();_playerSource=d.source||'vinyl';
   const w=document.getElementById('np-art-wrap');
   if(d.artwork_url)w.outerHTML=`<img class="np-art" id="np-art-wrap" src="${d.artwork_url}?t=${Date.now()}" alt="">`;
@@ -903,7 +906,7 @@ function renderNowPlaying(d){
 
 function onPlayerStatus(d){
   if(typeof ssOnPlayerStatus==='function')ssOnPlayerStatus(d);
-  if(d.state==='stopped'){_playerActive=false;document.getElementById('np-transport').style.display='none';document.getElementById('np-progress-row').style.display='none';if(_playerSource==='player')hideNPFooter();return}
+  if(d.state==='stopped'){_playerActive=false;_playerAlbumId=null;document.getElementById('np-transport').style.display='none';document.getElementById('np-progress-row').style.display='none';if(_playerSource==='player')hideNPFooter();return}
   _playerActive=true;_playerSource='player';showNPFooter();
   document.getElementById('np-transport').style.display='flex';document.getElementById('np-progress-row').style.display='flex';
   document.getElementById('np-play-pause').textContent=d.state==='paused'?'\u25B6':'\u23F8';
@@ -914,6 +917,7 @@ function onPlayerStatus(d){
 
 async function playerToggle(){await fetch('/api/player/pause',{method:'POST'})}
 async function playerStop(){await fetch('/api/player/stop',{method:'POST'})}
+function switchOutput(){var aid=_playerAlbumId;if(!aid)return;_pendingAlbumId=aid;showOutputPicker(aid)}
 async function playerNext(){await fetch('/api/player/next',{method:'POST'})}
 async function playerPrev(){await fetch('/api/player/prev',{method:'POST'})}
 function playerSeekClick(e){const b=e.currentTarget,r=b.getBoundingClientRect(),pct=(e.clientX-r.left)/r.width,pts=document.getElementById('np-time-dur').textContent.split(':'),dur=parseInt(pts[0])*60+parseInt(pts[1]);fetch('/api/player/seek',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({position_secs:pct*dur})})}
