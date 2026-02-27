@@ -825,14 +825,14 @@ function guessDeviceIcon(name){
 async function pickOutput(idx){
   var dev=_outputDevices[idx];
   if(!dev)return;
+  var aid=_pendingAlbumId;
   closeOutputPicker();
   _lastUsedDevice=dev.id;
   var displayName=dev.custom_name||dev.name;
   showToast('Connecting to '+displayName+'\u2026');
   var target={id:dev.id,name:dev.name};
-  // Save as default device for future use
   fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({saved_devices:[target]})});
-  if(_pendingAlbumId){var aid=_pendingAlbumId;_pendingAlbumId=null;playAlbumTo(aid,[target])}
+  if(aid)playAlbumTo(aid,[target]);
 }
 async function playAlbumTo(id,devices){
   showToast('Starting playback\u2026');
