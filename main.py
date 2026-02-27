@@ -54,7 +54,7 @@ def load_settings() -> dict:
             s['acoustid_key'] = s.get('audd_key')
         return s
     return {"saved_devices": [], "volume": 80, "audio_device_index": None,
-            "bass": 0, "treble": 0, "acoustid_key": "", "acoustid_enabled": False, "discogs_token": "", "hidden_devices": [], "auto_stream_enabled": False, "auto_stream_device": None}
+            "bass": 0, "treble": 0, "acoustid_key": "", "acoustid_enabled": False, "discogs_token": "", "hidden_devices": [], "auto_stream_enabled": False, "auto_stream_device": None, "device_names": {}}
 
 
 def save_settings(s: dict):
@@ -707,6 +707,7 @@ async def scan_devices():
         except Exception:
             pass
 
+    custom_names = state.settings.get("device_names", {})
     state.available_devices = []
     for d in found:
         raop    = d.get_service(pyatv.Protocol.RAOP)
@@ -715,6 +716,7 @@ async def scan_devices():
         state.available_devices.append({
             "id":       d.identifier,
             "name":     d.name,
+            "custom_name": custom_names.get(d.identifier),
             "address":  str(d.address),
             "hidden":   d.identifier in hidden,
             "needs_pairing": bool(needs),
@@ -850,6 +852,32 @@ async def toggle_device_hidden(device_id: str, body: dict = {}):
         if d["id"] == device_id:
             d["hidden"] = hide
     return {"ok": True, "hidden": hide}
+
+
+@app.get("/api/devices")
+async def get_cached_devices():
+    """Return cached devices from last scan (instant). Use /api/scan to refresh."""
+    custom_names = state.settings.get("device_names", {})
+    for d in state.available_devices:
+        d["custom_name"] = custom_names.get(d["id"])
+    return {"devices": state.available_devices}
+
+
+@app.post("/api/devices/{device_id}/rename")
+async def rename_device(device_id: str, body: dict = {}):
+    """Set or clear a custom display name for a device."""
+    custom_name = body.get("name", "").strip()
+    if "device_names" not in state.settings:
+        state.settings["device_names"] = {}
+    if custom_name:
+        state.settings["device_names"][device_id] = custom_name
+    else:
+        state.settings["device_names"].pop(device_id, None)
+    save_settings(state.settings)
+    for d in state.available_devices:
+        if d["id"] == device_id:
+            d["custom_name"] = custom_name or None
+    return {"ok": True, "device_id": device_id, "custom_name": custom_name or None}
 
 
 @app.get("/api/audio-devices")
