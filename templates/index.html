@@ -843,12 +843,13 @@ async function pickOutput(idx){
   if(dev.type==='local')target.hw_index=dev.hw_index;
   _currentDevices=[target];
   fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({saved_devices:[target]})});
-  if(aid)playAlbumTo(aid,[target]);
+  if(aid){var resume=_resumeInfo;_resumeInfo=null;playAlbumTo(aid,[target],resume)}
 }
-async function playAlbumTo(id,devices){
+async function playAlbumTo(id,devices,resume){
   showToast('Starting playback\u2026');
   var body={album_id:id};
   if(devices)body.devices=devices;
+  if(resume){if(resume.track_id)body.track_id=resume.track_id;if(resume.position_secs)body.resume_position_secs=resume.position_secs}
   var r=await fetch('/api/player/play',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(function(r){return r.json()});
   if(!r.ok)showError(r.error||'Playback failed');
 }
@@ -917,7 +918,8 @@ function onPlayerStatus(d){
 
 async function playerToggle(){await fetch('/api/player/pause',{method:'POST'})}
 async function playerStop(){await fetch('/api/player/stop',{method:'POST'})}
-function switchOutput(){var aid=_playerAlbumId;if(!aid)return;_pendingAlbumId=aid;showOutputPicker(aid)}
+var _resumeInfo=null;
+function switchOutput(){var aid=_playerAlbumId;if(!aid)return;_resumeInfo=null;fetch('/api/player/status').then(function(r){return r.json()}).then(function(s){if(s.track_id||s.position_secs)_resumeInfo={track_id:s.track_id,position_secs:s.position_secs};_pendingAlbumId=aid;showOutputPicker(aid)})}
 async function playerNext(){await fetch('/api/player/next',{method:'POST'})}
 async function playerPrev(){await fetch('/api/player/prev',{method:'POST'})}
 function playerSeekClick(e){const b=e.currentTarget,r=b.getBoundingClientRect(),pct=(e.clientX-r.left)/r.width,pts=document.getElementById('np-time-dur').textContent.split(':'),dur=parseInt(pts[0])*60+parseInt(pts[1]);fetch('/api/player/seek',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({position_secs:pct*dur})})}
