@@ -279,8 +279,8 @@ class LocalOutputStream:
         self._stream = None
 
     def start(self):
-        # Try int16 first, fall back to float32
-        for dtype in ("int16", "float32"):
+        # Try int16 first, int32 (Pi HDMI needs this), then float32
+        for dtype in ("int16", "int32", "float32"):
             try:
                 self._dtype = dtype
                 self._stream = sd.OutputStream(
@@ -302,6 +302,8 @@ class LocalOutputStream:
             data = np.frombuffer(pcm_bytes, dtype=np.int16).reshape(-1, self._channels)
             if self._dtype == "float32":
                 data = data.astype(np.float32) / 32768.0
+            elif self._dtype == "int32":
+                data = data.astype(np.int32) << 16
             self._stream.write(data)
         except Exception as e:
             print(f"[local-out] Write error: {e}")
