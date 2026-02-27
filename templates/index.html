@@ -1012,16 +1012,64 @@ async function deleteAlbum(){if(!currentAlbumId||!confirm('Delete this album and
 function toggleReorderMode(){_reorderMode=!_reorderMode;document.getElementById('btn-reorder').classList.toggle('btn-accent',_reorderMode);renderModalTracks(window._modalTracks||[],_reorderMode)}
 function initDragReorder(){const c=document.getElementById('modal-tracks');let de=null;c.querySelectorAll('.track-row').forEach(r=>{r.draggable=true;r.addEventListener('dragstart',e=>{de=r;r.classList.add('dragging');e.dataTransfer.effectAllowed='move'});r.addEventListener('dragend',()=>{r.classList.remove('dragging');de=null});r.addEventListener('dragover',e=>{e.preventDefault();e.dataTransfer.dropEffect='move';if(de&&de!==r){const rect=r.getBoundingClientRect(),mid=rect.top+rect.height/2;if(e.clientY<mid)c.insertBefore(de,r);else c.insertBefore(de,r.nextSibling)}})});c.addEventListener('drop',async e=>{e.preventDefault();const ids=[...c.querySelectorAll('.track-row')].map(r=>parseInt(r.dataset.id));await fetch(`/api/catalog/${currentAlbumId}/reorder`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({track_ids:ids})});showToast('Track order saved');_reorderMode=false;document.getElementById('btn-reorder').classList.remove('btn-accent');openAlbumDetail(currentAlbumId)})}
 
-function showAlbumRecPanel(){document.getElementById('album-rec-panel').style.display='block';document.getElementById('album-rec-setup').style.display='block';document.getElementById('album-rec-active').style.display='none';document.getElementById('album-rec-saving').style.display='none';document.getElementById('album-rec-flip-prompt').style.display='none';updateRecSideInfo()}
+function showAlbumRecPanel(){document.getElementById('album-rec-panel').style.display='block';var setup=document.getElementById('album-rec-setup');if(_recSetupHTML)setup.innerHTML=_recSetupHTML;setup.style.display='block';document.getElementById('album-rec-active').style.display='none';document.getElementById('album-rec-saving').style.display='none';document.getElementById('album-rec-flip-prompt').style.display='none';updateRecSideInfo()}
 function updateRecSideInfo(){const side=document.getElementById('album-rec-side').value;const tracks=(window._modalTracks||[]).filter(t=>t.side===side);document.getElementById('album-rec-side-info').textContent=tracks.length?`${tracks.length} track${tracks.length>1?'s':''} on Side ${side}`:''}
 function hideAlbumRecPanel(){document.getElementById('album-rec-panel').style.display='none'}
-async function startAlbumRecording(){const side=document.getElementById('album-rec-side').value;const r=await fetch('/api/album-recording/start',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({album_id:currentAlbumId,side:side})}).then(r=>r.json());if(!r.ok){showError(r.error||'Failed');return}document.getElementById('album-rec-setup').style.display='none';document.getElementById('album-rec-active').style.display='block';document.getElementById('album-rec-active-side').textContent=side;document.getElementById('album-rec-timer').textContent='00:00';document.getElementById('album-rec-track-log').innerHTML='';const st=Date.now();clearInterval(_recTimerInterval);_recTimerInterval=setInterval(()=>{const s=Math.floor((Date.now()-st)/1000);document.getElementById('album-rec-timer').textContent=String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0')},1000)}
-async function stopAlbumRecording(){clearInterval(_recTimerInterval);document.getElementById('album-rec-active').style.display='none';document.getElementById('album-rec-saving').style.display='block';await fetch('/api/album-recording/stop',{method:'POST'})}
+var _recOutputDevice=null;
+var _recSetupHTML=null;
+async function startAlbumRecording(){
+  var setup=document.getElementById('album-rec-setup');
+  if(!_recSetupHTML)_recSetupHTML=setup.innerHTML;
+  // If already streaming, skip device picker and go straight to recording
+  if(_isStreaming){beginRecordingWithDevice(null);return}
+  // Show device picker for monitoring during recording
+  var side=document.getElementById('album-rec-side').value;
+  _recOutputDevice=null;
+  // Build a mini device picker inline
+  var setup=document.getElementById('album-rec-setup');
+  setup.innerHTML='<div style="font-size:0.82rem;color:var(--muted);margin-bottom:0.3rem">Play audio while recording?</div><div style="color:var(--muted);font-size:0.72rem;margin-bottom:0.5rem">Loading devices\u2026</div>';
+  var d=await fetch('/api/devices').then(function(r){return r.json()});
+  var devices=(d.devices||[]).filter(function(dev){return !dev.hidden&&dev.paired!==false});
+  var html='<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:0.6rem">';
+  html+='<div class="output-device-card" onclick="beginRecordingWithDevice(null)" style="min-width:80px;padding:0.4rem 0.5rem;cursor:pointer"><div class="output-device-icon">🔇</div><div class="output-device-name" style="font-size:0.72rem">No audio</div></div>';
+  devices.forEach(function(dev,idx){
+    var name=dev.custom_name||dev.name;
+    var icon=guessDeviceIcon(dev.name);
+    var isLocal=dev.type==='local';
+    var j=JSON.stringify(dev).replace(/'/g,"\\'").replace(/"/g,'&quot;');
+    html+='<div class="output-device-card" onclick="beginRecordingWithDevice('+idx+')" style="min-width:80px;padding:0.4rem 0.5rem;cursor:pointer" data-rec-dev="'+idx+'">'
+      +'<div class="output-device-icon">'+icon+'</div>'
+      +'<div class="output-device-name" style="font-size:0.72rem">'+esc(name)+'</div>'
+      +(isLocal?'<div style="font-size:0.55rem;color:var(--amber-dk);font-weight:700;text-transform:uppercase">Local</div>':'')
+      +'</div>';
+  });
+  html+='</div>';
+  html+='<button class="btn" onclick="showAlbumRecPanel()" style="font-size:0.78rem">\u2190 Back</button>';
+  window._recDeviceList=devices;
+  setup.innerHTML='<div style="font-size:0.82rem;color:var(--cream);margin-bottom:0.4rem">Play audio while recording Side '+side+'?</div>'+html;
+}
+async function beginRecordingWithDevice(devIdx){
+  var side=document.getElementById('album-rec-side').value;
+  var dev=devIdx!==null?window._recDeviceList[devIdx]:null;
+  // If a device was chosen, start streaming to it first
+  if(dev){
+    var target={id:dev.id,name:dev.name};
+    if(dev.type==='local'){target.hw_index=dev.hw_index;if(dev.alsa_device)target.alsa_device=dev.alsa_device}
+    _recOutputDevice=target;
+    await fetch('/api/start',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({devices:[target],volume:parseInt(document.getElementById('volume-slider')?.value||80)})});
+    await new Promise(function(r){setTimeout(r,500)});
+  }
+  // Now start recording
+  var r=await fetch('/api/album-recording/start',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({album_id:currentAlbumId,side:side})}).then(function(r){return r.json()});
+  if(!r.ok){showError(r.error||'Failed');showAlbumRecPanel();return}
+  document.getElementById('album-rec-setup').style.display='none';document.getElementById('album-rec-active').style.display='block';document.getElementById('album-rec-active-side').textContent=side;document.getElementById('album-rec-timer').textContent='00:00';document.getElementById('album-rec-track-log').innerHTML='';const st=Date.now();clearInterval(_recTimerInterval);_recTimerInterval=setInterval(()=>{const s=Math.floor((Date.now()-st)/1000);document.getElementById('album-rec-timer').textContent=String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0')},1000)
+}
+async function stopAlbumRecording(keepStream){clearInterval(_recTimerInterval);document.getElementById('album-rec-active').style.display='none';document.getElementById('album-rec-saving').style.display='block';await fetch('/api/album-recording/stop',{method:'POST'});if(!keepStream&&_recOutputDevice){await fetch('/api/stop',{method:'POST'});_recOutputDevice=null}}
 async function cancelAlbumRecording(){clearInterval(_recTimerInterval);await fetch('/api/album-recording/cancel',{method:'POST'});hideAlbumRecPanel()}
-function flipAlbumRecording(){stopAlbumRecording()}
+function flipAlbumRecording(){stopAlbumRecording(true)}
 function onAlbumRecStatus(d){if(d.message)document.getElementById('album-rec-status-text').textContent=d.message}
 function onAlbumRecSideSaved(d){clearInterval(_recTimerInterval);document.getElementById('album-rec-active').style.display='none';document.getElementById('album-rec-saving').style.display='none';document.getElementById('album-rec-flip-prompt').style.display='block';document.getElementById('album-rec-done-side').textContent=d.side||'?';const ns=String.fromCharCode((d.side||'A').charCodeAt(0)+1);document.getElementById('album-rec-next-side-label').textContent=ns;if(currentAlbumId){loadAlbumAudio(currentAlbumId);loadCatalog()}}
-function startNextSideRecording(){const ns=document.getElementById('album-rec-next-side-label').textContent;document.getElementById('album-rec-side').value=ns;document.getElementById('album-rec-flip-prompt').style.display='none';startAlbumRecording()}
+async function startNextSideRecording(){const ns=document.getElementById('album-rec-next-side-label').textContent;document.getElementById('album-rec-side').value=ns;document.getElementById('album-rec-flip-prompt').style.display='none';if(_recOutputDevice){beginRecordingWithDevice(null)}else{startAlbumRecording()}}
 function finishAlbumRecSession(){hideAlbumRecPanel();if(currentAlbumId){loadAlbumAudio(currentAlbumId);loadCatalog()}}
 
 function openLearnForAlbum(){if(!currentAlbumId)return;const a=_catalogAlbums.find(x=>x.id===currentAlbumId);if(!a)return;document.getElementById('learn-album-input').value=a.artist+' \u2014 '+a.title;document.getElementById('learn-album-id').value=currentAlbumId;const sa=(window._modalTracks||[]).filter(t=>t.side==='A').length;document.getElementById('learn-track-count').value=sa||5;closeModal();showLearnOverlay()}
