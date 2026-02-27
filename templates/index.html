@@ -824,7 +824,9 @@ function renderOutputCards(allDevices){
   html+='<div style="text-align:center;grid-column:1/-1"><span style="color:var(--amber-dk);cursor:pointer;font-size:0.72rem;text-decoration:underline" onclick="rescanOutputDevices()">Rescan for devices</span></div>';
   if(hidden.length){
     html+='<div style="grid-column:1/-1;margin-top:0.4rem;border-top:1px solid var(--paper-dk);padding-top:0.4rem">'
-      +'<div style="font-size:0.7rem;color:var(--muted);margin-bottom:0.3rem">Hidden devices</div>'
+      +'<div style="font-size:0.7rem;color:var(--muted);cursor:pointer" onclick="var el=this.nextElementSibling;var open=el.style.display!==\'none\';el.style.display=open?\'none\':\'block\';this.textContent=open?\'Hidden devices (\'+'+hidden.length+'+\') ▸\':\'Hidden devices ▾\'">'
+      +'Hidden devices ('+hidden.length+') ▸</div>'
+      +'<div style="display:none">'
       +hidden.map(function(dev){
         var name=dev.custom_name||dev.name;
         return '<div style="display:flex;justify-content:space-between;align-items:center;padding:0.15rem 0">'
@@ -832,7 +834,7 @@ function renderOutputCards(allDevices){
           +'<span style="font-size:0.6rem;color:var(--amber-dk);cursor:pointer;text-decoration:underline" onclick="unhideDevice(\''+dev.id+'\')">show</span>'
           +'</div>';
       }).join('')
-      +'</div>';
+      +'</div></div>';
   }
   grid.innerHTML=html;
 }
