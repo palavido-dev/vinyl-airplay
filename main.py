@@ -270,52 +270,40 @@ def run_device_stream(conf, audio_stream, volume, done_callback):
 # ── Local Audio Output ────────────────────────────────────────────────────────
 
 class LocalOutputStream:
-    """Plays PCM to a local ALSA device. Same put()/stop() interface as AsyncAudioStream."""
+    """Plays PCM to a local ALSA device via aplay subprocess.
+    Same put()/stop() interface as AsyncAudioStream.
+    Uses aplay pipe instead of sounddevice to avoid buffer underrun clicks."""
 
-    def __init__(self, device_index, samplerate=SAMPLE_RATE, channels=CHANNELS):
-        self._device_index = device_index
+    def __init__(self, alsa_device, samplerate=SAMPLE_RATE, channels=CHANNELS):
+        self._alsa_device = alsa_device  # e.g. "plughw:2,0" or "touchscreen"
         self._samplerate = samplerate
         self._channels = channels
-        self._stream = None
+        self._proc = None
 
     def start(self):
-        # Try int16 first, int32 (Pi HDMI needs this), then float32
-        for dtype in ("int16", "int32", "float32"):
-            try:
-                self._dtype = dtype
-                self._stream = sd.OutputStream(
-                    device=self._device_index, samplerate=self._samplerate,
-                    channels=self._channels, dtype=dtype, latency='high',
-                )
-                self._stream.start()
-                print(f"[local-out] Opened device {self._device_index} ({dtype})")
-                return
-            except Exception as e:
-                print(f"[local-out] Device {self._device_index} failed with {dtype}: {e}")
-                self._stream = None
-        raise RuntimeError(f"Cannot open device {self._device_index} in any format")
+        import subprocess
+        self._proc = subprocess.Popen(
+            ["aplay", "-D", self._alsa_device, "-f", "S16_LE",
+             "-r", str(self._samplerate), "-c", str(self._channels), "-"],
+            stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+        print(f"[local-out] Opened aplay pipe to {self._alsa_device}")
 
     def put(self, pcm_bytes):
-        if self._stream is None:
-            return
-        try:
-            data = np.frombuffer(pcm_bytes, dtype=np.int16).reshape(-1, self._channels)
-            if self._dtype == "float32":
-                data = data.astype(np.float32) / 32768.0
-            elif self._dtype == "int32":
-                data = data.astype(np.int32) << 16
-            self._stream.write(data)
-        except Exception as e:
-            print(f"[local-out] Write error: {e}")
+        if self._proc and self._proc.stdin:
+            try:
+                self._proc.stdin.write(pcm_bytes)
+            except (BrokenPipeError, OSError) as e:
+                print(f"[local-out] Write error: {e}")
 
     def stop(self):
-        if self._stream:
+        if self._proc:
             try:
-                self._stream.stop()
-                self._stream.close()
+                self._proc.stdin.close()
+                self._proc.wait(timeout=2)
             except Exception:
-                pass
-            self._stream = None
+                self._proc.kill()
+            self._proc = None
             print("[local-out] Closed")
 
 
@@ -918,22 +906,26 @@ def _get_local_outputs():
                 continue
             name = d["name"]
             dev_id = f"local:{i}"
-            # Include ALSA software devices (front, default, dmix) which route
-            # through the mixer. Skip raw hardware devices (hw:X) like vc4-hdmi
-            # which often reject all sample formats via sounddevice.
             n = name.lower()
+            # Determine ALSA device string for aplay
+            alsa_device = None
             if n.startswith("front") or n.startswith("default") or n.startswith("sysdefault") or n.startswith("touchscreen"):
-                outputs.append({
-                    "id": dev_id,
-                    "name": name,
-                    "custom_name": custom_names.get(dev_id),
-                    "address": "local",
-                    "hidden": dev_id in hidden,
-                    "needs_pairing": False,
-                    "paired": True,
-                    "type": "local",
-                    "hw_index": i,
-                })
+                # Named ALSA device — use the short name (before comma)
+                alsa_device = name.split(",")[0].strip()
+            if not alsa_device:
+                continue
+            outputs.append({
+                "id": dev_id,
+                "name": name,
+                "custom_name": custom_names.get(dev_id),
+                "address": "local",
+                "hidden": dev_id in hidden,
+                "needs_pairing": False,
+                "paired": True,
+                "type": "local",
+                "hw_index": i,
+                "alsa_device": alsa_device,
+            })
     except Exception as e:
         print(f"[local-out] Error listing outputs: {e}")
     # Prefer named devices (touchscreen) over generic ones (default, sysdefault)
@@ -1970,16 +1962,22 @@ async def _run_playback(album_id: int, targets: list[dict], volume: int,
 
     # Set up local output streams
     for lt in local_targets:
-        hw_idx = lt.get("hw_index")
-        if hw_idx is None:
-            try: hw_idx = int(str(lt["id"]).split(":")[1])
-            except (ValueError, IndexError): continue
+        alsa_dev = lt.get("alsa_device")
+        if not alsa_dev:
+            # Fallback: look up from current local outputs
+            local_devs = {d["id"]: d for d in _get_local_outputs()}
+            info = local_devs.get(lt["id"])
+            if info:
+                alsa_dev = info["alsa_device"]
+        if not alsa_dev:
+            print(f"[player] No ALSA device for {lt.get('id')}, skipping")
+            continue
         try:
-            lo = LocalOutputStream(hw_idx)
+            lo = LocalOutputStream(alsa_dev)
             lo.start()
             local_streams.append(lo)
         except Exception as e:
-            print(f"[player] Failed to open local device {hw_idx}: {e}")
+            print(f"[player] Failed to open local device {alsa_dev}: {e}")
 
     all_streams = list(audio_streams.values()) + local_streams
 
