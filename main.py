@@ -285,7 +285,7 @@ class LocalOutputStream:
                 self._dtype = dtype
                 self._stream = sd.OutputStream(
                     device=self._device_index, samplerate=self._samplerate,
-                    channels=self._channels, dtype=dtype, blocksize=BLOCK_SIZE,
+                    channels=self._channels, dtype=dtype, latency='high',
                 )
                 self._stream.start()
                 print(f"[local-out] Opened device {self._device_index} ({dtype})")
@@ -1866,7 +1866,8 @@ async def _stop_playback():
 
 
 async def _run_playback(album_id: int, targets: list[dict], volume: int,
-                        start_track_id: Optional[int] = None):
+                        start_track_id: Optional[int] = None,
+                        resume_position_secs: Optional[float] = None):
     """
     Connect to AirPlay devices and run catalog playback.
     Similar to _run_stream_inner but feeds from FLAC files instead of sounddevice.
@@ -2061,6 +2062,11 @@ async def _run_playback(album_id: int, targets: list[dict], volume: int,
 
     player.play(album_id, album_info, playlist, start_track_id=start_track_id)
 
+    # If resuming mid-track, seek to exact position
+    if resume_position_secs is not None and resume_position_secs > 0:
+        player.seek_to(resume_position_secs)
+        print(f"[player] Resuming at {resume_position_secs:.1f}s")
+
     try:
         # Wait for either: player finishes, devices disconnect, or external stop
         while player.state != "stopped":
@@ -2107,6 +2113,7 @@ async def player_play(body: dict):
 
     volume = body.get("volume", state.settings.get("volume", 80))
     track_id = body.get("track_id")
+    resume_position = body.get("resume_position_secs")
 
     # Stop any active vinyl streaming first
     if state.is_streaming:
@@ -2127,7 +2134,8 @@ async def player_play(body: dict):
 
     # Start playback
     state.player_task = asyncio.create_task(
-        _run_playback(album_id, targets, volume, start_track_id=track_id)
+        _run_playback(album_id, targets, volume, start_track_id=track_id,
+                      resume_position_secs=resume_position)
     )
     return {"ok": True}
 
