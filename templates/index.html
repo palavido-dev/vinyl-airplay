@@ -113,9 +113,9 @@
   .np-bar {
     flex-shrink: 0;
     background: linear-gradient(180deg, #352218 0%, #2C1810 100%);
-    border-bottom: 2px solid var(--groove);
+    border-top: 2px solid var(--amber-dk);
     padding: 0.5rem 0.9rem;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+    box-shadow: 0 -2px 8px rgba(0,0,0,0.2);
     position: relative;
   }
   .np-bar.hidden { display: none; }
@@ -286,6 +286,75 @@
   }
   body.osk-active .frame { margin-bottom: 0; }
   body.osk-active .main-content { padding-bottom: 0; }
+
+  /* ── Screensaver ── */
+  .screensaver {
+    display: none; position: fixed; inset: 0; z-index: 900;
+    background: #0a0604;
+    cursor: none;
+  }
+  .screensaver.active { display: flex; align-items: center; justify-content: center; }
+  .screensaver.off { background: #000; }
+  .ss-content {
+    display: flex; align-items: center; gap: 2rem;
+    animation: ss-drift 30s ease-in-out infinite alternate;
+    padding: 2rem;
+    max-width: 90vw;
+  }
+  .ss-art {
+    width: 200px; height: 200px; border-radius: 8px;
+    object-fit: cover;
+    box-shadow: 0 8px 40px rgba(212,162,78,0.15), 0 2px 12px rgba(0,0,0,0.5);
+    flex-shrink: 0;
+  }
+  .ss-art-placeholder {
+    width: 200px; height: 200px; border-radius: 50%; flex-shrink: 0;
+    background: radial-gradient(circle at 50% 50%, #1a1008 18%, #3E2723 20%, #3E2723 38%, #1a1008 40%, #1a1008 42%, #3E2723 44%, #3E2723 58%, #1a1008 60%, #1a1008 62%, #3E2723 64%, #3E2723 78%, #1a1008 80%);
+    border: 3px solid var(--amber-dk);
+    animation: ss-spin 8s linear infinite;
+    box-shadow: 0 8px 40px rgba(212,162,78,0.1);
+  }
+  .ss-info { min-width: 0; }
+  .ss-track {
+    font-family: var(--display-font);
+    font-size: 1.8rem; font-weight: 700;
+    color: var(--amber);
+    text-shadow: 0 2px 8px rgba(0,0,0,0.6);
+    margin-bottom: 0.3rem;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    max-width: 50vw;
+  }
+  .ss-artist-album {
+    font-size: 1.1rem;
+    color: rgba(245,235,216,0.5);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    max-width: 50vw;
+  }
+  .ss-eq-viz {
+    display: flex; align-items: flex-end; gap: 4px;
+    margin-top: 1.2rem; height: 30px;
+  }
+  .ss-eq-bar {
+    width: 6px; border-radius: 2px;
+    background: linear-gradient(0deg, var(--amber-dk), var(--amber));
+    animation: ss-bars 1.2s ease-in-out infinite alternate;
+    opacity: 0.6;
+  }
+  @keyframes ss-drift {
+    0%   { transform: translate(-8vw, -5vh); }
+    25%  { transform: translate(6vw, 8vh); }
+    50%  { transform: translate(-5vw, 6vh); }
+    75%  { transform: translate(8vw, -4vh); }
+    100% { transform: translate(-3vw, -7vh); }
+  }
+  @keyframes ss-spin {
+    from { transform: rotate(0deg); }
+    to   { transform: rotate(360deg); }
+  }
+  @keyframes ss-bars {
+    0%   { height: 4px; }
+    100% { height: 28px; }
+  }
 </style>
 </head>
 <body>
@@ -300,6 +369,7 @@
   <button class="header-btn" onclick="showSettings()" title="Settings">⚙</button>
 </div>
 <div class="status-bar"><span class="status-dot" id="dot"></span><span id="status-text">Connecting…</span></div>
+<div class="main-content" id="main-content"><div class="album-grid" id="album-grid"><div class="catalog-empty">Loading catalog…</div></div></div>
 <div class="np-bar hidden" id="np-footer">
   <div class="np-row">
     <div class="np-art-placeholder" id="np-art-wrap">💿</div>
@@ -325,7 +395,6 @@
     <div class="eq-group"><span class="eq-label">Vol</span><input type="range" class="eq-slider" id="eq-volume" min="0" max="100" value="80" step="1" oninput="sendVolume()"></div>
   </div>
 </div>
-<div class="main-content" id="main-content"><div class="album-grid" id="album-grid"><div class="catalog-empty">Loading catalog…</div></div></div>
 </div>
 
 <!-- Album Detail Modal -->
@@ -478,6 +547,18 @@
 </div>
 <!-- On-Screen Keyboard -->
 <div class="osk-overlay" id="osk">
+
+<!-- Screensaver -->
+<div class="screensaver" id="screensaver" onclick="wakeSS()" ontouchstart="wakeSS()">
+  <div class="ss-content" id="ss-content">
+    <div class="ss-art-placeholder" id="ss-art"></div>
+    <div class="ss-info">
+      <div class="ss-track" id="ss-track"></div>
+      <div class="ss-artist-album" id="ss-artist-album"></div>
+      <div class="ss-eq-viz" id="ss-eq-viz"></div>
+    </div>
+  </div>
+</div>
   <div class="osk-input-preview">
     <span class="osk-input-label" id="osk-label">Search</span>
     <span class="osk-input-value" id="osk-value"></span>
@@ -706,6 +787,98 @@ async function init(){
   loadCatalog();
 }
 init();
+
+/* ── Screensaver / Screen Off ── */
+(function(){
+  const IDLE_SECS = 60;
+  let _idleTimer = null;
+  let _ssActive = false;
+  let _lastNP = null;
+
+  function resetIdle(){
+    if(_ssActive){ wakeSS(); return; }
+    clearTimeout(_idleTimer);
+    _idleTimer = setTimeout(goIdle, IDLE_SECS * 1000);
+  }
+
+  function goIdle(){
+    if(_ssActive) return;
+    const playing = _playerActive || _playerSource === 'vinyl';
+    const ss = document.getElementById('screensaver');
+    const content = document.getElementById('ss-content');
+    _ssActive = true;
+
+    if(playing && _lastNP){
+      // Now Playing screensaver
+      ss.classList.remove('off');
+      const art = document.getElementById('ss-art');
+      if(_lastNP.artwork_url){
+        art.outerHTML = `<img class="ss-art" id="ss-art" src="${_lastNP.artwork_url}?t=${Date.now()}" alt="">`;
+      } else {
+        art.outerHTML = '<div class="ss-art-placeholder" id="ss-art"></div>';
+      }
+      document.getElementById('ss-track').textContent = _lastNP.track_title || '';
+      document.getElementById('ss-artist-album').textContent = [_lastNP.track_artist||_lastNP.album_artist||'', _lastNP.album_title||''].filter(Boolean).join(' \u2014 ');
+      // Build EQ viz bars
+      const viz = document.getElementById('ss-eq-viz');
+      viz.innerHTML = '';
+      for(let i = 0; i < 12; i++){
+        const bar = document.createElement('div');
+        bar.className = 'ss-eq-bar';
+        bar.style.animationDelay = (i * 0.1) + 's';
+        bar.style.animationDuration = (0.8 + Math.random() * 0.8) + 's';
+        viz.appendChild(bar);
+      }
+      content.style.display = 'flex';
+    } else {
+      // Screen off (black)
+      ss.classList.add('off');
+      content.style.display = 'none';
+    }
+    ss.classList.add('active');
+  }
+
+  window.wakeSS = function(){
+    if(!_ssActive) return;
+    _ssActive = false;
+    const ss = document.getElementById('screensaver');
+    ss.classList.remove('active','off');
+    clearTimeout(_idleTimer);
+    _idleTimer = setTimeout(goIdle, IDLE_SECS * 1000);
+  };
+
+  // Store latest now_playing data for screensaver
+  const _origRenderNP = renderNowPlaying;
+  window.renderNowPlaying = function(d){
+    if(d && d.track_title) _lastNP = d;
+    else if(!_playerActive) _lastNP = null;
+    _origRenderNP(d);
+    // Update screensaver if active and playing
+    if(_ssActive && _lastNP){
+      document.getElementById('ss-track').textContent = _lastNP.track_title || '';
+      document.getElementById('ss-artist-album').textContent = [_lastNP.track_artist||_lastNP.album_artist||'', _lastNP.album_title||''].filter(Boolean).join(' \u2014 ');
+    }
+  };
+
+  // When player stops, switch screensaver to off mode
+  const _origPlayerStatus = onPlayerStatus;
+  window.onPlayerStatus = function(d){
+    _origPlayerStatus(d);
+    if(d.state === 'stopped' && _ssActive){
+      const ss = document.getElementById('screensaver');
+      ss.classList.add('off');
+      document.getElementById('ss-content').style.display = 'none';
+    }
+  };
+
+  // Track activity
+  ['touchstart','mousedown','mousemove','keydown','scroll'].forEach(evt => {
+    document.addEventListener(evt, resetIdle, {passive:true});
+  });
+
+  // Start idle timer
+  _idleTimer = setTimeout(goIdle, IDLE_SECS * 1000);
+})();
 
 /* ── On-Screen Keyboard ── */
 (function(){
