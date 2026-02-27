@@ -279,18 +279,29 @@ class LocalOutputStream:
         self._stream = None
 
     def start(self):
-        self._stream = sd.OutputStream(
-            device=self._device_index, samplerate=self._samplerate,
-            channels=self._channels, dtype="int16", blocksize=BLOCK_SIZE,
-        )
-        self._stream.start()
-        print(f"[local-out] Opened device {self._device_index}")
+        # Try int16 first, fall back to float32
+        for dtype in ("int16", "float32"):
+            try:
+                self._dtype = dtype
+                self._stream = sd.OutputStream(
+                    device=self._device_index, samplerate=self._samplerate,
+                    channels=self._channels, dtype=dtype, blocksize=BLOCK_SIZE,
+                )
+                self._stream.start()
+                print(f"[local-out] Opened device {self._device_index} ({dtype})")
+                return
+            except Exception as e:
+                print(f"[local-out] Device {self._device_index} failed with {dtype}: {e}")
+                self._stream = None
+        raise RuntimeError(f"Cannot open device {self._device_index} in any format")
 
     def put(self, pcm_bytes):
         if self._stream is None:
             return
         try:
             data = np.frombuffer(pcm_bytes, dtype=np.int16).reshape(-1, self._channels)
+            if self._dtype == "float32":
+                data = data.astype(np.float32) / 32768.0
             self._stream.write(data)
         except Exception as e:
             print(f"[local-out] Write error: {e}")
@@ -425,8 +436,8 @@ async def _auto_stream_watcher():
                 cooldown  = COOLDOWN_SECS
                 continue
 
-            # Skip while catalog playback is active
-            if state.player and state.player.state != "stopped":
+            # Skip while catalog playback is active (or starting up)
+            if state.player_task or (state.player and state.player.state != "stopped"):
                 sustained = 0.0
                 cooldown  = COOLDOWN_SECS
                 continue
@@ -2057,6 +2068,7 @@ async def _run_playback(album_id: int, targets: list[dict], volume: int,
         for s in local_streams:
             s.stop()
         state.player = None
+        state.player_task = None
         state.now_playing = None
         state.airplay_metadata = None
         await broadcast("player_status", {"state": "stopped"})
