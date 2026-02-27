@@ -840,7 +840,7 @@ async function pickOutput(idx){
   var displayName=dev.custom_name||dev.name;
   showToast('Connecting to '+displayName+'\u2026');
   var target={id:dev.id,name:dev.name};
-  if(dev.type==='local')target.hw_index=dev.hw_index;
+  if(dev.type==='local'){target.hw_index=dev.hw_index;if(dev.alsa_device)target.alsa_device=dev.alsa_device}
   _currentDevices=[target];
   fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({saved_devices:[target]})});
   if(aid){var resume=_resumeInfo;_resumeInfo=null;playAlbumTo(aid,[target],resume)}
