@@ -310,17 +310,17 @@
     min-height: 1.2em;
   }
   .osk-row {
-    display: flex; justify-content: center; gap: 3px;
-    margin-bottom: 3px;
+    display: flex; justify-content: center; gap: 4px;
+    margin-bottom: 4px;
   }
   .osk-key {
-    min-width: 36px; height: 42px;
+    min-width: 42px; height: 50px;
     border-radius: 5px;
     background: rgba(255,255,255,0.08);
     border: 1px solid rgba(212,162,78,0.15);
     color: var(--cream);
     font-family: var(--body-font);
-    font-size: 0.9rem; font-weight: 500;
+    font-size: 1.05rem; font-weight: 500;
     cursor: pointer;
     display: flex; align-items: center; justify-content: center;
     padding: 0 0.2rem;
@@ -329,8 +329,8 @@
     -webkit-tap-highlight-color: transparent;
   }
   .osk-key:active, .osk-key.active { background: rgba(212,162,78,0.3); }
-  .osk-key.wide { min-width: 52px; font-size: 0.75rem; }
-  .osk-key.wider { min-width: 68px; font-size: 0.75rem; }
+  .osk-key.wide { min-width: 58px; font-size: 0.82rem; }
+  .osk-key.wider { min-width: 74px; font-size: 0.82rem; }
   .osk-key.space {
     flex: 1; max-width: 320px;
     font-size: 0.7rem; color: rgba(245,235,216,0.4);
@@ -1257,9 +1257,9 @@ _ssLog('screensaver initialized, interval=' + _ssIntervalId);
     keys2.forEach((k,i) => { if(i < src2.length){ const c = on ? src2[i] : applyCase(src2[i]); k.textContent = c; k.setAttribute('data-action', on ? src2[i] : src2[i]); } else { k.textContent = on ? '' : "'"; k.setAttribute('data-action', on ? '' : "'"); }});
     const symBtn = [...r3.children].find(k => k.getAttribute('data-action') === 'symbols' || k.getAttribute('data-action') === 'abc');
     if(symBtn){ symBtn.textContent = on ? 'abc' : '123'; symBtn.setAttribute('data-action', on ? 'abc' : 'symbols'); }
-    const letterKeys = [...r3.children].filter(k => { const a = k.getAttribute('data-action'); return ROW3.includes(a) || a === '.' || a === ','; });
+    const letterKeys = [...r3.children].filter(k => { const a = k.getAttribute('data-action'); return a && a !== 'symbols' && a !== 'abc' && a !== 'Backspace' && a !== 'shift'; });
     const src3 = on ? ['?','!','.',','] : ROW3.concat(['.', ',']);
-    letterKeys.forEach((k,i) => { if(i < src3.length){ const c = on ? src3[i] : applyCase(src3[i]); k.textContent = c; k.setAttribute('data-action', src3[i]); } else { k.style.display = on ? 'none' : ''; }});
+    letterKeys.forEach((k,i) => { if(i < src3.length){ const c = on ? src3[i] : applyCase(src3[i]); k.textContent = c; k.setAttribute('data-action', src3[i]); k.style.display = ''; } else { k.style.display = 'none'; }});
   }
 
   function applyCase(c){
