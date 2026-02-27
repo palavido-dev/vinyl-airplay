@@ -922,7 +922,7 @@ def _get_local_outputs():
             # through the mixer. Skip raw hardware devices (hw:X) like vc4-hdmi
             # which often reject all sample formats via sounddevice.
             n = name.lower()
-            if n.startswith("front") or n.startswith("default") or n.startswith("sysdefault"):
+            if n.startswith("front") or n.startswith("default") or n.startswith("sysdefault") or n.startswith("touchscreen"):
                 outputs.append({
                     "id": dev_id,
                     "name": name,
@@ -936,11 +936,11 @@ def _get_local_outputs():
                 })
     except Exception as e:
         print(f"[local-out] Error listing outputs: {e}")
-    # If we found multiple, prefer just "front" to keep the list clean
+    # Prefer named devices (touchscreen) over generic ones (default, sysdefault)
     if len(outputs) > 1:
-        front = [o for o in outputs if o["name"].lower().startswith("front")]
-        if front:
-            outputs = front
+        named = [o for o in outputs if not o["name"].lower().startswith(("default", "sysdefault"))]
+        if named:
+            outputs = named
     return outputs
 
 
