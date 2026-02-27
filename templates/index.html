@@ -830,11 +830,16 @@ async function pickOutput(idx){
   var displayName=dev.custom_name||dev.name;
   showToast('Connecting to '+displayName+'\u2026');
   var target={id:dev.id,name:dev.name};
-  var r=await fetch('/api/start',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({devices:[target]})}).then(function(r){return r.json()});
-  if(!r.ok){showError(r.error||'Failed to connect');return}
-  // Wait for stream to establish then play
-  await new Promise(function(resolve){setTimeout(resolve,2000)});
-  if(_pendingAlbumId){playAlbum(_pendingAlbumId);_pendingAlbumId=null}
+  // Save as default device for future use
+  fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({saved_devices:[target]})});
+  if(_pendingAlbumId){var aid=_pendingAlbumId;_pendingAlbumId=null;playAlbumTo(aid,[target])}
+}
+async function playAlbumTo(id,devices){
+  showToast('Starting playback\u2026');
+  var body={album_id:id};
+  if(devices)body.devices=devices;
+  var r=await fetch('/api/player/play',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(function(r){return r.json()});
+  if(!r.ok)showError(r.error||'Playback failed');
 }
 function closeOutputPicker(){document.getElementById('output-picker-overlay').classList.remove('open');_pendingAlbumId=null}
 async function rescanOutputDevices(){
