@@ -1,14 +1,11 @@
 #!/usr/bin/env python3
 """
-Vinyl AirPlay — MP3 Recorder
-Captures audio while streaming, detects track boundaries via silence,
-encodes to 320kbps MP3, and embeds ID3 tags + album art.
-
-File naming: Artist - Album - TrackNum - Title.mp3
+Vinyl AirPlay — Audio Recorder
+Detects track boundaries via silence gaps, captures full album sides
+as FLAC files with track boundary timestamps.
 """
 
 import io
-import json
 import os
 import subprocess
 import tempfile
@@ -24,8 +21,6 @@ import numpy as np
 
 SAMPLE_RATE       = 44100
 CHANNELS          = 2
-BITRATE           = "320"           # kbps
-RECORDINGS_DIR    = Path(__file__).parent / "recordings"
 
 # Silence detection
 # Adaptive silence detection
@@ -260,38 +255,6 @@ def _pcm_to_wav(pcm: bytes) -> bytes:
         wf.setframerate(SAMPLE_RATE)
         wf.writeframes(pcm)
     return buf.getvalue()
-
-
-# ── MP3 Encoding ──────────────────────────────────────────────────────────────
-
-def encode_mp3(pcm: bytes, output_path: Path) -> bool:
-    """Encode PCM audio to MP3 at 320kbps using LAME."""
-    wav_bytes = _pcm_to_wav(pcm)
-    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
-        f.write(wav_bytes)
-        tmp_wav = f.name
-
-    try:
-        result = subprocess.run([
-            "lame",
-            "--silent",
-            "-b", BITRATE,
-            "--cbr",
-            "-q", "0",          # highest quality algorithm
-            "--id3v2-only",     # we'll write our own tags via mutagen
-            tmp_wav,
-            str(output_path),
-        ], capture_output=True, timeout=60)
-
-        if result.returncode != 0:
-            print(f"[recorder] LAME error: {result.stderr.decode()[:200]}")
-            return False
-        return True
-    except (subprocess.TimeoutExpired, FileNotFoundError) as e:
-        print(f"[recorder] encode_mp3 failed: {e}")
-        return False
-    finally:
-        os.unlink(tmp_wav)
 
 
 # ── FLAC Encoding ─────────────────────────────────────────────────────────────
@@ -611,150 +574,3 @@ class AlbumRecorder:
             self._total_bytes = 0
         print("[album-rec] Recording cancelled")
 
-
-# ── ID3 Tagging ───────────────────────────────────────────────────────────────
-
-def tag_mp3(mp3_path: Path, metadata: dict) -> bool:
-    """
-    Write ID3v2.4 tags to an MP3 file using mutagen.
-    metadata keys: title, artist, album, album_artist, year, track_number,
-                   side, genre, artwork_path
-    """
-    try:
-        from mutagen.id3 import (
-            ID3, TIT2, TPE1, TPE2, TALB, TDRC, TRCK, TCON,
-            APIC, ID3NoHeaderError
-        )
-
-        try:
-            tags = ID3(str(mp3_path))
-        except ID3NoHeaderError:
-            tags = ID3()
-
-        title        = metadata.get("title", "Unknown Track")
-        artist       = metadata.get("artist") or metadata.get("album_artist", "Unknown Artist")
-        album_artist = metadata.get("album_artist", artist)
-        album        = metadata.get("album", "Unknown Album")
-        year         = str(metadata.get("year", "")) if metadata.get("year") else ""
-        track_num    = metadata.get("track_number", "")
-        genre        = metadata.get("genre", "")
-
-        tags["TIT2"] = TIT2(encoding=3, text=title)
-        tags["TPE1"] = TPE1(encoding=3, text=artist)
-        tags["TPE2"] = TPE2(encoding=3, text=album_artist)
-        tags["TALB"] = TALB(encoding=3, text=album)
-        if year:
-            tags["TDRC"] = TDRC(encoding=3, text=year)
-        if track_num:
-            tags["TRCK"] = TRCK(encoding=3, text=str(track_num))
-        if genre:
-            tags["TCON"] = TCON(encoding=3, text=genre)
-
-        # Embed artwork
-        art_path = metadata.get("user_artwork_path") or metadata.get("artwork_path")
-        if art_path and Path(art_path).exists():
-            with open(art_path, "rb") as f:
-                art_data = f.read()
-            # Detect format
-            mime = "image/jpeg" if art_path.lower().endswith(('.jpg', '.jpeg')) else "image/png"
-            tags["APIC"] = APIC(
-                encoding=3,
-                mime=mime,
-                type=3,     # Cover (front)
-                desc="Cover",
-                data=art_data,
-            )
-
-        tags.save(str(mp3_path), v2_version=4)
-        return True
-
-    except Exception as e:
-        print(f"[recorder] tag_mp3 failed: {e}")
-        return False
-
-
-# ── File Naming ───────────────────────────────────────────────────────────────
-
-def make_filename(metadata: dict) -> str:
-    """
-    Build filename: Artist - Album - TrackNum - Title.mp3
-    Sanitizes all components for filesystem safety.
-    """
-    def san(s: str) -> str:
-        if not s:
-            return "Unknown"
-        # Remove characters that are problematic on Windows/Mac/Linux
-        for ch in r'\/:*?"<>|':
-            s = s.replace(ch, "-")
-        return s.strip(" .")[:60]
-
-    artist   = san(metadata.get("album_artist") or metadata.get("artist", "Unknown"))
-    album    = san(metadata.get("album", "Unknown Album"))
-    track    = str(metadata.get("track_number", "")).zfill(2) if metadata.get("track_number") else "00"
-    title    = san(metadata.get("title", "Unknown Track"))
-
-    return f"{artist} - {album} - {track} - {title}.mp3"
-
-
-# ── Main Save Function ────────────────────────────────────────────────────────
-
-def save_recording(pcm: bytes, metadata: dict) -> Optional[Path]:
-    """
-    Encode PCM to MP3, tag it, and save to recordings/.
-    Returns the output path on success, None on failure.
-    metadata: same keys as tag_mp3 above.
-    """
-    RECORDINGS_DIR.mkdir(exist_ok=True)
-
-    filename = make_filename(metadata)
-    out_path = RECORDINGS_DIR / filename
-
-    # Avoid overwriting — append counter if needed
-    counter = 1
-    while out_path.exists():
-        stem    = out_path.stem
-        out_path = RECORDINGS_DIR / f"{stem} ({counter}).mp3"
-        counter += 1
-
-    print(f"[recorder] Encoding → {out_path.name}")
-
-    if not encode_mp3(pcm, out_path):
-        print(f"[recorder] Encoding failed — check that lame is installed: sudo apt install lame")
-        return None
-
-    if not out_path.exists():
-        print(f"[recorder] Output file missing after encode — lame may have failed silently")
-        return None
-
-    if not tag_mp3(out_path, metadata):
-        print(f"[recorder] Tagging failed — MP3 saved without tags")
-
-    size_mb  = out_path.stat().st_size / (1024 * 1024)
-    duration = _pcm_duration(pcm)
-    print(f"[recorder] Saved {out_path.name} ({duration:.0f}s, {size_mb:.1f} MB)")
-    return out_path
-
-
-# ── Recordings Catalog ────────────────────────────────────────────────────────
-
-def list_recordings() -> list[dict]:
-    """List all MP3 files in recordings/ with metadata."""
-    RECORDINGS_DIR.mkdir(exist_ok=True)
-    files = sorted(RECORDINGS_DIR.glob("*.mp3"), key=lambda p: p.stat().st_mtime, reverse=True)
-    result = []
-    for f in files:
-        stat = f.stat()
-        result.append({
-            "filename": f.name,
-            "size_mb":  round(stat.st_size / (1024 * 1024), 1),
-            "modified": stat.st_mtime,
-        })
-    return result
-
-
-def delete_recording(filename: str) -> bool:
-    path = RECORDINGS_DIR / Path(filename).name  # prevent path traversal
-    if path.exists() and path.suffix == ".mp3":
-        path.unlink()
-        return True
-    return False
