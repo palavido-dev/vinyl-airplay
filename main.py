@@ -2393,6 +2393,18 @@ class LearnSession:
         self.pending_tracks.pop(0)
         self.learned += 1
 
+        # Notify UI that fingerprint was saved — triggers track list refresh
+        # (separate from the track boundary notification which fires before FP is saved)
+        if state.album_recorder or self.album_id:
+            asyncio.run_coroutine_threadsafe(
+                broadcast("album_recording_status", {
+                    "recording": True,
+                    "album_id": self.album_id,
+                    "message": f"\u23fa Learned {just_learned_name}",
+                }),
+                self._loop
+            )
+
         track_name = self.next_track_name() if self.pending_tracks else "—"
         print(f"[learn] ✓ Track learned ({self.learned}/{self.track_count}): "
               f"{rows} fingerprint windows saved")

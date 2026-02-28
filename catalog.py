@@ -809,7 +809,13 @@ def get_discogs_release(discogs_id: str, token: str = "") -> dict:
         # Tracks — Discogs uses position like "A1", "A2", "B1"
         tracks = []
         for t in data.get("tracklist", []):
+            # Skip non-track entries (headings like "Side A", index sub-tracks)
+            ttype = t.get("type_", "track")
+            if ttype != "track":
+                continue
             pos = t.get("position", "")
+            if not pos and not t.get("title"):
+                continue  # skip entries with no position and no title
             # Parse side from position: A1→side=A, B2→side=B, 1→side=A, etc.
             if pos and pos[0].isalpha():
                 side = pos[0].upper()
