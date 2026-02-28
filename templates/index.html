@@ -1017,13 +1017,16 @@ function updateRecSideInfo(){const side=document.getElementById('album-rec-side'
 function hideAlbumRecPanel(){document.getElementById('album-rec-panel').style.display='none'}
 var _recOutputDevice=null;
 var _recSetupHTML=null;
+var _recSide=null;
 async function startAlbumRecording(){
   var setup=document.getElementById('album-rec-setup');
   if(!_recSetupHTML)_recSetupHTML=setup.innerHTML;
+  // Save side before potentially replacing HTML
+  _recSide=document.getElementById('album-rec-side')?.value||'A';
   // If already streaming, skip device picker and go straight to recording
   if(_isStreaming){beginRecordingWithDevice(null);return}
   // Show device picker for monitoring during recording
-  var side=document.getElementById('album-rec-side').value;
+  var side=_recSide;
   _recOutputDevice=null;
   // Build a mini device picker inline
   var setup=document.getElementById('album-rec-setup');
@@ -1049,7 +1052,7 @@ async function startAlbumRecording(){
   setup.innerHTML='<div style="font-size:0.82rem;color:var(--cream);margin-bottom:0.4rem">Play audio while recording Side '+side+'?</div>'+html;
 }
 async function beginRecordingWithDevice(devIdx){
-  var side=document.getElementById('album-rec-side').value;
+  var side=_recSide||document.getElementById('album-rec-side')?.value||'A';
   var dev=devIdx!==null?window._recDeviceList[devIdx]:null;
   // If a device was chosen, start streaming to it first
   if(dev){
