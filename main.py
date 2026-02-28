@@ -1149,10 +1149,10 @@ async def search_catalog(artist: str = "", album: str = ""):
 
 
 @app.get("/api/catalog/search/discogs")
-async def search_discogs(artist: str = "", album: str = ""):
+async def search_discogs(artist: str = "", album: str = "", barcode: str = ""):
     token = state.settings.get("discogs_token", "")
     results = await asyncio.get_event_loop().run_in_executor(
-        None, lambda: cat.search_discogs(artist, album, token=token)
+        None, lambda: cat.search_discogs(artist, album, token=token, barcode=barcode)
     )
     return {"releases": results}
 

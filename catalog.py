@@ -735,7 +735,7 @@ def search_musicbrainz(artist: str, album: str, limit: int = 8) -> list[dict]:
         return []
 
 
-def search_discogs(artist: str, album: str, token: str = "", limit: int = 8) -> list[dict]:
+def search_discogs(artist: str, album: str, token: str = "", limit: int = 8, barcode: str = "") -> list[dict]:
     """
     Search Discogs for vinyl releases matching artist + album.
     Pass a personal access token for higher rate limits (60/min vs 25/min).
@@ -745,6 +745,7 @@ def search_discogs(artist: str, album: str, token: str = "", limit: int = 8) -> 
     params = {"type": "release", "format": "Vinyl", "per_page": limit, "page": 1}
     if artist: params["artist"] = artist
     if album:  params["release_title"] = album
+    if barcode: params["barcode"] = barcode
     url = "https://api.discogs.com/database/search?" + urllib.parse.urlencode(params)
     headers = {"User-Agent": MB_APP}
     if token:
