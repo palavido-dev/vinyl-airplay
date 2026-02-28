@@ -521,6 +521,10 @@ async def _run_stream_inner(targets, audio_device_index, volume):
     state.stop_event     = asyncio.Event()
     main_loop            = asyncio.get_event_loop()
 
+    # Separate local vs AirPlay targets
+    local_targets  = [t for t in targets if str(t.get("id", "")).startswith("local:")]
+    airplay_targets = [t for t in targets if not str(t.get("id", "")).startswith("local:")]
+
     # Create a shared mutable MediaMetadata object — passed once to stream_file
     # and updated in-place via on_match() whenever a new track is identified
     np = state.now_playing or {}
@@ -531,13 +535,34 @@ async def _run_stream_inner(targets, audio_device_index, volume):
         artwork= _art_jpeg(np) if np else None,
     )
 
-    # Load atvremote saved credentials (~/.pyatv.conf) so Apple TV accepts our connection
-    found      = await pyatv.scan(main_loop, timeout=7,
-                                  protocol=pyatv.Protocol.AirPlay)
-    id_to_conf = {d.identifier: d for d in found}
-    confs      = [id_to_conf[t["id"]] for t in targets if t["id"] in id_to_conf]
+    # Set up AirPlay devices (if any)
+    confs = []
+    if airplay_targets:
+        found      = await pyatv.scan(main_loop, timeout=7,
+                                      protocol=pyatv.Protocol.AirPlay)
+        id_to_conf = {d.identifier: d for d in found}
+        confs      = [id_to_conf[t["id"]] for t in airplay_targets if t["id"] in id_to_conf]
 
-    if not confs:
+    # Set up local output streams
+    local_streams = []
+    for lt in local_targets:
+        alsa_dev = lt.get("alsa_device")
+        if not alsa_dev:
+            local_devs = {d["id"]: d for d in _get_local_outputs()}
+            info = local_devs.get(lt["id"])
+            if info:
+                alsa_dev = info["alsa_device"]
+        if not alsa_dev:
+            print(f"[local-out] No ALSA device for {lt.get('id')}, skipping")
+            continue
+        try:
+            lo = LocalOutputStream(alsa_dev)
+            lo.start()
+            local_streams.append(lo)
+        except Exception as e:
+            print(f"[local-out] Failed to open {alsa_dev}: {e}")
+
+    if not confs and not local_streams:
         await broadcast("error", {"message": "No paired devices found on network"})
         state.stop_event=None
         return
@@ -547,12 +572,14 @@ async def _run_stream_inner(targets, audio_device_index, volume):
     state.active_devices = [d["name"] for d in targets]
     await broadcast("status", {
         "streaming": True, "devices": state.active_devices,
-        "message": f"Streaming to {len(targets)} device(s)"
+        "message": f"Streaming to {len(confs) + len(local_streams)} device(s)"
     })
 
     audio_streams = {conf.identifier: AsyncAudioStream() for conf in confs}
     active_count  = len(confs)
     threads_done  = asyncio.Event()
+    if active_count == 0:
+        threads_done.set()  # No AirPlay threads — mark done immediately
 
     def on_device_done(name, err):
         nonlocal active_count
@@ -640,17 +667,22 @@ async def _run_stream_inner(targets, audio_device_index, volume):
     )
     state.recogniser.start()
 
-    callback = make_callback(list(audio_streams.values()), state.eq, state.fp_buffer)
+    callback = make_callback(list(audio_streams.values()) + local_streams, state.eq, state.fp_buffer)
 
     try:
         with sd.InputStream(device=audio_device_index, samplerate=SAMPLE_RATE,
                             channels=CAPTURE_CHANNELS, dtype="float32",
                             blocksize=BLOCK_SIZE, callback=callback):
             stop_task    = asyncio.create_task(state.stop_event.wait())
-            threads_task = asyncio.create_task(threads_done.wait())
-            done, pending = await asyncio.wait(
-                [stop_task, threads_task], return_when=asyncio.FIRST_COMPLETED
-            )
+            if confs:
+                threads_task = asyncio.create_task(threads_done.wait())
+                done, pending = await asyncio.wait(
+                    [stop_task, threads_task], return_when=asyncio.FIRST_COMPLETED
+                )
+            else:
+                # Local-only: just wait for stop
+                await stop_task
+                pending = set()
             for t in pending: t.cancel()
             await asyncio.gather(*pending, return_exceptions=True)
     finally:
@@ -665,6 +697,7 @@ async def _run_stream_inner(targets, audio_device_index, volume):
         state.rec_buffer = None
         state.now_playing=None
         for s in audio_streams.values(): s.stop()
+        for lo in local_streams: lo.stop()
         state.is_streaming=False; state.active_devices=[]; state.stop_event=None
         await broadcast("status",      {"streaming": False, "message": "Stopped"})
         await broadcast("now_playing", {"track_title": None})
