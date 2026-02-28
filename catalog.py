@@ -772,6 +772,7 @@ def search_discogs(artist: str, album: str, token: str = "", limit: int = 8) -> 
                 "tracks":  len(r.get("tracklist") or []),
                 "format":  ", ".join(r.get("format") or []),
                 "catno":   (r.get("labels") or [{}])[0].get("catno", ""),
+                "barcode": (r.get("barcode") or [""])[0] if r.get("barcode") else "",
                 "thumb":   r.get("thumb", ""),
                 "source":  "discogs",
             })

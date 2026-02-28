@@ -80,6 +80,7 @@ class Player:
         self._side_idx     = 0        # current index into playlist
         self._position     = 0.0      # seconds into current side
         self._current_track_idx = -1  # index into current side's tracks list
+        self._repeat_mode  = "off"    # off | album | track
 
         self._state        = "stopped"  # stopped | playing | paused
         self._lock         = threading.Lock()
@@ -133,7 +134,17 @@ class Player:
             "track_title":   track["title"] if track else None,
             "side_index":    self._side_idx,
             "side_count":    len(self.playlist),
+            "repeat_mode":   self._repeat_mode,
         }
+
+    def cycle_repeat(self) -> str:
+        """Cycle repeat mode: off → album → track → off."""
+        modes = ["off", "album", "track"]
+        idx = modes.index(self._repeat_mode) if self._repeat_mode in modes else 0
+        self._repeat_mode = modes[(idx + 1) % 3]
+        print(f"[player] Repeat mode: {self._repeat_mode}")
+        self._on_status_change(self.get_status())
+        return self._repeat_mode
 
     # ── Playback Control ─────────────────────────────────────────────────────
 
@@ -242,6 +253,9 @@ class Player:
         elif self._side_idx + 1 < len(self.playlist):
             # Next side
             self._change_side(self._side_idx + 1, 0.0)
+        elif self._repeat_mode == "album" and self.playlist:
+            # Repeat album: wrap around to first side
+            self._change_side(0, 0.0)
         else:
             # End of album
             self.stop()
@@ -362,6 +376,16 @@ class Player:
             new_idx = 0
 
         if new_idx != self._current_track_idx and new_idx >= 0:
+            # Repeat-track: if track changed naturally (not via seek/next/prev),
+            # loop back to start of the current track
+            if (self._repeat_mode == "track"
+                    and self._current_track_idx >= 0
+                    and not getattr(self, '_skip_repeat_check', False)):
+                old_track = entry.tracks[self._current_track_idx]
+                start = old_track.get("start_secs") or 0.0
+                self.seek_to(start)
+                return  # Don't update track index — we're looping
+
             self._current_track_idx = new_idx
             track = entry.tracks[new_idx]
             info = {
@@ -392,7 +416,15 @@ class Player:
         self._side_change_requested = False
         self._side_change_target = (0, 0.0)
 
-        while not self._stop_event.is_set() and self._side_idx < len(self.playlist):
+        self._restart_playback = False
+
+        while not self._stop_event.is_set() and (self._side_idx < len(self.playlist) or self._restart_playback):
+            if self._restart_playback:
+                self._restart_playback = False
+                self._side_idx = 0
+                self._position = 0.0
+                self._current_track_idx = -1
+                print("[player] Repeat album — restarting")
             entry = self.playlist[self._side_idx]
             print(f"[player] Starting Side {entry.side}: {entry.audio_path} "
                   f"(at {self._position:.1f}s, {len(entry.tracks)} tracks)")
@@ -415,6 +447,7 @@ class Player:
             # Real-time feed loop
             t_start   = time.monotonic()
             pos_start = self._position
+            bytes_fed = 0
             status_ticker = 0
 
             while not self._stop_event.is_set():
@@ -446,6 +479,7 @@ class Player:
                         self._position = target
                         self._current_track_idx = -1
                         pos_start = target
+                        bytes_fed = 0
                         t_start = time.monotonic()
                         self._kill_ffmpeg()
                         if not self._start_ffmpeg(entry.audio_path, target):
@@ -467,8 +501,9 @@ class Player:
                 if len(data) < CHUNK_BYTES:
                     data += b'\x00' * (CHUNK_BYTES - len(data))
 
-                # Update position
-                self._position = pos_start + (time.monotonic() - t_start)
+                # Update position based on bytes fed (not wall clock)
+                bytes_fed += CHUNK_BYTES
+                self._position = pos_start + bytes_fed / BYTES_PER_SEC
 
                 # Apply EQ
                 audio_f32 = np.frombuffer(data, dtype=np.int16).reshape(-1, CHANNELS).astype(np.float32) / 32767.0
@@ -487,20 +522,13 @@ class Player:
                 if status_ticker % 11 == 0:  # ~11 chunks/sec × 1 ≈ 1s
                     self._on_status_change(self.get_status())
 
-                # Rate limit: sleep to maintain real-time pace
-                # Target time for this chunk based on bytes fed
-                elapsed  = time.monotonic() - t_start
-                expected = self._position - pos_start
-                # Use a small lead (feed slightly ahead) so AirPlay buffer stays full
-                ahead = elapsed - expected
-                if ahead < -0.02:
-                    # We're behind — don't sleep, catch up
-                    pass
-                else:
-                    # Sleep to maintain real-time rate
-                    sleep_time = CHUNK_SECS - ahead
-                    if sleep_time > 0.001:
-                        time.sleep(sleep_time)
+                # Rate limit: sleep to maintain real-time pace using
+                # bytes-fed-based target (self-correcting — no drift accumulation)
+                target_time = bytes_fed / BYTES_PER_SEC
+                actual_time = time.monotonic() - t_start
+                sleep_needed = target_time - actual_time
+                if sleep_needed > 0.001:
+                    time.sleep(sleep_needed)
 
             self._kill_ffmpeg()
 
@@ -519,6 +547,8 @@ class Player:
             if self._side_idx < len(self.playlist):
                 print(f"[player] Auto-advancing to Side {self.playlist[self._side_idx].side}")
                 self._on_status_change(self.get_status())
+            elif self._repeat_mode == "album" and self.playlist:
+                self._restart_playback = True
             # Loop continues with next side
 
         # Playback finished
