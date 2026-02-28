@@ -735,7 +735,7 @@ def search_musicbrainz(artist: str, album: str, limit: int = 8) -> list[dict]:
         return []
 
 
-def search_discogs(artist: str, album: str, token: str = "", limit: int = 8) -> list[dict]:
+def search_discogs(artist: str, album: str, token: str = "", limit: int = 8, barcode: str = "") -> list[dict]:
     """
     Search Discogs for vinyl releases matching artist + album.
     Pass a personal access token for higher rate limits (60/min vs 25/min).
@@ -745,6 +745,7 @@ def search_discogs(artist: str, album: str, token: str = "", limit: int = 8) -> 
     params = {"type": "release", "format": "Vinyl", "per_page": limit, "page": 1}
     if artist: params["artist"] = artist
     if album:  params["release_title"] = album
+    if barcode: params["barcode"] = barcode
     url = "https://api.discogs.com/database/search?" + urllib.parse.urlencode(params)
     headers = {"User-Agent": MB_APP}
     if token:
@@ -772,6 +773,7 @@ def search_discogs(artist: str, album: str, token: str = "", limit: int = 8) -> 
                 "tracks":  len(r.get("tracklist") or []),
                 "format":  ", ".join(r.get("format") or []),
                 "catno":   (r.get("labels") or [{}])[0].get("catno", ""),
+                "barcode": (r.get("barcode") or [""])[0] if r.get("barcode") else "",
                 "thumb":   r.get("thumb", ""),
                 "source":  "discogs",
             })
@@ -808,7 +810,13 @@ def get_discogs_release(discogs_id: str, token: str = "") -> dict:
         # Tracks — Discogs uses position like "A1", "A2", "B1"
         tracks = []
         for t in data.get("tracklist", []):
+            # Skip non-track entries (headings like "Side A", index sub-tracks)
+            ttype = t.get("type_", "track")
+            if ttype != "track":
+                continue
             pos = t.get("position", "")
+            if not pos and not t.get("title"):
+                continue  # skip entries with no position and no title
             # Parse side from position: A1→side=A, B2→side=B, 1→side=A, etc.
             if pos and pos[0].isalpha():
                 side = pos[0].upper()
@@ -1024,6 +1032,22 @@ def fetch_artwork(mb_release_id: str, album_id: int) -> Optional[str]:
 
     except Exception as e:
         print(f"[catalog] Artwork fetch failed: {e}")
+        return None
+
+
+def fetch_artwork_from_url(url: str, album_id: int) -> Optional[str]:
+    """Download artwork from any URL (e.g. Discogs). Returns relative path or None."""
+    if not url:
+        return None
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": MB_APP})
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            data = resp.read()
+        path = _save_artwork(data, album_id, user=False)
+        print(f"[catalog] Artwork downloaded from {url[:60]}...")
+        return path
+    except Exception as e:
+        print(f"[catalog] Artwork URL fetch failed: {e}")
         return None
 
 

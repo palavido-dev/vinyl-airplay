@@ -310,17 +310,17 @@
     min-height: 1.2em;
   }
   .osk-row {
-    display: flex; justify-content: center; gap: 3px;
-    margin-bottom: 3px;
+    display: flex; justify-content: center; gap: 4px;
+    margin-bottom: 4px;
   }
   .osk-key {
-    min-width: 36px; height: 42px;
+    min-width: 42px; height: 50px;
     border-radius: 5px;
     background: rgba(255,255,255,0.08);
     border: 1px solid rgba(212,162,78,0.15);
     color: var(--cream);
     font-family: var(--body-font);
-    font-size: 0.9rem; font-weight: 500;
+    font-size: 1.05rem; font-weight: 500;
     cursor: pointer;
     display: flex; align-items: center; justify-content: center;
     padding: 0 0.2rem;
@@ -329,8 +329,8 @@
     -webkit-tap-highlight-color: transparent;
   }
   .osk-key:active, .osk-key.active { background: rgba(212,162,78,0.3); }
-  .osk-key.wide { min-width: 52px; font-size: 0.75rem; }
-  .osk-key.wider { min-width: 68px; font-size: 0.75rem; }
+  .osk-key.wide { min-width: 58px; font-size: 0.82rem; }
+  .osk-key.wider { min-width: 74px; font-size: 0.82rem; }
   .osk-key.space {
     flex: 1; max-width: 320px;
     font-size: 0.7rem; color: rgba(245,235,216,0.4);
@@ -419,6 +419,60 @@
     0%   { height: 4px; }
     100% { height: 28px; }
   }
+  /* ── Output Picker ── */
+  .output-picker-overlay {
+    display: none; position: fixed; inset: 0; z-index: 200;
+    background: rgba(44,24,16,0.7);
+    align-items: center; justify-content: center;
+    backdrop-filter: blur(4px);
+  }
+  .output-picker-overlay.open { display: flex; }
+  .output-picker {
+    background: linear-gradient(180deg, var(--cream) 0%, var(--paper) 100%);
+    border: 2px solid var(--leather);
+    border-radius: 12px;
+    padding: 1.2rem;
+    width: 90%; max-width: 600px;
+    box-shadow: 0 8px 40px rgba(0,0,0,0.4);
+  }
+  .output-picker-title {
+    font-family: var(--display-font);
+    font-size: 1.1rem; font-weight: 700;
+    color: var(--ink); margin-bottom: 0.3rem;
+  }
+  .output-picker-subtitle {
+    font-size: 0.78rem; color: var(--muted); margin-bottom: 0.8rem;
+  }
+  .output-device-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 0.6rem; margin-bottom: 0.8rem;
+  }
+  .output-device-card {
+    background: var(--paper); border: 2px solid var(--paper-dk);
+    border-radius: 8px; padding: 0.8rem; cursor: pointer;
+    transition: border-color 0.15s, transform 0.1s, box-shadow 0.15s;
+    display: flex; flex-direction: column; align-items: center;
+    gap: 0.4rem; min-height: 100px; position: relative;
+  }
+  .output-device-card:active { transform: scale(0.96); }
+  .output-device-card:hover, .output-device-card.last-used {
+    border-color: var(--amber-dk);
+    box-shadow: 0 2px 12px rgba(212,162,78,0.2);
+  }
+  .output-device-card.last-used::after {
+    content: 'last used'; position: absolute; top: 4px; right: 6px;
+    font-size: 0.55rem; color: var(--amber-dk);
+    text-transform: uppercase; letter-spacing: 0.06em; font-weight: 700;
+  }
+  .output-device-icon { font-size: 2rem; line-height: 1; }
+  .output-device-name {
+    font-family: var(--display-font); font-size: 0.85rem; font-weight: 700;
+    color: var(--ink); text-align: center; word-break: break-word;
+  }
+  .output-device-orig { font-size: 0.65rem; color: var(--muted); text-align: center; }
+  .output-device-rename { font-size: 0.6rem; color: var(--amber-dk); cursor: pointer; text-decoration: underline; }
+  .output-picker-actions { display: flex; justify-content: flex-end; gap: 0.5rem; }
 </style>
 </head>
 <body>
@@ -457,6 +511,8 @@
       <button class="np-btn primary" id="np-play-pause" onclick="playerToggle()">⏸</button>
       <button class="np-btn" onclick="playerNext()">⏭</button>
       <button class="np-btn" onclick="playerStop()">⏹</button>
+      <button class="np-btn" id="np-repeat" onclick="playerRepeat()" title="Repeat" style="opacity:0.4">🔁</button>
+      <button class="np-btn" onclick="switchOutput()" title="Switch output">🔊</button>
     </div>
   </div>
   <div class="np-progress-row" id="np-progress-row" style="display:none">
@@ -577,6 +633,7 @@
       <div class="form-cols" style="margin-bottom:0.4rem">
         <div class="form-row"><label>Artist</label><input type="text" class="form-input" id="s-artist" placeholder="Pearl Jam" onkeydown="if(event.key==='Enter')doSearch()"></div>
         <div class="form-row"><label>Album</label><input type="text" class="form-input" id="s-album" placeholder="Ten" onkeydown="if(event.key==='Enter')doSearch()"></div>
+        <div class="form-row"><label>Barcode</label><input type="text" class="form-input" id="s-barcode" placeholder="075021033115" onkeydown="if(event.key==='Enter')doSearch()"></div>
       </div>
       <div style="display:flex;gap:0.4rem;margin-bottom:0.6rem;flex-wrap:wrap">
         <button class="btn btn-accent" id="btn-search" onclick="doSearch()">Search Discogs</button>
@@ -620,6 +677,19 @@
     <button class="btn btn-ghost" onclick="hideSettings()" style="width:100%;margin-top:0.5rem">Close</button>
   </div>
 </div>
+<!-- Output Picker -->
+<div class="output-picker-overlay" id="output-picker-overlay" onclick="if(event.target===this)closeOutputPicker()">
+  <div class="output-picker">
+    <div class="output-picker-title" id="output-picker-title">Where do you want to listen?</div>
+    <div class="output-picker-subtitle" id="output-picker-subtitle">Choose an output for playback</div>
+    <div class="output-device-grid" id="output-device-grid"></div>
+    <input type="text" id="rename-input" placeholder="Device name" style="display:none;width:100%;padding:0.5rem;margin-bottom:0.5rem;border:2px solid var(--amber-dk);border-radius:6px;font-family:var(--body-font);font-size:0.9rem" onblur="setTimeout(onRenameDone,200)" onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur()}">
+    <div class="output-picker-actions">
+      <button class="btn btn-ghost" onclick="closeOutputPicker()">Cancel</button>
+    </div>
+  </div>
+</div>
+
 <!-- Screensaver -->
 <div class="screensaver" id="screensaver" onclick="wakeSS()" ontouchstart="wakeSS()">
   <div class="ss-content" id="ss-content">
@@ -645,7 +715,7 @@
   <div class="osk-row" id="osk-row-bottom"></div>
 </div>
 <script>
-let ws,currentAlbumId=null,_catalogAlbums=[],_playerActive=false,_playerSource=null,_learnLog=[],_learnLevelInterval=null,_audioPlayer=null,_audioPlayingId=null,_reorderMode=false,_pendingRelease=null,_recTimerInterval=null;
+let ws,currentAlbumId=null,_catalogAlbums=[],_playerActive=false,_playerSource=null,_isStreaming=false,_lastUsedDevice=null,_pendingAlbumId=null,_currentDevices=null,_playerAlbumId=null,_learnLog=[],_learnLevelInterval=null,_audioPlayer=null,_audioPlayingId=null,_reorderMode=false,_pendingRelease=null,_recTimerInterval=null;
 
 function esc(s){if(!s)return'';const d=document.createElement('div');d.textContent=s;return d.innerHTML}
 function fmtTime(s){return Math.floor(s/60)+':'+String(Math.floor(s%60)).padStart(2,'0')}
@@ -672,7 +742,7 @@ function handleEvent(d){
 }
 
 function setStatus(d){
-  const s=d.streaming;
+  const s=d.streaming;_isStreaming=!!s;
   document.getElementById('dot').className='status-dot'+(s?' on':'');
   let msg=d.message||(s?'Streaming':'Idle');
   if(s&&d.devices&&d.devices.length)msg='Streaming to '+d.devices.join(', ');
@@ -703,13 +773,148 @@ function renderCatalog(albums){
 }
 function filterCatalog(q){if(!q){renderCatalog(_catalogAlbums);return}const ql=q.toLowerCase();renderCatalog(_catalogAlbums.filter(a=>(a.title||'').toLowerCase().includes(ql)||(a.artist||'').toLowerCase().includes(ql)||(a.genre||'').toLowerCase().includes(ql)))}
 
-function onAlbumTap(id,has){if(has)playAlbum(id);else openAlbumDetail(id)}
-async function playAlbum(id){showToast('Starting playback\u2026');const r=await fetch('/api/player/play',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({album_id:id})}).then(r=>r.json());if(!r.ok)showError(r.error||'Playback failed')}
-async function shufflePlay(){const p=_catalogAlbums.filter(a=>a.audio_count>0);if(!p.length){showToast('No recorded albums to shuffle');return}const a=p[Math.floor(Math.random()*p.length)];showToast(`Shuffling: ${a.artist} \u2014 ${a.title}`);playAlbum(a.id)}
+function onAlbumTap(id,has){if(!has){openAlbumDetail(id);return}if(_isStreaming||_playerActive){playAlbum(id)}else{_pendingAlbumId=id;showOutputPicker(id)}}
+async function playAlbum(id){showToast('Starting playback\u2026');var body={album_id:id};if(_currentDevices)body.devices=_currentDevices;const r=await fetch('/api/player/play',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(r=>r.json());if(!r.ok)showError(r.error||'Playback failed')}
+async function shufflePlay(){const p=_catalogAlbums.filter(a=>a.audio_count>0);if(!p.length){showToast('No recorded albums to shuffle');return}const a=p[Math.floor(Math.random()*p.length)];if(_isStreaming||_playerActive){showToast(`Shuffling: ${a.artist} \u2014 ${a.title}`);playAlbum(a.id)}else{_pendingAlbumId=a.id;showOutputPicker(a.id)}}
+
+// ── Output Picker ──
+var _outputDevices=[];
+var _pickerAlbumId=null;
+async function showOutputPicker(albumId){
+  _pickerAlbumId=albumId;
+  var overlay=document.getElementById('output-picker-overlay');
+  var grid=document.getElementById('output-device-grid');
+  var album=_catalogAlbums.find(function(a){return a.id===albumId});
+  if(album){
+    document.getElementById('output-picker-title').textContent=album.artist+' \u2014 '+album.title;
+    document.getElementById('output-picker-subtitle').textContent='Choose where to play';
+  }
+  grid.innerHTML='<div style="color:var(--muted);font-size:0.82rem">Loading devices\u2026</div>';
+  overlay.classList.add('open');
+  try{
+    var d=await fetch('/api/devices').then(function(r){return r.json()});
+    var allDevices=(d.devices||[]).filter(function(dev){return dev.paired!==false});
+    if(!allDevices.filter(function(dev){return !dev.hidden}).length){
+      grid.innerHTML='<div style="color:var(--muted);font-size:0.82rem">Scanning\u2026</div>';
+      d=await fetch('/api/scan').then(function(r){return r.json()});
+      allDevices=(d.devices||[]).filter(function(dev){return dev.paired!==false});
+    }
+    renderOutputCards(allDevices);
+  }catch(e){grid.innerHTML='<div style="color:var(--rust);font-size:0.82rem">Failed: '+e.message+'</div>'}
+}
+function renderOutputCards(allDevices){
+  var visible=allDevices.filter(function(d){return !d.hidden});
+  var hidden=allDevices.filter(function(d){return d.hidden});
+  _outputDevices=visible;
+  var grid=document.getElementById('output-device-grid');
+  if(!visible.length&&!hidden.length){grid.innerHTML='<div style="color:var(--muted);font-size:0.82rem">No devices found. <span style="color:var(--amber-dk);cursor:pointer;text-decoration:underline" onclick="rescanOutputDevices()">Rescan</span></div>';return}
+  var html=visible.map(function(dev,idx){
+    var name=dev.custom_name||dev.name;
+    var orig=dev.custom_name?dev.name:null;
+    var icon=guessDeviceIcon(dev.name);
+    var last=_lastUsedDevice&&_lastUsedDevice===dev.id;
+    var isLocal=dev.type==='local';
+    return '<div class="output-device-card'+(last?' last-used':'')+'" onclick="pickOutput('+idx+')" data-device-id="'+dev.id+'">'
+      +'<div class="output-device-icon">'+icon+'</div>'
+      +'<div class="output-device-name">'+esc(name)+'</div>'
+      +(orig?'<div class="output-device-orig">'+esc(orig)+'</div>':'')
+      +(isLocal?'<div style="font-size:0.6rem;color:var(--amber-dk);font-weight:700;text-transform:uppercase;letter-spacing:0.05em">Local</div>':'')
+      +'<div class="output-device-rename" onclick="event.stopPropagation();renameDevice(\''+dev.id+'\',\''+esc(name).replace(/'/g,"\\'")+'\')">rename</div>'
+      +'<div class="output-device-rename" onclick="event.stopPropagation();hideOutputDevice(\''+dev.id+'\',\''+esc(name).replace(/'/g,"\\'")+'\')">hide</div>'
+      +'</div>';
+  }).join('');
+  html+='<div style="text-align:center;grid-column:1/-1"><span style="color:var(--amber-dk);cursor:pointer;font-size:0.72rem;text-decoration:underline" onclick="rescanOutputDevices()">Rescan for devices</span></div>';
+  if(hidden.length){
+    html+='<div style="grid-column:1/-1;margin-top:0.4rem;border-top:1px solid var(--paper-dk);padding-top:0.4rem">'
+      +'<div style="font-size:0.7rem;color:var(--muted);cursor:pointer" onclick="var el=this.nextElementSibling;var open=el.style.display!==\'none\';el.style.display=open?\'none\':\'block\';this.textContent=open?\'Hidden devices (\'+'+hidden.length+'+\') ▸\':\'Hidden devices ▾\'">'
+      +'Hidden devices ('+hidden.length+') ▸</div>'
+      +'<div style="display:none">'
+      +hidden.map(function(dev){
+        var name=dev.custom_name||dev.name;
+        return '<div style="display:flex;justify-content:space-between;align-items:center;padding:0.15rem 0">'
+          +'<span style="font-size:0.75rem;color:var(--muted)">'+esc(name)+'</span>'
+          +'<span style="font-size:0.6rem;color:var(--amber-dk);cursor:pointer;text-decoration:underline" onclick="unhideDevice(\''+dev.id+'\')">show</span>'
+          +'</div>';
+      }).join('')
+      +'</div></div>';
+  }
+  grid.innerHTML=html;
+}
+function guessDeviceIcon(name){
+  var n=name.toLowerCase();
+  if(n.includes('homepod'))return'\uD83C\uDFDB\uFE0F';
+  if(n.includes('tv')||n.includes('apple tv'))return'\uD83D\uDCFA';
+  if(n.includes('mac')||n.includes('book'))return'\uD83D\uDCBB';
+  if(n.includes('iphone')||n.includes('phone'))return'\uD83D\uDCF1';
+  if(n.includes('sonos'))return'\uD83D\uDD0A';
+  if(n.includes('hdmi'))return'\uD83D\uDCFA';
+  if(n.includes('touchscreen'))return'\uD83D\uDD0A';
+  if(n.includes('headphone')||n.includes('scarlett'))return'\uD83C\uDFA7';
+  return'\uD83D\uDD0A';
+}
+async function pickOutput(idx){
+  var dev=_outputDevices[idx];
+  if(!dev)return;
+  var aid=_pendingAlbumId;
+  closeOutputPicker();
+  _lastUsedDevice=dev.id;
+  var displayName=dev.custom_name||dev.name;
+  showToast('Connecting to '+displayName+'\u2026');
+  var target={id:dev.id,name:dev.name};
+  if(dev.type==='local'){target.hw_index=dev.hw_index;if(dev.alsa_device)target.alsa_device=dev.alsa_device}
+  _currentDevices=[target];
+  fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({saved_devices:[target]})});
+  if(aid){var resume=_resumeInfo;_resumeInfo=null;playAlbumTo(aid,[target],resume)}
+}
+async function playAlbumTo(id,devices,resume){
+  showToast('Starting playback\u2026');
+  var body={album_id:id};
+  if(devices)body.devices=devices;
+  if(resume){if(resume.track_id)body.track_id=resume.track_id;if(resume.position_secs)body.resume_position_secs=resume.position_secs}
+  var r=await fetch('/api/player/play',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(function(r){return r.json()});
+  if(!r.ok)showError(r.error||'Playback failed');
+}
+function closeOutputPicker(){document.getElementById('output-picker-overlay').classList.remove('open');_pendingAlbumId=null;_pickerAlbumId=null}
+async function rescanOutputDevices(){
+  var grid=document.getElementById('output-device-grid');
+  grid.innerHTML='<div style="color:var(--muted);font-size:0.82rem">Scanning\u2026</div>';
+  try{var d=await fetch('/api/scan').then(function(r){return r.json()});renderOutputCards((d.devices||[]).filter(function(dev){return !dev.hidden&&dev.paired!==false}))}
+  catch(e){grid.innerHTML='<div style="color:var(--rust);font-size:0.82rem">Scan failed</div>'}
+}
+async function hideOutputDevice(deviceId,name){
+  await fetch('/api/devices/'+deviceId+'/hide',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({hidden:true})});
+  showToast('Hidden: '+name);
+  if(_pickerAlbumId)showOutputPicker(_pickerAlbumId);
+}
+async function unhideDevice(deviceId){
+  await fetch('/api/devices/'+deviceId+'/hide',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({hidden:false})});
+  showToast('Device restored');
+  if(_pickerAlbumId)showOutputPicker(_pickerAlbumId);
+}
+var _renameDeviceId=null;
+async function renameDevice(deviceId,currentName){
+  _renameDeviceId=deviceId;
+  var inp=document.getElementById('rename-input');
+  inp.value=currentName||'';
+  inp.style.display='block';
+  inp.focus();
+}
+function onRenameDone(){
+  var inp=document.getElementById('rename-input');
+  var newName=inp.value.trim();
+  inp.style.display='none';
+  if(_renameDeviceId===null)return;
+  var did=_renameDeviceId;_renameDeviceId=null;
+  fetch('/api/devices/'+did+'/rename',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:newName})}).then(function(){
+    showToast(newName?'Renamed to '+newName:'Name reset');
+    if(_pickerAlbumId)showOutputPicker(_pickerAlbumId);
+  });
+}
 
 function renderNowPlaying(d){
   if(typeof ssOnNowPlaying==='function')ssOnNowPlaying(d);
   if(!d.track_title){if(!_playerActive)hideNPFooter();return}
+  if(d.album_id)_playerAlbumId=d.album_id;
   showNPFooter();_playerSource=d.source||'vinyl';
   const w=document.getElementById('np-art-wrap');
   if(d.artwork_url)w.outerHTML=`<img class="np-art" id="np-art-wrap" src="${d.artwork_url}?t=${Date.now()}" alt="">`;
@@ -733,19 +938,24 @@ function renderNowPlaying(d){
 
 function onPlayerStatus(d){
   if(typeof ssOnPlayerStatus==='function')ssOnPlayerStatus(d);
-  if(d.state==='stopped'){_playerActive=false;document.getElementById('np-transport').style.display='none';document.getElementById('np-progress-row').style.display='none';if(_playerSource==='player')hideNPFooter();return}
+  if(d.state==='stopped'){_playerActive=false;_playerAlbumId=null;document.getElementById('np-transport').style.display='none';document.getElementById('np-progress-row').style.display='none';updateRepeatButton('off');if(_playerSource==='player')hideNPFooter();return}
   _playerActive=true;_playerSource='player';showNPFooter();
   document.getElementById('np-transport').style.display='flex';document.getElementById('np-progress-row').style.display='flex';
   document.getElementById('np-play-pause').textContent=d.state==='paused'?'\u25B6':'\u23F8';
   const pos=d.position_secs||0,dur=d.duration_secs||1;
   document.getElementById('np-progress-fill').style.width=Math.min(100,(pos/dur)*100)+'%';
   document.getElementById('np-time-cur').textContent=fmtTime(pos);document.getElementById('np-time-dur').textContent=fmtTime(dur);
+  if(d.repeat_mode!==undefined)updateRepeatButton(d.repeat_mode);
 }
 
 async function playerToggle(){await fetch('/api/player/pause',{method:'POST'})}
 async function playerStop(){await fetch('/api/player/stop',{method:'POST'})}
+var _resumeInfo=null;
+function switchOutput(){var aid=_playerAlbumId;if(!aid)return;_resumeInfo=null;fetch('/api/player/status').then(function(r){return r.json()}).then(function(s){if(s.track_id||s.position_secs)_resumeInfo={track_id:s.track_id,position_secs:s.position_secs};_pendingAlbumId=aid;showOutputPicker(aid)})}
 async function playerNext(){await fetch('/api/player/next',{method:'POST'})}
 async function playerPrev(){await fetch('/api/player/prev',{method:'POST'})}
+async function playerRepeat(){const r=await fetch('/api/player/repeat',{method:'POST'}).then(r=>r.json());if(r.ok)updateRepeatButton(r.repeat_mode)}
+function updateRepeatButton(mode){var btn=document.getElementById('np-repeat');if(!btn)return;if(mode==='album'){btn.style.opacity='1';btn.textContent='🔁';btn.title='Repeat album'}else if(mode==='track'){btn.style.opacity='1';btn.textContent='🔂';btn.title='Repeat track'}else{btn.style.opacity='0.4';btn.textContent='🔁';btn.title='Repeat off'}}
 function playerSeekClick(e){const b=e.currentTarget,r=b.getBoundingClientRect(),pct=(e.clientX-r.left)/r.width,pts=document.getElementById('np-time-dur').textContent.split(':'),dur=parseInt(pts[0])*60+parseInt(pts[1]);fetch('/api/player/seek',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({position_secs:pct*dur})})}
 
 let _eqT=null;
@@ -768,7 +978,7 @@ async function openAlbumDetail(id){
   loadAlbumAudio(id);hideAlbumRecPanel();document.getElementById('album-modal').classList.add('open');
 }
 function closeModal(){document.getElementById('album-modal').classList.remove('open');currentAlbumId=null}
-function playAlbumFromModal(){if(currentAlbumId){playAlbum(currentAlbumId);closeModal()}}
+function playAlbumFromModal(){if(!currentAlbumId)return;if(_isStreaming||_playerActive){playAlbum(currentAlbumId);closeModal()}else{closeModal();_pendingAlbumId=currentAlbumId;showOutputPicker(currentAlbumId)}}
 
 function renderModalTracks(tracks,reorder){
   const c=document.getElementById('modal-tracks');c.classList.toggle('reorder-mode',reorder);
@@ -807,16 +1017,67 @@ async function deleteAlbum(){if(!currentAlbumId||!confirm('Delete this album and
 function toggleReorderMode(){_reorderMode=!_reorderMode;document.getElementById('btn-reorder').classList.toggle('btn-accent',_reorderMode);renderModalTracks(window._modalTracks||[],_reorderMode)}
 function initDragReorder(){const c=document.getElementById('modal-tracks');let de=null;c.querySelectorAll('.track-row').forEach(r=>{r.draggable=true;r.addEventListener('dragstart',e=>{de=r;r.classList.add('dragging');e.dataTransfer.effectAllowed='move'});r.addEventListener('dragend',()=>{r.classList.remove('dragging');de=null});r.addEventListener('dragover',e=>{e.preventDefault();e.dataTransfer.dropEffect='move';if(de&&de!==r){const rect=r.getBoundingClientRect(),mid=rect.top+rect.height/2;if(e.clientY<mid)c.insertBefore(de,r);else c.insertBefore(de,r.nextSibling)}})});c.addEventListener('drop',async e=>{e.preventDefault();const ids=[...c.querySelectorAll('.track-row')].map(r=>parseInt(r.dataset.id));await fetch(`/api/catalog/${currentAlbumId}/reorder`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({track_ids:ids})});showToast('Track order saved');_reorderMode=false;document.getElementById('btn-reorder').classList.remove('btn-accent');openAlbumDetail(currentAlbumId)})}
 
-function showAlbumRecPanel(){document.getElementById('album-rec-panel').style.display='block';document.getElementById('album-rec-setup').style.display='block';document.getElementById('album-rec-active').style.display='none';document.getElementById('album-rec-saving').style.display='none';document.getElementById('album-rec-flip-prompt').style.display='none';updateRecSideInfo()}
+function showAlbumRecPanel(){document.getElementById('album-rec-panel').style.display='block';var setup=document.getElementById('album-rec-setup');if(_recSetupHTML)setup.innerHTML=_recSetupHTML;setup.style.display='block';document.getElementById('album-rec-active').style.display='none';document.getElementById('album-rec-saving').style.display='none';document.getElementById('album-rec-flip-prompt').style.display='none';updateRecSideInfo()}
 function updateRecSideInfo(){const side=document.getElementById('album-rec-side').value;const tracks=(window._modalTracks||[]).filter(t=>t.side===side);document.getElementById('album-rec-side-info').textContent=tracks.length?`${tracks.length} track${tracks.length>1?'s':''} on Side ${side}`:''}
 function hideAlbumRecPanel(){document.getElementById('album-rec-panel').style.display='none'}
-async function startAlbumRecording(){const side=document.getElementById('album-rec-side').value;const r=await fetch('/api/album-recording/start',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({album_id:currentAlbumId,side:side})}).then(r=>r.json());if(!r.ok){showError(r.error||'Failed');return}document.getElementById('album-rec-setup').style.display='none';document.getElementById('album-rec-active').style.display='block';document.getElementById('album-rec-active-side').textContent=side;document.getElementById('album-rec-timer').textContent='00:00';document.getElementById('album-rec-track-log').innerHTML='';const st=Date.now();clearInterval(_recTimerInterval);_recTimerInterval=setInterval(()=>{const s=Math.floor((Date.now()-st)/1000);document.getElementById('album-rec-timer').textContent=String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0')},1000)}
-async function stopAlbumRecording(){clearInterval(_recTimerInterval);document.getElementById('album-rec-active').style.display='none';document.getElementById('album-rec-saving').style.display='block';await fetch('/api/album-recording/stop',{method:'POST'})}
+var _recOutputDevice=null;
+var _recSetupHTML=null;
+var _recSide=null;
+async function startAlbumRecording(){
+  var setup=document.getElementById('album-rec-setup');
+  if(!_recSetupHTML)_recSetupHTML=setup.innerHTML;
+  // Save side before potentially replacing HTML
+  _recSide=document.getElementById('album-rec-side')?.value||'A';
+  // If already streaming, skip device picker and go straight to recording
+  if(_isStreaming){beginRecordingWithDevice(null);return}
+  // Show device picker for monitoring during recording
+  var side=_recSide;
+  _recOutputDevice=null;
+  // Build a mini device picker inline
+  var setup=document.getElementById('album-rec-setup');
+  setup.innerHTML='<div style="font-size:0.82rem;color:var(--muted);margin-bottom:0.3rem">Play audio while recording?</div><div style="color:var(--muted);font-size:0.72rem;margin-bottom:0.5rem">Loading devices\u2026</div>';
+  var d=await fetch('/api/devices').then(function(r){return r.json()});
+  var devices=(d.devices||[]).filter(function(dev){return !dev.hidden&&dev.paired!==false});
+  var html='<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:0.6rem">';
+  html+='<div class="output-device-card" onclick="beginRecordingWithDevice(null)" style="min-width:80px;padding:0.4rem 0.5rem;cursor:pointer"><div class="output-device-icon">🔇</div><div class="output-device-name" style="font-size:0.72rem">No audio</div></div>';
+  devices.forEach(function(dev,idx){
+    var name=dev.custom_name||dev.name;
+    var icon=guessDeviceIcon(dev.name);
+    var isLocal=dev.type==='local';
+    var j=JSON.stringify(dev).replace(/'/g,"\\'").replace(/"/g,'&quot;');
+    html+='<div class="output-device-card" onclick="beginRecordingWithDevice('+idx+')" style="min-width:80px;padding:0.4rem 0.5rem;cursor:pointer" data-rec-dev="'+idx+'">'
+      +'<div class="output-device-icon">'+icon+'</div>'
+      +'<div class="output-device-name" style="font-size:0.72rem">'+esc(name)+'</div>'
+      +(isLocal?'<div style="font-size:0.55rem;color:var(--amber-dk);font-weight:700;text-transform:uppercase">Local</div>':'')
+      +'</div>';
+  });
+  html+='</div>';
+  html+='<button class="btn" onclick="showAlbumRecPanel()" style="font-size:0.78rem">\u2190 Back</button>';
+  window._recDeviceList=devices;
+  setup.innerHTML='<div style="font-size:0.82rem;color:var(--cream);margin-bottom:0.4rem">Play audio while recording Side '+side+'?</div>'+html;
+}
+async function beginRecordingWithDevice(devIdx){
+  var side=_recSide||document.getElementById('album-rec-side')?.value||'A';
+  var dev=devIdx!==null?window._recDeviceList[devIdx]:null;
+  // If a device was chosen, start streaming to it first
+  if(dev){
+    var target={id:dev.id,name:dev.name};
+    if(dev.type==='local'){target.hw_index=dev.hw_index;if(dev.alsa_device)target.alsa_device=dev.alsa_device}
+    _recOutputDevice=target;
+    await fetch('/api/start',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({devices:[target],volume:parseInt(document.getElementById('volume-slider')?.value||80)})});
+    await new Promise(function(r){setTimeout(r,500)});
+  }
+  // Now start recording
+  var r=await fetch('/api/album-recording/start',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({album_id:currentAlbumId,side:side})}).then(function(r){return r.json()});
+  if(!r.ok){showError(r.error||'Failed');showAlbumRecPanel();return}
+  document.getElementById('album-rec-setup').style.display='none';document.getElementById('album-rec-active').style.display='block';document.getElementById('album-rec-active-side').textContent=side;document.getElementById('album-rec-timer').textContent='00:00';document.getElementById('album-rec-track-log').innerHTML='';const st=Date.now();clearInterval(_recTimerInterval);_recTimerInterval=setInterval(()=>{const s=Math.floor((Date.now()-st)/1000);document.getElementById('album-rec-timer').textContent=String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0')},1000)
+}
+async function stopAlbumRecording(keepStream){clearInterval(_recTimerInterval);document.getElementById('album-rec-active').style.display='none';document.getElementById('album-rec-saving').style.display='block';await fetch('/api/album-recording/stop',{method:'POST'});if(!keepStream&&_recOutputDevice){await fetch('/api/stop',{method:'POST'});_recOutputDevice=null}}
 async function cancelAlbumRecording(){clearInterval(_recTimerInterval);await fetch('/api/album-recording/cancel',{method:'POST'});hideAlbumRecPanel()}
-function flipAlbumRecording(){stopAlbumRecording()}
-function onAlbumRecStatus(d){if(d.message)document.getElementById('album-rec-status-text').textContent=d.message}
+function flipAlbumRecording(){stopAlbumRecording(true)}
+function onAlbumRecStatus(d){if(d.message)document.getElementById('album-rec-status-text').textContent=d.message;if(d.album_id&&currentAlbumId===d.album_id)refreshModalTracks(d.album_id);if(d.track_name){var log=document.getElementById('album-rec-track-log');log.innerHTML+='<div style="padding:0.15rem 0;color:var(--sage)">\u2713 '+esc(d.track_name)+'</div>';log.scrollTop=log.scrollHeight}}
 function onAlbumRecSideSaved(d){clearInterval(_recTimerInterval);document.getElementById('album-rec-active').style.display='none';document.getElementById('album-rec-saving').style.display='none';document.getElementById('album-rec-flip-prompt').style.display='block';document.getElementById('album-rec-done-side').textContent=d.side||'?';const ns=String.fromCharCode((d.side||'A').charCodeAt(0)+1);document.getElementById('album-rec-next-side-label').textContent=ns;if(currentAlbumId){loadAlbumAudio(currentAlbumId);loadCatalog()}}
-function startNextSideRecording(){const ns=document.getElementById('album-rec-next-side-label').textContent;document.getElementById('album-rec-side').value=ns;document.getElementById('album-rec-flip-prompt').style.display='none';startAlbumRecording()}
+async function startNextSideRecording(){const ns=document.getElementById('album-rec-next-side-label').textContent;_recSide=ns;var sideEl=document.getElementById('album-rec-side');if(sideEl)sideEl.value=ns;document.getElementById('album-rec-flip-prompt').style.display='none';if(_recOutputDevice){beginRecordingWithDevice(null)}else{startAlbumRecording()}}
 function finishAlbumRecSession(){hideAlbumRecPanel();if(currentAlbumId){loadAlbumAudio(currentAlbumId);loadCatalog()}}
 
 function openLearnForAlbum(){if(!currentAlbumId)return;const a=_catalogAlbums.find(x=>x.id===currentAlbumId);if(!a)return;document.getElementById('learn-album-input').value=a.artist+' \u2014 '+a.title;document.getElementById('learn-album-id').value=currentAlbumId;const sa=(window._modalTracks||[]).filter(t=>t.side==='A').length;document.getElementById('learn-track-count').value=sa||5;closeModal();showLearnOverlay()}
@@ -836,12 +1097,12 @@ function onLearnPaused(d){showLearnStep('paused');document.getElementById('learn
 function onLearnDone(d){showLearnStep('done');document.getElementById('learn-done-message').textContent=d.message||`${d.learned||0} track(s) learned.`;if(d.album_id)refreshModalTracks(d.album_id);loadCatalog()}
 function onLearnEndOfSide(d){const rem=d.track_count-d.learned;if(rem>0){document.getElementById('learn-pause-message').innerHTML=`\u2713 Learned <strong>${d.learned}</strong> of <strong>${d.track_count}</strong> tracks.<br>End of side detected \u2014 flip the record and press Continue.`;document.getElementById('learn-continue-count').value=rem;showLearnStep('paused')}else{document.getElementById('learn-done-message').textContent=`All ${d.learned} tracks learned successfully.`;showLearnStep('done');loadCatalog()}}
 
-function showAddForm(){document.getElementById('add-modal').classList.add('open');showAddStep('search');document.getElementById('s-artist').value='';document.getElementById('s-album').value='';document.getElementById('search-results').innerHTML=''}
+function showAddForm(){document.getElementById('add-modal').classList.add('open');showAddStep('search');document.getElementById('s-artist').value='';document.getElementById('s-album').value='';document.getElementById('s-barcode').value='';document.getElementById('search-results').innerHTML=''}
 function hideAddForm(){document.getElementById('add-modal').classList.remove('open');_pendingRelease=null}
 function showAddStep(s){['search','confirm','manual'].forEach(x=>document.getElementById('add-step-'+x).style.display=(x===s)?'block':'none')}
 function backToSearch(){showAddStep('search')}
 function showManualStep(){showAddStep('manual')}
-async function doSearch(){const a=document.getElementById('s-artist').value.trim(),al=document.getElementById('s-album').value.trim();if(!a&&!al){showError('Enter an artist or album');return}const btn=document.getElementById('btn-search');btn.disabled=true;btn.textContent='Searching\u2026';try{const r=await fetch(`/api/catalog/search/discogs?artist=${encodeURIComponent(a)}&album=${encodeURIComponent(al)}`).then(r=>r.json());const el=document.getElementById('search-results');if(!r.releases||!r.releases.length){el.innerHTML='<div style="color:var(--muted);font-size:0.82rem;padding:0.5rem 0">No results. Try different terms or enter manually.</div>';return}el.innerHTML=r.releases.map((r,i)=>{const art=r.thumb?`<img src="${r.thumb}" style="width:44px;height:44px;border-radius:4px;object-fit:cover">`:'<div style="width:44px;height:44px;border-radius:4px;background:var(--paper-dk);display:flex;align-items:center;justify-content:center">\uD83D\uDCBF</div>';return `<div style="display:flex;gap:0.5rem;align-items:center;padding:0.45rem 0;border-bottom:1px solid rgba(0,0,0,0.06);cursor:pointer" onclick="selectResult(${i})">${art}<div style="flex:1;min-width:0"><div style="font-size:0.82rem;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.title)}</div><div style="font-size:0.72rem;color:var(--muted)">${esc(r.artist||'')}${r.year?' \xB7 '+r.year:''}${r.label?' \xB7 '+esc(r.label):''}${r.country?' \xB7 '+r.country:''}</div></div></div>`}).join('');window._searchResults=r.releases}catch(e){showError('Search failed: '+e.message)}finally{btn.disabled=false;btn.textContent='Search Discogs'}}
+async function doSearch(){const a=document.getElementById('s-artist').value.trim(),al=document.getElementById('s-album').value.trim(),bc=document.getElementById('s-barcode').value.trim();if(!a&&!al&&!bc){showError('Enter an artist, album, or barcode');return}const btn=document.getElementById('btn-search');btn.disabled=true;btn.textContent='Searching\u2026';try{const r=await fetch(`/api/catalog/search/discogs?artist=${encodeURIComponent(a)}&album=${encodeURIComponent(al)}&barcode=${encodeURIComponent(bc)}`).then(r=>r.json());const el=document.getElementById('search-results');if(!r.releases||!r.releases.length){el.innerHTML='<div style="color:var(--muted);font-size:0.82rem;padding:0.5rem 0">No results. Try different terms or enter manually.</div>';return}el.innerHTML=r.releases.map((r,i)=>{const art=r.thumb?`<img src="${r.thumb}" style="width:44px;height:44px;border-radius:4px;object-fit:cover">`:'<div style="width:44px;height:44px;border-radius:4px;background:var(--paper-dk);display:flex;align-items:center;justify-content:center">\uD83D\uDCBF</div>';var meta=[r.artist||''];if(r.date)meta.push(r.date);if(r.label)meta.push(esc(r.label));if(r.country)meta.push(r.country);var details=[];if(r.format)details.push(esc(r.format));if(r.tracks)details.push(r.tracks+' tracks');if(r.catno)details.push(esc(r.catno));if(r.barcode)details.push(esc(r.barcode));return `<div style="display:flex;gap:0.5rem;align-items:center;padding:0.45rem 0;border-bottom:1px solid rgba(0,0,0,0.06);cursor:pointer" onclick="selectResult(${i})">${art}<div style="flex:1;min-width:0"><div style="font-size:0.82rem;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.title)}</div><div style="font-size:0.72rem;color:var(--muted)">${meta.join(' \xB7 ')}</div>${details.length?'<div style="font-size:0.65rem;color:var(--amber-dk)">'+details.join(' \xB7 ')+'</div>':''}</div></div>`}).join('');window._searchResults=r.releases}catch(e){showError('Search failed: '+e.message)}finally{btn.disabled=false;btn.textContent='Search Discogs'}}
 async function selectResult(idx){const r=window._searchResults[idx];if(!r)return;try{const d=await fetch(`/api/catalog/release/discogs/${r.id}`).then(r=>r.json());if(!d.release){showError('Could not load details');return}_pendingRelease=d.release;document.getElementById('confirm-album-header').innerHTML=`<div style="font-weight:600">${esc(d.release.title)}</div><div style="font-size:0.78rem;color:var(--muted)">${esc(d.release.artist||'')}${d.release.year?' \xB7 '+d.release.year:''}${d.release.label?' \xB7 '+esc(d.release.label):''}</div>`;const sides={};(d.release.tracks||[]).forEach(t=>{if(!sides[t.side])sides[t.side]=[];sides[t.side].push(t)});Object.keys(sides).forEach(s=>sides[s].sort((a,b)=>parseInt(a.track_number||0)-parseInt(b.track_number||0)));let h='';Object.keys(sides).sort().forEach(side=>{h+=`<div class="side-label">Side ${side}</div>`;sides[side].forEach(t=>{const dur=t.duration_secs?fmtTime(t.duration_secs):'';h+=`<div class="track-row"><span class="track-num">${esc(t.track_number||'')}</span><span style="flex:1">${esc(t.title)}</span><span style="color:var(--muted);font-size:0.72rem">${dur}</span></div>`})});document.getElementById('confirm-tracks').innerHTML=h;showAddStep('confirm')}catch(e){showError('Failed: '+e.message)}}
 async function saveRelease(){if(!_pendingRelease)return;const r=await fetch('/api/catalog/release',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({release:_pendingRelease})}).then(r=>r.json());if(r.ok){hideAddForm();loadCatalog()}else showError(r.error||'Failed to save')}
 async function submitManual(){const t=document.getElementById('m-album-title').value.trim(),a=document.getElementById('m-artist').value.trim();if(!t||!a){showError('Album title and artist required');return}const ta=document.getElementById('m-tracks-a').value.split('\n').map(s=>s.trim()).filter(Boolean).map((x,i)=>({title:x,side:'A',track_number:String(i+1)}));const tb=document.getElementById('m-tracks-b').value.split('\n').map(s=>s.trim()).filter(Boolean).map((x,i)=>({title:x,side:'B',track_number:String(i+1)}));const tracks=[...ta,...tb];if(!tracks.length){showError('Enter at least one track');return}const r=await fetch('/api/catalog/manual',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({album_title:t,album_artist:a,year:parseInt(document.getElementById('m-year').value)||null,genre:document.getElementById('m-genre').value.trim()||null,label:document.getElementById('m-label').value.trim()||null,notes:document.getElementById('m-notes').value.trim()||null,tracks})}).then(r=>r.json());if(r.ok){hideAddForm();loadCatalog()}else showError(r.error||'Failed')}
@@ -870,6 +1131,7 @@ async function init(){
   if(d.player&&d.player.state!=='stopped')onPlayerStatus(d.player);
   if(d.settings){
     if(d.settings.discogs_token)document.getElementById('discogs-token').value=d.settings.discogs_token;
+    if(d.settings.saved_devices&&d.settings.saved_devices.length)_lastUsedDevice=d.settings.saved_devices[0].id;
     if(d.settings.auto_stream_enabled!==undefined){document.getElementById('auto-stream-enabled').checked=d.settings.auto_stream_enabled;if(d.settings.auto_stream_device){window._savedAutoStreamDevice=d.settings.auto_stream_device;scanAutoStreamDevices()}const st=document.getElementById('auto-stream-status');if(d.settings.auto_stream_enabled&&d.settings.auto_stream_device)st.textContent=`Auto-streaming to: ${d.settings.auto_stream_device.name}`}
   }
   loadCatalog();
@@ -1051,9 +1313,9 @@ _ssLog('screensaver initialized, interval=' + _ssIntervalId);
     keys2.forEach((k,i) => { if(i < src2.length){ const c = on ? src2[i] : applyCase(src2[i]); k.textContent = c; k.setAttribute('data-action', on ? src2[i] : src2[i]); } else { k.textContent = on ? '' : "'"; k.setAttribute('data-action', on ? '' : "'"); }});
     const symBtn = [...r3.children].find(k => k.getAttribute('data-action') === 'symbols' || k.getAttribute('data-action') === 'abc');
     if(symBtn){ symBtn.textContent = on ? 'abc' : '123'; symBtn.setAttribute('data-action', on ? 'abc' : 'symbols'); }
-    const letterKeys = [...r3.children].filter(k => { const a = k.getAttribute('data-action'); return ROW3.includes(a) || a === '.' || a === ','; });
+    const letterKeys = [...r3.children].filter(k => { const a = k.getAttribute('data-action'); return a && a !== 'symbols' && a !== 'abc' && a !== 'Backspace' && a !== 'shift'; });
     const src3 = on ? ['?','!','.',','] : ROW3.concat(['.', ',']);
-    letterKeys.forEach((k,i) => { if(i < src3.length){ const c = on ? src3[i] : applyCase(src3[i]); k.textContent = c; k.setAttribute('data-action', src3[i]); } else { k.style.display = on ? 'none' : ''; }});
+    letterKeys.forEach((k,i) => { if(i < src3.length){ const c = on ? src3[i] : applyCase(src3[i]); k.textContent = c; k.setAttribute('data-action', src3[i]); k.style.display = ''; } else { k.style.display = 'none'; }});
   }
 
   function applyCase(c){

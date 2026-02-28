@@ -54,7 +54,7 @@ def load_settings() -> dict:
             s['acoustid_key'] = s.get('audd_key')
         return s
     return {"saved_devices": [], "volume": 80, "audio_device_index": None,
-            "bass": 0, "treble": 0, "acoustid_key": "", "acoustid_enabled": False, "discogs_token": "", "hidden_devices": [], "auto_stream_enabled": False, "auto_stream_device": None}
+            "bass": 0, "treble": 0, "acoustid_key": "", "acoustid_enabled": False, "discogs_token": "", "hidden_devices": [], "auto_stream_enabled": False, "auto_stream_device": None, "device_names": {}}
 
 
 def save_settings(s: dict):
@@ -267,6 +267,46 @@ def run_device_stream(conf, audio_stream, volume, done_callback):
     done_callback(conf.name, err)
 
 
+# ── Local Audio Output ────────────────────────────────────────────────────────
+
+class LocalOutputStream:
+    """Plays PCM to a local ALSA device via aplay subprocess.
+    Same put()/stop() interface as AsyncAudioStream.
+    Uses aplay pipe instead of sounddevice to avoid buffer underrun clicks."""
+
+    def __init__(self, alsa_device, samplerate=SAMPLE_RATE, channels=CHANNELS):
+        self._alsa_device = alsa_device  # e.g. "plughw:2,0" or "touchscreen"
+        self._samplerate = samplerate
+        self._channels = channels
+        self._proc = None
+
+    def start(self):
+        import subprocess
+        self._proc = subprocess.Popen(
+            ["aplay", "-D", self._alsa_device, "-f", "S16_LE",
+             "-r", str(self._samplerate), "-c", str(self._channels), "-"],
+            stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+        print(f"[local-out] Opened aplay pipe to {self._alsa_device}")
+
+    def put(self, pcm_bytes):
+        if self._proc and self._proc.stdin:
+            try:
+                self._proc.stdin.write(pcm_bytes)
+            except (BrokenPipeError, OSError) as e:
+                print(f"[local-out] Write error: {e}")
+
+    def stop(self):
+        if self._proc:
+            try:
+                self._proc.stdin.close()
+                self._proc.wait(timeout=2)
+            except Exception:
+                self._proc.kill()
+            self._proc = None
+            print("[local-out] Closed")
+
+
 # ── Audio Callback ────────────────────────────────────────────────────────────
 
 def make_callback(streams, eq, fp_buffer):
@@ -386,8 +426,8 @@ async def _auto_stream_watcher():
                 cooldown  = COOLDOWN_SECS
                 continue
 
-            # Skip while catalog playback is active
-            if state.player and state.player.state != "stopped":
+            # Skip while catalog playback is active (or starting up)
+            if state.player_task or (state.player and state.player.state != "stopped"):
                 sustained = 0.0
                 cooldown  = COOLDOWN_SECS
                 continue
@@ -481,6 +521,10 @@ async def _run_stream_inner(targets, audio_device_index, volume):
     state.stop_event     = asyncio.Event()
     main_loop            = asyncio.get_event_loop()
 
+    # Separate local vs AirPlay targets
+    local_targets  = [t for t in targets if str(t.get("id", "")).startswith("local:")]
+    airplay_targets = [t for t in targets if not str(t.get("id", "")).startswith("local:")]
+
     # Create a shared mutable MediaMetadata object — passed once to stream_file
     # and updated in-place via on_match() whenever a new track is identified
     np = state.now_playing or {}
@@ -491,13 +535,34 @@ async def _run_stream_inner(targets, audio_device_index, volume):
         artwork= _art_jpeg(np) if np else None,
     )
 
-    # Load atvremote saved credentials (~/.pyatv.conf) so Apple TV accepts our connection
-    found      = await pyatv.scan(main_loop, timeout=7,
-                                  protocol=pyatv.Protocol.AirPlay)
-    id_to_conf = {d.identifier: d for d in found}
-    confs      = [id_to_conf[t["id"]] for t in targets if t["id"] in id_to_conf]
+    # Set up AirPlay devices (if any)
+    confs = []
+    if airplay_targets:
+        found      = await pyatv.scan(main_loop, timeout=7,
+                                      protocol=pyatv.Protocol.AirPlay)
+        id_to_conf = {d.identifier: d for d in found}
+        confs      = [id_to_conf[t["id"]] for t in airplay_targets if t["id"] in id_to_conf]
 
-    if not confs:
+    # Set up local output streams
+    local_streams = []
+    for lt in local_targets:
+        alsa_dev = lt.get("alsa_device")
+        if not alsa_dev:
+            local_devs = {d["id"]: d for d in _get_local_outputs()}
+            info = local_devs.get(lt["id"])
+            if info:
+                alsa_dev = info["alsa_device"]
+        if not alsa_dev:
+            print(f"[local-out] No ALSA device for {lt.get('id')}, skipping")
+            continue
+        try:
+            lo = LocalOutputStream(alsa_dev)
+            lo.start()
+            local_streams.append(lo)
+        except Exception as e:
+            print(f"[local-out] Failed to open {alsa_dev}: {e}")
+
+    if not confs and not local_streams:
         await broadcast("error", {"message": "No paired devices found on network"})
         state.stop_event=None
         return
@@ -507,12 +572,14 @@ async def _run_stream_inner(targets, audio_device_index, volume):
     state.active_devices = [d["name"] for d in targets]
     await broadcast("status", {
         "streaming": True, "devices": state.active_devices,
-        "message": f"Streaming to {len(targets)} device(s)"
+        "message": f"Streaming to {len(confs) + len(local_streams)} device(s)"
     })
 
     audio_streams = {conf.identifier: AsyncAudioStream() for conf in confs}
     active_count  = len(confs)
     threads_done  = asyncio.Event()
+    if active_count == 0:
+        threads_done.set()  # No AirPlay threads — mark done immediately
 
     def on_device_done(name, err):
         nonlocal active_count
@@ -600,17 +667,22 @@ async def _run_stream_inner(targets, audio_device_index, volume):
     )
     state.recogniser.start()
 
-    callback = make_callback(list(audio_streams.values()), state.eq, state.fp_buffer)
+    callback = make_callback(list(audio_streams.values()) + local_streams, state.eq, state.fp_buffer)
 
     try:
         with sd.InputStream(device=audio_device_index, samplerate=SAMPLE_RATE,
                             channels=CAPTURE_CHANNELS, dtype="float32",
                             blocksize=BLOCK_SIZE, callback=callback):
             stop_task    = asyncio.create_task(state.stop_event.wait())
-            threads_task = asyncio.create_task(threads_done.wait())
-            done, pending = await asyncio.wait(
-                [stop_task, threads_task], return_when=asyncio.FIRST_COMPLETED
-            )
+            if confs:
+                threads_task = asyncio.create_task(threads_done.wait())
+                done, pending = await asyncio.wait(
+                    [stop_task, threads_task], return_when=asyncio.FIRST_COMPLETED
+                )
+            else:
+                # Local-only: just wait for stop
+                await stop_task
+                pending = set()
             for t in pending: t.cancel()
             await asyncio.gather(*pending, return_exceptions=True)
     finally:
@@ -625,6 +697,7 @@ async def _run_stream_inner(targets, audio_device_index, volume):
         state.rec_buffer = None
         state.now_playing=None
         for s in audio_streams.values(): s.stop()
+        for lo in local_streams: lo.stop()
         state.is_streaming=False; state.active_devices=[]; state.stop_event=None
         await broadcast("status",      {"streaming": False, "message": "Stopped"})
         await broadcast("now_playing", {"track_title": None})
@@ -707,6 +780,7 @@ async def scan_devices():
         except Exception:
             pass
 
+    custom_names = state.settings.get("device_names", {})
     state.available_devices = []
     for d in found:
         raop    = d.get_service(pyatv.Protocol.RAOP)
@@ -715,12 +789,13 @@ async def scan_devices():
         state.available_devices.append({
             "id":       d.identifier,
             "name":     d.name,
+            "custom_name": custom_names.get(d.identifier),
             "address":  str(d.address),
             "hidden":   d.identifier in hidden,
             "needs_pairing": bool(needs),
             "paired":   paired,
         })
-    return {"devices": state.available_devices}
+    return {"devices": state.available_devices + _get_local_outputs()}
 
 
 @app.post("/api/devices/{device_id}/pair/start")
@@ -850,6 +925,74 @@ async def toggle_device_hidden(device_id: str, body: dict = {}):
         if d["id"] == device_id:
             d["hidden"] = hide
     return {"ok": True, "hidden": hide}
+
+
+def _get_local_outputs():
+    """List local audio output devices (ALSA software devices that actually work)."""
+    custom_names = state.settings.get("device_names", {})
+    hidden = set(state.settings.get("hidden_devices", []))
+    outputs = []
+    try:
+        devices = sd.query_devices()
+        for i, d in enumerate(devices):
+            if d["max_output_channels"] < 2:
+                continue
+            name = d["name"]
+            dev_id = f"local:{i}"
+            n = name.lower()
+            # Determine ALSA device string for aplay
+            alsa_device = None
+            if n.startswith("front") or n.startswith("default") or n.startswith("sysdefault") or n.startswith("touchscreen"):
+                # Named ALSA device — use the short name (before comma)
+                alsa_device = name.split(",")[0].strip()
+            if not alsa_device:
+                continue
+            outputs.append({
+                "id": dev_id,
+                "name": name,
+                "custom_name": custom_names.get(dev_id),
+                "address": "local",
+                "hidden": dev_id in hidden,
+                "needs_pairing": False,
+                "paired": True,
+                "type": "local",
+                "hw_index": i,
+                "alsa_device": alsa_device,
+            })
+    except Exception as e:
+        print(f"[local-out] Error listing outputs: {e}")
+    # Prefer named devices (touchscreen) over generic ones (default, sysdefault)
+    if len(outputs) > 1:
+        named = [o for o in outputs if not o["name"].lower().startswith(("default", "sysdefault"))]
+        if named:
+            outputs = named
+    return outputs
+
+
+@app.get("/api/devices")
+async def get_cached_devices():
+    """Return cached devices from last scan (instant). Use /api/scan to refresh."""
+    custom_names = state.settings.get("device_names", {})
+    for d in state.available_devices:
+        d["custom_name"] = custom_names.get(d["id"])
+    return {"devices": state.available_devices + _get_local_outputs()}
+
+
+@app.post("/api/devices/{device_id}/rename")
+async def rename_device(device_id: str, body: dict = {}):
+    """Set or clear a custom display name for a device."""
+    custom_name = body.get("name", "").strip()
+    if "device_names" not in state.settings:
+        state.settings["device_names"] = {}
+    if custom_name:
+        state.settings["device_names"][device_id] = custom_name
+    else:
+        state.settings["device_names"].pop(device_id, None)
+    save_settings(state.settings)
+    for d in state.available_devices:
+        if d["id"] == device_id:
+            d["custom_name"] = custom_name or None
+    return {"ok": True, "device_id": device_id, "custom_name": custom_name or None}
 
 
 @app.get("/api/audio-devices")
@@ -1006,10 +1149,10 @@ async def search_catalog(artist: str = "", album: str = ""):
 
 
 @app.get("/api/catalog/search/discogs")
-async def search_discogs(artist: str = "", album: str = ""):
+async def search_discogs(artist: str = "", album: str = "", barcode: str = ""):
     token = state.settings.get("discogs_token", "")
     results = await asyncio.get_event_loop().run_in_executor(
-        None, lambda: cat.search_discogs(artist, album, token=token)
+        None, lambda: cat.search_discogs(artist, album, token=token, barcode=barcode)
     )
     return {"releases": results}
 
@@ -1048,13 +1191,19 @@ async def save_release(body: dict):
     if album_id is None:
         return {"ok": False, "error": "Failed to save"}
     # Try to fetch artwork
-    mb_id = release_data.get("mb_release_id")
+    art = None
+    mb_id = release_data.get("mb_release_id") or release_data.get("mb_id")
+    artwork_url = release_data.get("artwork_url")
     if mb_id:
         art = await loop.run_in_executor(
             None, lambda: cat.fetch_artwork(mb_id, album_id)
         )
-        if art:
-            cat.update_album_artwork(album_id, art, user=False)
+    if not art and artwork_url:
+        art = await loop.run_in_executor(
+            None, lambda: cat.fetch_artwork_from_url(artwork_url, album_id)
+        )
+    if art:
+        cat.update_album_artwork(album_id, art, user=False)
     return {"ok": True, "album_id": album_id}
 
 
@@ -1444,6 +1593,11 @@ async def album_recording_start(body: dict):
     if side_tracks:
         state.album_recorder.mark_first_track(side_tracks[0]["id"])
 
+    # Tell the recording buffer how many tracks remain so it uses a longer
+    # end-of-side threshold and doesn't stop after the first track
+    if state.rec_buffer:
+        state.rec_buffer.remaining_tracks = len(side_tracks)
+
     # Also start a learn session so fingerprints get learned automatically
     # (reuses existing learn infrastructure)
     if not state.learn_session and state.rec_buffer and _ensure_audio_active():
@@ -1461,6 +1615,15 @@ async def album_recording_start(body: dict):
                 if state.album_recorder and state.album_recorder.is_active:
                     next_id = state.learn_session.next_track_id() if state.learn_session else None
                     state.album_recorder.mark_track_boundary(next_id)
+                    # Notify UI of track boundary with completed track name
+                    tc = state.album_recorder.track_count if state.album_recorder else 0
+                    track_name = side_tracks[tc-1]["title"] if tc <= len(side_tracks) else None
+                    asyncio.run_coroutine_threadsafe(
+                        broadcast("album_recording_status", {
+                            "recording": True, "album_id": _aid, "side": _side,
+                            "message": f"\u23fa Recording Side {_side} — {tc} track(s)",
+                            "track_name": track_name,
+                        }), _loop)
 
             state.rec_buffer._on_track_ready = _on_learn_track_ready
             state.rec_buffer.start(auto_split=True)
@@ -1564,6 +1727,10 @@ async def album_recording_flip(body: dict):
     if side_tracks:
         state.album_recorder.mark_first_track(side_tracks[0]["id"])
 
+    # Tell the recording buffer how many tracks remain on new side
+    if state.rec_buffer:
+        state.rec_buffer.remaining_tracks = len(side_tracks)
+
     # Restart learn session for new side
     if state.rec_buffer and (state.is_streaming or state.listen_task):
         session = LearnSession(album_id, len(side_tracks), loop, also_record=False)
@@ -1578,6 +1745,14 @@ async def album_recording_flip(body: dict):
                 if state.album_recorder and state.album_recorder.is_active:
                     next_id = state.learn_session.next_track_id() if state.learn_session else None
                     state.album_recorder.mark_track_boundary(next_id)
+                    tc = state.album_recorder.track_count if state.album_recorder else 0
+                    track_name = side_tracks[tc-1]["title"] if tc <= len(side_tracks) else None
+                    asyncio.run_coroutine_threadsafe(
+                        broadcast("album_recording_status", {
+                            "recording": True, "album_id": _aid2, "side": _side2,
+                            "message": f"\u23fa Recording Side {_side2} — {tc} track(s)",
+                            "track_name": track_name,
+                        }), _loop2)
 
             state.rec_buffer._on_track_ready = _on_learn_track_ready
             state.rec_buffer.start(auto_split=True)
@@ -1748,7 +1923,8 @@ async def _stop_playback():
 
 
 async def _run_playback(album_id: int, targets: list[dict], volume: int,
-                        start_track_id: Optional[int] = None):
+                        start_track_id: Optional[int] = None,
+                        resume_position_secs: Optional[float] = None):
     """
     Connect to AirPlay devices and run catalog playback.
     Similar to _run_stream_inner but feeds from FLAC files instead of sounddevice.
@@ -1823,13 +1999,19 @@ async def _run_playback(album_id: int, targets: list[dict], volume: int,
         title=None, artist=None, album=album_info.get("title"), artwork=None,
     )
 
-    # Scan and connect to AirPlay devices
-    found      = await pyatv.scan(main_loop, timeout=7,
-                                  protocol=pyatv.Protocol.AirPlay)
-    id_to_conf = {d.identifier: d for d in found}
-    confs      = [id_to_conf[t["id"]] for t in targets if t["id"] in id_to_conf]
+    # Separate local targets from AirPlay targets
+    local_targets = [t for t in targets if str(t.get("id", "")).startswith("local:")]
+    airplay_targets = [t for t in targets if not str(t.get("id", "")).startswith("local:")]
 
-    if not confs:
+    # Scan and connect to AirPlay devices
+    confs = []
+    if airplay_targets:
+        found      = await pyatv.scan(main_loop, timeout=7,
+                                      protocol=pyatv.Protocol.AirPlay)
+        id_to_conf = {d.identifier: d for d in found}
+        confs      = [id_to_conf[t["id"]] for t in airplay_targets if t["id"] in id_to_conf]
+
+    if not confs and not local_targets:
         await broadcast("error", {"message": "No paired devices found on network"})
         state.airplay_metadata = None
         return
@@ -1837,12 +2019,42 @@ async def _run_playback(album_id: int, targets: list[dict], volume: int,
     await broadcast("player_status", {
         "state": "loading",
         "album_id": album_id,
-        "message": f"Connecting to {len(confs)} device(s)…",
+        "message": f"Connecting to {len(confs) + len(local_targets)} device(s)…",
     })
 
     audio_streams = {conf.identifier: AsyncAudioStream() for conf in confs}
+    local_streams = []
+
+    # Set up local output streams
+    for lt in local_targets:
+        alsa_dev = lt.get("alsa_device")
+        if not alsa_dev:
+            # Fallback: look up from current local outputs
+            local_devs = {d["id"]: d for d in _get_local_outputs()}
+            info = local_devs.get(lt["id"])
+            if info:
+                alsa_dev = info["alsa_device"]
+        if not alsa_dev:
+            print(f"[player] No ALSA device for {lt.get('id')}, skipping")
+            continue
+        try:
+            lo = LocalOutputStream(alsa_dev)
+            lo.start()
+            local_streams.append(lo)
+        except Exception as e:
+            print(f"[player] Failed to open local device {alsa_dev}: {e}")
+
+    all_streams = list(audio_streams.values()) + local_streams
+
+    if not all_streams:
+        await broadcast("error", {"message": "No output devices available"})
+        state.airplay_metadata = None
+        return
+
     active_count  = len(confs)
     threads_done  = asyncio.Event()
+    if active_count == 0:
+        threads_done.set()  # No AirPlay threads to wait for
 
     def on_device_done(name, err):
         nonlocal active_count
@@ -1904,7 +2116,7 @@ async def _run_playback(album_id: int, targets: list[dict], volume: int,
     # Create and start the player
     player = plr.Player(
         eq              = state.eq,
-        streams         = list(audio_streams.values()),
+        streams         = all_streams,
         on_track_change = on_track_change,
         on_status_change= on_status_change,
         on_finished     = on_finished,
@@ -1913,11 +2125,16 @@ async def _run_playback(album_id: int, targets: list[dict], volume: int,
 
     player.play(album_id, album_info, playlist, start_track_id=start_track_id)
 
+    # If resuming mid-track, seek to exact position
+    if resume_position_secs is not None and resume_position_secs > 0:
+        player.seek_to(resume_position_secs)
+        print(f"[player] Resuming at {resume_position_secs:.1f}s")
+
     try:
         # Wait for either: player finishes, devices disconnect, or external stop
         while player.state != "stopped":
-            if threads_done.is_set():
-                # All AirPlay devices disconnected
+            if threads_done.is_set() and not local_streams:
+                # All AirPlay devices disconnected and no local fallback
                 player.stop()
                 break
             await asyncio.sleep(0.5)
@@ -1926,7 +2143,10 @@ async def _run_playback(album_id: int, targets: list[dict], volume: int,
     finally:
         for s in audio_streams.values():
             s.stop()
+        for s in local_streams:
+            s.stop()
         state.player = None
+        state.player_task = None
         state.now_playing = None
         state.airplay_metadata = None
         await broadcast("player_status", {"state": "stopped"})
@@ -1956,6 +2176,7 @@ async def player_play(body: dict):
 
     volume = body.get("volume", state.settings.get("volume", 80))
     track_id = body.get("track_id")
+    resume_position = body.get("resume_position_secs")
 
     # Stop any active vinyl streaming first
     if state.is_streaming:
@@ -1976,7 +2197,8 @@ async def player_play(body: dict):
 
     # Start playback
     state.player_task = asyncio.create_task(
-        _run_playback(album_id, targets, volume, start_track_id=track_id)
+        _run_playback(album_id, targets, volume, start_track_id=track_id,
+                      resume_position_secs=resume_position)
     )
     return {"ok": True}
 
@@ -2008,6 +2230,15 @@ async def player_prev():
     if state.player:
         state.player.prev_track()
         return {"ok": True}
+    return {"ok": False, "error": "Not playing"}
+
+
+@app.post("/api/player/repeat")
+async def player_repeat():
+    """Cycle repeat mode: off → album → track → off."""
+    if state.player:
+        mode = state.player.cycle_repeat()
+        return {"ok": True, "repeat_mode": mode}
     return {"ok": False, "error": "Not playing"}
 
 
@@ -2161,6 +2392,18 @@ class LearnSession:
 
         self.pending_tracks.pop(0)
         self.learned += 1
+
+        # Notify UI that fingerprint was saved — triggers track list refresh
+        # (separate from the track boundary notification which fires before FP is saved)
+        if state.album_recorder or self.album_id:
+            asyncio.run_coroutine_threadsafe(
+                broadcast("album_recording_status", {
+                    "recording": True,
+                    "album_id": self.album_id,
+                    "message": f"\u23fa Learned {just_learned_name}",
+                }),
+                self._loop
+            )
 
         track_name = self.next_track_name() if self.pending_tracks else "—"
         print(f"[learn] ✓ Track learned ({self.learned}/{self.track_count}): "
