@@ -32,6 +32,10 @@ SILENCE_RATIO     = 0.40            # silence = RMS drops below this fraction of
                                     # so this reliably catches inter-track gaps on any pressing
 SILENCE_RATIO_MIN = 0.006           # absolute floor — never treat above this as silence
 SIGNAL_ADAPT_RATE = 0.002           # EMA rate for signal level tracker (slow — ~500 chunks)
+SIGNAL_DECAY_RATE = 0.0004          # decay rate when below threshold — 5× slower than adapt
+                                    # prevents signal level from getting stuck high on dynamic albums
+SILENCE_FORGIVE_SECS = 0.3          # ignore above-threshold blips shorter than this during a gap
+                                    # vinyl pops/crackles shouldn't reset the silence counter
 SILENCE_MIN_SECS  = 1.5             # silence must last this long to split track
                                     # reduced from 2.0 — some albums have short inter-track gaps
 END_OF_SIDE_SECS  = 20.0            # silence this long = end of side — auto-flush final track
@@ -88,6 +92,8 @@ class RecordingBuffer:
         # Adapts automatically to any pressing's loudness.
         self._signal_level = 0.03          # initial estimate; refined once audio starts
         self._silence_log_countdown = 0    # rate-limit diagnostic prints
+        # Forgiveness window: brief above-threshold blips don't reset silence counter
+        self._above_thresh_secs = 0.0      # how long audio has been above threshold
 
     def start(self, auto_split: bool = True):
         with self._lock:
@@ -102,6 +108,7 @@ class RecordingBuffer:
             self._signal_level         = 0.03
             self._silence_log_countdown = 0
             self._end_of_side_fired    = False
+            self._above_thresh_secs    = 0.0
         print(f"[recorder] Recording started (auto_split={auto_split})")
 
     def stop(self) -> Optional[bytes]:
@@ -184,9 +191,14 @@ class RecordingBuffer:
 
         if rms < silence_threshold:
             self._silence_secs += chunk_secs
+            self._above_thresh_secs = 0.0  # reset above-threshold counter
             if self._silence_start_byte == 0:
                 with self._lock:
                     self._silence_start_byte = self._total_bytes - len(pcm_chunk)
+            # Slowly decay signal level even during silence — prevents threshold
+            # from getting stuck high on dynamic albums where quiet music sits
+            # below an inflated threshold from earlier loud passages.
+            self._signal_level -= SIGNAL_DECAY_RATE * self._signal_level
             # Periodic diagnostic log so we can see gap RMS in journalctl
             self._silence_log_countdown -= 1
             if self._silence_log_countdown <= 0:
@@ -206,13 +218,20 @@ class RecordingBuffer:
         else:
             # Update signal level EMA while music is playing
             self._signal_level += SIGNAL_ADAPT_RATE * (rms - self._signal_level)
-            self._silence_log_countdown = 0  # reset so next gap logs immediately
-            self._end_of_side_fired = False  # reset if audio returns (e.g. between sides)
-            if self._silence_secs >= SILENCE_MIN_SECS:
-                # Sustained silence ended — split track
-                self._split_track()
-            self._silence_secs       = 0.0
-            self._silence_start_byte = 0
+            self._above_thresh_secs += chunk_secs
+            # Forgiveness: brief above-threshold blips (vinyl pops, crackles) during
+            # a gap shouldn't reset the silence counter. Require sustained audio
+            # to confirm the gap is actually over.
+            if self._above_thresh_secs >= SILENCE_FORGIVE_SECS:
+                # Genuine audio returned — finalize any pending silence
+                self._silence_log_countdown = 0  # reset so next gap logs immediately
+                self._end_of_side_fired = False  # reset if audio returns
+                if self._silence_secs >= SILENCE_MIN_SECS:
+                    # Sustained silence ended — split track
+                    self._split_track()
+                self._silence_secs       = 0.0
+                self._silence_start_byte = 0
+            # else: blip is too short, keep accumulating silence
 
     def _split_track(self):
         """Called when silence gap detected — extract the completed track."""
