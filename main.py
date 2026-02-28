@@ -49,12 +49,9 @@ TEMPLATES     = Jinja2Templates(directory="templates")
 def load_settings() -> dict:
     if SETTINGS_FILE.exists():
         s = json.loads(SETTINGS_FILE.read_text())
-        # Backward-compat: older versions stored this as 'audd_key'
-        if 'acoustid_key' not in s and 'audd_key' in s:
-            s['acoustid_key'] = s.get('audd_key')
         return s
     return {"saved_devices": [], "volume": 80, "audio_device_index": None,
-            "bass": 0, "treble": 0, "acoustid_key": "", "acoustid_enabled": False, "discogs_token": "", "hidden_devices": [], "auto_stream_enabled": False, "auto_stream_device": None, "device_names": {}}
+            "bass": 0, "treble": 0, "discogs_token": "", "hidden_devices": [], "auto_stream_enabled": False, "auto_stream_device": None, "device_names": {}}
 
 
 def save_settings(s: dict):
@@ -168,8 +165,6 @@ class AppState:
         self.manual_stop_until: float = 0.0  # monotonic — auto-stream suppressed after manual stop
         self.pairing_sessions: dict = {}  # device_id → active pyatv pairing object
         self.listen_task: Optional[asyncio.Task] = None  # audio-only (no AirPlay) task
-        self.rec_pending: list = []          # finished recordings awaiting save
-        self.rec_album_id: Optional[int] = None  # manually chosen album for tagging
         self.learn_session: Optional["LearnSession"] = None
         self.album_recorder: Optional[rec.AlbumRecorder] = None  # full-side capture
         self.player: Optional[plr.Player] = None
@@ -604,10 +599,6 @@ async def _run_stream_inner(targets, audio_device_index, volume):
         # Always reset recogniser on track boundary, even when not recording
         if state.recogniser and not (state.learn_session and state.learn_session.active):
             state.recogniser.reset_match()
-        if pcm:
-            asyncio.run_coroutine_threadsafe(
-                _save_and_broadcast_recording(pcm), main_loop
-            )
 
     def _on_level(rms):
         state.rec_level = rms
@@ -662,8 +653,6 @@ async def _run_stream_inner(targets, audio_device_index, volume):
         buffer           = state.fp_buffer,
         on_match         = _make_on_match(main_loop),
         on_unknown       = _make_on_unknown(main_loop),
-        api_key          = state.settings.get("acoustid_key") or state.settings.get("audd_key") or None,
-        acoustid_enabled = state.settings.get("acoustid_enabled", False),
     )
     state.recogniser.start()
 
@@ -690,10 +679,7 @@ async def _run_stream_inner(targets, audio_device_index, volume):
             state.recogniser.set_auto_learn_album(None)
             state.recogniser.stop(); state.recogniser=None
         if state.rec_buffer and state.rec_buffer.is_active:
-            # Flush any in-progress recording when stream stops
-            pcm = state.rec_buffer.stop()
-            if pcm:
-                await _save_and_broadcast_recording(pcm)
+            state.rec_buffer.stop()
         state.rec_buffer = None
         state.now_playing=None
         for s in audio_streams.values(): s.stop()
@@ -1071,7 +1057,6 @@ async def set_eq(body: dict):
 
 @app.post("/api/settings")
 async def update_settings(body: dict):
-    # Prefer 'acoustid_key' (new), but accept legacy 'audd_key' for older UIs.
     if "auto_stream_enabled" in body:
         state.settings["auto_stream_enabled"] = bool(body["auto_stream_enabled"])
         save_settings(state.settings)
@@ -1081,21 +1066,7 @@ async def update_settings(body: dict):
         save_settings(state.settings)
     if "discogs_token" in body:
         state.settings["discogs_token"] = str(body["discogs_token"])
-        _save_settings()
-
-    if "acoustid_enabled" in body:
-        state.settings["acoustid_enabled"] = bool(body["acoustid_enabled"])
-        if state.recogniser:
-            state.recogniser.set_acoustid_enabled(state.settings["acoustid_enabled"])
-    if "acoustid_key" in body or "audd_key" in body:
-        key = body.get("acoustid_key")
-        if key is None:
-            key = body.get("audd_key")
-        state.settings["acoustid_key"] = key
-        # Keep legacy field too so older code paths still work if present
-        state.settings["audd_key"] = key
-        if state.recogniser:
-            state.recogniser.set_api_key(key)
+        save_settings(state.settings)
     save_settings(state.settings)
     return {"ok": True}
 
@@ -1136,16 +1107,6 @@ async def manual_entry(body: dict):
 
 
 
-@app.get("/api/catalog/search")
-async def search_catalog(artist: str = "", album: str = ""):
-    """Search MusicBrainz for releases matching artist + album name."""
-    if not artist and not album:
-        return {"releases": []}
-    loop = asyncio.get_event_loop()
-    releases = await loop.run_in_executor(
-        None, lambda: cat.search_musicbrainz(artist, album)
-    )
-    return {"releases": releases}
 
 
 @app.get("/api/catalog/search/discogs")
@@ -1166,21 +1127,11 @@ async def discogs_release(discogs_id: str):
     return data
 
 
-@app.get("/api/catalog/release/{mb_release_id}")
-async def get_release(mb_release_id: str):
-    """Fetch full track listing for a MusicBrainz release ID."""
-    loop = asyncio.get_event_loop()
-    data = await loop.run_in_executor(
-        None, lambda: cat.get_release_tracks(mb_release_id)
-    )
-    if not data:
-        return {"ok": False, "error": "Release not found"}
-    return {"ok": True, "release": data}
 
 
 @app.post("/api/catalog/release")
 async def save_release(body: dict):
-    """Save a MusicBrainz release to the catalog."""
+    """Save a release (from Discogs search) to the catalog."""
     release_data = body.get("release", {})
     if not release_data:
         return {"ok": False, "error": "No release data"}
@@ -1190,20 +1141,14 @@ async def save_release(body: dict):
     )
     if album_id is None:
         return {"ok": False, "error": "Failed to save"}
-    # Try to fetch artwork
-    art = None
-    mb_id = release_data.get("mb_release_id") or release_data.get("mb_id")
+    # Try to fetch artwork from Discogs URL
     artwork_url = release_data.get("artwork_url")
-    if mb_id:
-        art = await loop.run_in_executor(
-            None, lambda: cat.fetch_artwork(mb_id, album_id)
-        )
-    if not art and artwork_url:
+    if artwork_url:
         art = await loop.run_in_executor(
             None, lambda: cat.fetch_artwork_from_url(artwork_url, album_id)
         )
-    if art:
-        cat.update_album_artwork(album_id, art, user=False)
+        if art:
+            cat.update_album_artwork(album_id, art, user=False)
     return {"ok": True, "album_id": album_id}
 
 
@@ -1308,173 +1253,11 @@ async def delete_album_route(album_id: int):
     cat.delete_album(album_id)
     return {"ok": True}
 
-
-@app.get("/api/test-acoustid")
-async def test_acoustid():
-    """Quick sanity-check: verifies the AcoustID client key is accepted."""
-    import requests as req_lib
-    key = (state.settings.get("acoustid_key") or state.settings.get("audd_key") or "").strip()
-    if not key:
-        return {"ok": False, "error": "No AcoustID client key saved — go to Settings and paste your key"}
-
-    try:
-        # We intentionally send a tiny/dummy fingerprint. If the key is invalid, AcoustID will
-        # respond with an auth-style error. If the key is valid, we should *not* get an 'invalid key'
-        # error (even though the lookup itself won't match anything).
-        resp = req_lib.post(
-            "https://api.acoustid.org/v2/lookup",
-            data={"client": key, "meta": "recordingids", "duration": "1", "fingerprint": "AQAA", "format": "json"},
-            timeout=8,
-        )
-        data = resp.json()
-        if data.get("status") == "error":
-            err = data.get("error")
-            if isinstance(err, dict):
-                err = json.dumps(err)
-            msg = str(err or "").lower()
-            if "invalid" in msg and ("key" in msg or "client" in msg):
-                return {"ok": False, "error": "Invalid AcoustID client key"}
-            return {"ok": True, "message": "AcoustID client key looks valid (server accepted the request) ✓"}
-    except Exception as e:
-        return {"ok": False, "error": str(e)}
-
-
 @app.get("/api/now-playing")
 async def now_playing():
     if not state.now_playing:
         return {"track_title": None}
     return {**state.now_playing, "artwork_url": _art_url(state.now_playing)}
-
-
-
-async def _save_and_broadcast_recording(pcm: bytes):
-    """Encode PCM to MP3 using catalog metadata for the current track, broadcast when done."""
-    np_data  = state.now_playing or {}
-
-    # If user manually selected an album, use that album's metadata
-    # (falls back to Now Playing, then to unknowns)
-    if state.rec_album_id:
-        albums = cat.get_all_albums()
-        album  = next((a for a in albums if a["id"] == state.rec_album_id), None)
-        if album:
-            np_data = {
-                "track_title":   np_data.get("track_title", "Unknown Track"),
-                "track_artist":  album.get("artist", "Unknown Artist"),
-                "album_artist":  album.get("artist", "Unknown Artist"),
-                "album_title":   album.get("title", "Unknown Album"),
-                "year":          album.get("year"),
-                "track_number":  np_data.get("track_number", ""),
-                "genre":         album.get("genre", ""),
-                "artwork_path":      album.get("artwork_path"),
-                "user_artwork_path": album.get("user_artwork_path"),
-            }
-
-    metadata = {
-        "title":            np_data.get("track_title", "Unknown Track"),
-        "artist":           np_data.get("track_artist") or np_data.get("album_artist", "Unknown Artist"),
-        "album_artist":     np_data.get("album_artist", "Unknown Artist"),
-        "album":            np_data.get("album_title", "Unknown Album"),
-        "year":             np_data.get("year"),
-        "track_number":     np_data.get("track_number", ""),
-        "genre":            np_data.get("genre", ""),
-        "artwork_path":     np_data.get("artwork_path"),
-        "user_artwork_path":np_data.get("user_artwork_path"),
-    }
-    loop     = asyncio.get_event_loop()
-    out_path = await loop.run_in_executor(None, lambda: rec.save_recording(pcm, metadata))
-    if out_path:
-        await broadcast("recording_saved", {
-            "filename": out_path.name,
-            "size_mb":  round(out_path.stat().st_size / (1024*1024), 1),
-        })
-
-
-# ── Recording Routes ─────────────────────────────────────────────────────────
-
-
-
-
-
-
-
-@app.get("/api/recordings")
-async def list_recordings():
-    return {"recordings": rec.list_recordings()}
-
-@app.get("/api/recordings/status")
-async def recording_status():
-    active  = bool(state.rec_buffer and state.rec_buffer.is_active)
-    elapsed = state.rec_buffer.elapsed_secs if active and state.rec_buffer else 0
-    return {
-        "recording": active,
-        "elapsed_secs": round(elapsed, 1),
-        "level": round(state.rec_level, 4),
-    }
-
-@app.get("/api/recordings/zip/all")
-async def download_all_recordings():
-    """Download all recordings as a ZIP file."""
-    import zipfile, io as _io
-    files = list(rec.RECORDINGS_DIR.glob("*.mp3"))
-    if not files:
-        return HTMLResponse("No recordings", 404)
-    buf = _io.BytesIO()
-    with zipfile.ZipFile(buf, 'w', zipfile.ZIP_STORED) as zf:
-        for f in files:
-            zf.write(f, f.name)
-    buf.seek(0)
-    from fastapi.responses import StreamingResponse
-    return StreamingResponse(
-        buf,
-        media_type="application/zip",
-        headers={"Content-Disposition": "attachment; filename=vinyl_recordings.zip"}
-    )
-
-@app.post("/api/recordings/start")
-async def start_recording(body: dict = {}):
-    # Auto-start audio capture if not already running
-    if not _ensure_audio_active():
-        await _start_listen_mode()
-        await asyncio.sleep(0.5)  # let stream open
-    if not state.rec_buffer:
-        return {"ok": False, "error": "Audio device not ready — check input device in settings"}
-    auto = body.get("auto_split", True)
-    state.rec_album_id = body.get("album_id")  # None = use Now Playing
-    state.rec_buffer.start(auto_split=auto)
-    await broadcast("recording_status", {"recording": True, "auto_split": auto})
-    album_name = None
-    if state.rec_album_id:
-        albums = cat.get_all_albums()
-        album  = next((a for a in albums if a["id"] == state.rec_album_id), None)
-        if album: album_name = f"{album['artist']} — {album['title']}"
-    return {"ok": True, "tagging_as": album_name or "Now Playing (auto)"}
-
-@app.post("/api/recordings/stop")
-async def stop_recording():
-    if not state.rec_buffer or not state.rec_buffer.is_active:
-        return {"ok": False, "error": "Not recording"}
-    pcm = state.rec_buffer.stop()
-    state.rec_album_id = None
-    await broadcast("recording_status", {"recording": False})
-    if pcm:
-        await _save_and_broadcast_recording(pcm)
-        return {"ok": True, "message": "Track saved"}
-    return {"ok": True, "message": "Track too short — discarded"}
-
-@app.delete("/api/recordings/{filename}")
-async def delete_recording(filename: str):
-    ok = rec.delete_recording(filename)
-    return {"ok": ok}
-
-@app.get("/api/recordings/{filename}")
-async def download_recording(filename: str):
-    from fastapi.responses import FileResponse
-    path = rec.RECORDINGS_DIR / Path(filename).name
-    if not path.exists():
-        return HTMLResponse("Not found", 404)
-    return FileResponse(str(path), media_type="audio/mpeg",
-                        filename=path.name)
-
 
 # ── Album Recording (Full-Side Capture) ──────────────────────────────────────
 
@@ -1602,7 +1385,7 @@ async def album_recording_start(body: dict):
     # (reuses existing learn infrastructure)
     if not state.learn_session and state.rec_buffer and _ensure_audio_active():
         loop = asyncio.get_event_loop()
-        session = LearnSession(album_id, len(side_tracks), loop, also_record=False)
+        session = LearnSession(album_id, len(side_tracks), loop)
         if session.pending_tracks:
             state.learn_session = session
             if state.recogniser:
@@ -1733,7 +1516,7 @@ async def album_recording_flip(body: dict):
 
     # Restart learn session for new side
     if state.rec_buffer and (state.is_streaming or state.listen_task):
-        session = LearnSession(album_id, len(side_tracks), loop, also_record=False)
+        session = LearnSession(album_id, len(side_tracks), loop)
         if session.pending_tracks:
             state.learn_session = session
             if state.recogniser:
@@ -2279,13 +2062,11 @@ class LearnSession:
          "Flip record / next side?" or "Done"
     """
 
-    def __init__(self, album_id: int, track_count: int, loop,
-                 also_record: bool = False):
+    def __init__(self, album_id: int, track_count: int, loop):
         self.album_id    = album_id
         self.track_count = track_count   # how many tracks to learn this session
         self.learned     = 0             # tracks learned so far this session
         self.active      = True
-        self.also_record = also_record   # also save each track as MP3
         self._loop       = loop
 
         # Get the ordered list of unlearned tracks for this album
@@ -2316,7 +2097,7 @@ class LearnSession:
 
     def on_track_captured(self, pcm: bytes):
         """Called when a complete track's PCM is ready. Fingerprints and saves it."""
-        if not self.active:
+        if pcm is None:
             return
 
         import io, wave as _wave
@@ -2358,37 +2139,6 @@ class LearnSession:
 
         # Capture the name of the track we just learned BEFORE advancing the pointer
         just_learned_name = self.next_track_name()
-
-        # Optionally save as MP3
-        if self.also_record:
-            try:
-                _db = cat.get_db()
-                track_info = cat._get_track_full(_db, track_id) or {}
-                _db.close()
-                # _get_track_full does a JOIN so it returns all album fields directly
-                # Map to the keys expected by make_filename / tag_mp3
-                metadata = {
-                    "title":             track_info.get("track_title", "Unknown Track"),
-                    "artist":            track_info.get("track_artist") or track_info.get("album_artist", "Unknown"),
-                    "album_artist":      track_info.get("album_artist", "Unknown Artist"),
-                    "album":             track_info.get("album_title", "Unknown Album"),
-                    "year":              track_info.get("year"),
-                    "track_number":      track_info.get("track_number", ""),
-                    "genre":             track_info.get("genre", ""),
-                    "artwork_path":      track_info.get("artwork_path"),
-                    "user_artwork_path": track_info.get("user_artwork_path"),
-                }
-                out_path = rec.save_recording(pcm, metadata)
-                if out_path:
-                    asyncio.run_coroutine_threadsafe(
-                        broadcast("recording_saved", {
-                            "filename": out_path.name,
-                            "size_mb":  round(out_path.stat().st_size / (1024*1024), 1),
-                        }),
-                        self._loop
-                    )
-            except Exception as e:
-                print(f"[learn] MP3 save failed: {e}")
 
         self.pending_tracks.pop(0)
         self.learned += 1
@@ -2484,8 +2234,6 @@ async def _start_listen_mode():
         buffer           = state.fp_buffer,
         on_match         = _make_on_match(loop),
         on_unknown       = _make_on_unknown(loop),
-        api_key          = state.settings.get("acoustid_key") or None,
-        acoustid_enabled = state.settings.get("acoustid_enabled", False),
     )
     state.recogniser.start()
     stop_event = asyncio.Event()
@@ -2547,8 +2295,7 @@ async def learn_start(body: dict):
 
     # Wire learn session as the track-ready callback
     loop = asyncio.get_event_loop()
-    also_record = body.get("also_record", False)
-    session = LearnSession(album_id, track_count, loop, also_record=also_record)
+    session = LearnSession(album_id, track_count, loop)
 
     if not session.pending_tracks:
         return {"ok": False, "error": "All tracks for this album are already learned!"}
