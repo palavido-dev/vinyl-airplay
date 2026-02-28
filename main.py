@@ -2233,6 +2233,15 @@ async def player_prev():
     return {"ok": False, "error": "Not playing"}
 
 
+@app.post("/api/player/repeat")
+async def player_repeat():
+    """Cycle repeat mode: off → album → track → off."""
+    if state.player:
+        mode = state.player.cycle_repeat()
+        return {"ok": True, "repeat_mode": mode}
+    return {"ok": False, "error": "Not playing"}
+
+
 @app.post("/api/player/seek")
 async def player_seek(body: dict):
     """Seek to position or track. body: { position_secs?: float, track_id?: int }"""
