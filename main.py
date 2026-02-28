@@ -1191,13 +1191,19 @@ async def save_release(body: dict):
     if album_id is None:
         return {"ok": False, "error": "Failed to save"}
     # Try to fetch artwork
-    mb_id = release_data.get("mb_release_id")
+    art = None
+    mb_id = release_data.get("mb_release_id") or release_data.get("mb_id")
+    artwork_url = release_data.get("artwork_url")
     if mb_id:
         art = await loop.run_in_executor(
             None, lambda: cat.fetch_artwork(mb_id, album_id)
         )
-        if art:
-            cat.update_album_artwork(album_id, art, user=False)
+    if not art and artwork_url:
+        art = await loop.run_in_executor(
+            None, lambda: cat.fetch_artwork_from_url(artwork_url, album_id)
+        )
+    if art:
+        cat.update_album_artwork(album_id, art, user=False)
     return {"ok": True, "album_id": album_id}
 
 
@@ -1609,6 +1615,15 @@ async def album_recording_start(body: dict):
                 if state.album_recorder and state.album_recorder.is_active:
                     next_id = state.learn_session.next_track_id() if state.learn_session else None
                     state.album_recorder.mark_track_boundary(next_id)
+                    # Notify UI of track boundary with completed track name
+                    tc = state.album_recorder.track_count if state.album_recorder else 0
+                    track_name = side_tracks[tc-1]["title"] if tc <= len(side_tracks) else None
+                    asyncio.run_coroutine_threadsafe(
+                        broadcast("album_recording_status", {
+                            "recording": True, "album_id": _aid, "side": _side,
+                            "message": f"\u23fa Recording Side {_side} — {tc} track(s)",
+                            "track_name": track_name,
+                        }), _loop)
 
             state.rec_buffer._on_track_ready = _on_learn_track_ready
             state.rec_buffer.start(auto_split=True)
@@ -1730,6 +1745,14 @@ async def album_recording_flip(body: dict):
                 if state.album_recorder and state.album_recorder.is_active:
                     next_id = state.learn_session.next_track_id() if state.learn_session else None
                     state.album_recorder.mark_track_boundary(next_id)
+                    tc = state.album_recorder.track_count if state.album_recorder else 0
+                    track_name = side_tracks[tc-1]["title"] if tc <= len(side_tracks) else None
+                    asyncio.run_coroutine_threadsafe(
+                        broadcast("album_recording_status", {
+                            "recording": True, "album_id": _aid2, "side": _side2,
+                            "message": f"\u23fa Recording Side {_side2} — {tc} track(s)",
+                            "track_name": track_name,
+                        }), _loop2)
 
             state.rec_buffer._on_track_ready = _on_learn_track_ready
             state.rec_buffer.start(auto_split=True)

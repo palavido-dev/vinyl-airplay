@@ -1027,6 +1027,22 @@ def fetch_artwork(mb_release_id: str, album_id: int) -> Optional[str]:
         return None
 
 
+def fetch_artwork_from_url(url: str, album_id: int) -> Optional[str]:
+    """Download artwork from any URL (e.g. Discogs). Returns relative path or None."""
+    if not url:
+        return None
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": MB_APP})
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            data = resp.read()
+        path = _save_artwork(data, album_id, user=False)
+        print(f"[catalog] Artwork downloaded from {url[:60]}...")
+        return path
+    except Exception as e:
+        print(f"[catalog] Artwork URL fetch failed: {e}")
+        return None
+
+
 def save_user_artwork(image_bytes: bytes, album_id: int) -> Optional[str]:
     """Save user-uploaded photo as album artwork. Returns relative path."""
     return _save_artwork(image_bytes, album_id, user=True)
