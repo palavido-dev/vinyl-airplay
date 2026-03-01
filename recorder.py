@@ -331,7 +331,7 @@ def _pcm_to_wav(pcm: bytes) -> bytes:
 
 # ── FLAC Encoding ─────────────────────────────────────────────────────────────
 
-ALBUM_AUDIO_DIR = Path(__file__).parent / "album_audio"
+DEFAULT_AUDIO_DIR = Path(__file__).parent / "album_audio"
 
 
 def encode_flac(pcm: bytes, output_path: Path, metadata: dict = {}) -> bool:
@@ -407,11 +407,13 @@ class AlbumRecorder:
         path, duration = recorder.finish()
     """
 
-    def __init__(self, album_id: int, side: str, album_info: dict):
+    def __init__(self, album_id: int, side: str, album_info: dict,
+                 audio_dir: Path = None):
         self._lock = threading.Lock()
         self.album_id = album_id
         self.side = side
         self.album_info = album_info  # {artist, title, year, genre, ...}
+        self._audio_dir = (audio_dir or DEFAULT_AUDIO_DIR).resolve()
 
         self._chunks: list[bytes] = []
         self._total_bytes = 0
@@ -425,7 +427,7 @@ class AlbumRecorder:
         self._audio_started = False
         self.on_audio_detected = None  # callback when first audio arrives
 
-        ALBUM_AUDIO_DIR.mkdir(exist_ok=True)
+        self._audio_dir.mkdir(parents=True, exist_ok=True)
         print(f"[album-rec] Started: {album_info.get('artist')} - "
               f"{album_info.get('title')} Side {side}")
 
@@ -605,13 +607,13 @@ class AlbumRecorder:
             self.album_info.get("title", "Unknown Album"),
             self.side,
         )
-        output_path = ALBUM_AUDIO_DIR / filename
+        output_path = self._audio_dir / filename
 
         # Avoid overwriting
         counter = 1
         base = output_path.stem
         while output_path.exists():
-            output_path = ALBUM_AUDIO_DIR / f"{base} ({counter}).flac"
+            output_path = self._audio_dir / f"{base} ({counter}).flac"
             counter += 1
 
         metadata = {
