@@ -1380,6 +1380,10 @@ async def album_recording_start(body: dict):
     # end-of-side threshold and doesn't stop after the first track
     if state.rec_buffer:
         state.rec_buffer.remaining_tracks = len(side_tracks)
+        # Pass expected track durations for time-based fallback splitting
+        # (handles albums with seamless transitions where silence detection fails)
+        expected_durs = [t.get("duration_secs", 0) or 0 for t in side_tracks]
+        state.rec_buffer.set_expected_durations(expected_durs)
 
     # Also start a learn session so fingerprints get learned automatically
     # (reuses existing learn infrastructure)
@@ -1513,6 +1517,8 @@ async def album_recording_flip(body: dict):
     # Tell the recording buffer how many tracks remain on new side
     if state.rec_buffer:
         state.rec_buffer.remaining_tracks = len(side_tracks)
+        expected_durs = [t.get("duration_secs", 0) or 0 for t in side_tracks]
+        state.rec_buffer.set_expected_durations(expected_durs)
 
     # Restart learn session for new side
     if state.rec_buffer and (state.is_streaming or state.listen_task):
