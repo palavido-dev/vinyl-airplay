@@ -1002,15 +1002,20 @@ async def get_status():
         }
     except Exception:
         storage_info = {"path": str(storage_dir), "free_gb": 0, "total_gb": 0}
+    ar = state.album_recorder
+    rec_info = None
+    if ar and ar.is_active:
+        rec_info = {"album_id": ar.album_id, "side": ar.side}
     return {
-        "streaming":      state.is_streaming,
-        "active_devices": state.active_devices,
-        "settings":       state.settings,
-        "audio_devices":  state.audio_devices,
-        "eq":             {"bass": bass, "treble": treble, "volume": volume},
-        "now_playing":    state.now_playing,
-        "player":         state.player.get_status() if state.player else {"state": "stopped"},
-        "storage":        storage_info,
+        "streaming":        state.is_streaming,
+        "active_devices":   state.active_devices,
+        "settings":         state.settings,
+        "audio_devices":    state.audio_devices,
+        "eq":               {"bass": bass, "treble": treble, "volume": volume},
+        "now_playing":      state.now_playing,
+        "player":           state.player.get_status() if state.player else {"state": "stopped"},
+        "storage":          storage_info,
+        "album_recording":  rec_info,
     }
 
 
