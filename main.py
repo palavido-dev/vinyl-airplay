@@ -46,7 +46,7 @@ def _capture_channels(device_index=None) -> int:
     except Exception:
         return 2  # safe stereo fallback
 BITS          = 16
-BLOCK_SIZE    = 4096
+BLOCK_SIZE    = 8192   # larger blocks = fewer callbacks = less overflow on Pi
 READ_SIZE     = 8192
 MAX_CHUNKS    = 500
 
@@ -316,9 +316,16 @@ class LocalOutputStream:
 
 # ── Audio Callback ────────────────────────────────────────────────────────────
 
+_last_overflow_log = 0.0
+
 def make_callback(streams, eq, fp_buffer):
-    def callback(indata, frames, time, status):
-        if status: print(f"[audio] {status}")
+    def callback(indata, frames, cb_time, status):
+        global _last_overflow_log
+        if status:
+            now = time.monotonic()
+            if now - _last_overflow_log > 30.0:
+                print(f"[audio] {status}")
+                _last_overflow_log = now
         # Scarlett 2i2 4th Gen captures 4 channels — use first 2 (L+R inputs)
         audio_in = np.ascontiguousarray(indata[:, :CHANNELS]) if indata.shape[1] > CHANNELS else indata
         # Feed fingerprint buffer BEFORE EQ/volume — raw signal gives best results
