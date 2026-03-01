@@ -8,6 +8,7 @@ import asyncio
 import collections
 import json
 import math
+import shutil
 import struct
 import threading
 import concurrent.futures
@@ -51,7 +52,9 @@ def load_settings() -> dict:
         s = json.loads(SETTINGS_FILE.read_text())
         return s
     return {"saved_devices": [], "volume": 80, "audio_device_index": None,
-            "bass": 0, "treble": 0, "discogs_token": "", "hidden_devices": [], "auto_stream_enabled": False, "auto_stream_device": None, "device_names": {}}
+            "bass": 0, "treble": 0, "discogs_token": "", "hidden_devices": [],
+            "auto_stream_enabled": False, "auto_stream_device": None,
+            "device_names": {}, "audio_storage_path": ""}
 
 
 def save_settings(s: dict):
@@ -693,7 +696,7 @@ async def _run_stream_inner(targets, audio_device_index, volume):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    cat.init_db()
+    cat.init_db(state.settings)
     devices = sd.query_devices()
     state.audio_devices = [
         {"index": i, "name": d["name"]}
@@ -989,6 +992,16 @@ async def audio_devices():
 @app.get("/api/status")
 async def get_status():
     bass, treble, volume = state.eq.values
+    storage_dir = cat.get_audio_storage_dir(state.settings)
+    try:
+        usage = shutil.disk_usage(str(storage_dir))
+        storage_info = {
+            "path": str(storage_dir),
+            "free_gb": round(usage.free / (1024**3), 1),
+            "total_gb": round(usage.total / (1024**3), 1),
+        }
+    except Exception:
+        storage_info = {"path": str(storage_dir), "free_gb": 0, "total_gb": 0}
     return {
         "streaming":      state.is_streaming,
         "active_devices": state.active_devices,
@@ -997,6 +1010,7 @@ async def get_status():
         "eq":             {"bass": bass, "treble": treble, "volume": volume},
         "now_playing":    state.now_playing,
         "player":         state.player.get_status() if state.player else {"state": "stopped"},
+        "storage":        storage_info,
     }
 
 
@@ -1069,6 +1083,37 @@ async def update_settings(body: dict):
         save_settings(state.settings)
     save_settings(state.settings)
     return {"ok": True}
+
+
+@app.post("/api/settings/storage")
+async def change_storage_path(body: dict):
+    """Change the FLAC recording storage location, migrating existing files."""
+    new_path = (body.get("path") or "").strip()
+    if not new_path:
+        return {"ok": False, "error": "Path is required"}
+
+    # Block if recording is active
+    if state.album_recorder and state.album_recorder.is_active:
+        return {"ok": False, "error": "Cannot change storage while recording is in progress"}
+
+    new_dir = Path(new_path).resolve()
+    old_dir = cat.get_audio_storage_dir(state.settings)
+
+    if new_dir == old_dir:
+        return {"ok": True, "migrated": 0, "message": "Already using this path"}
+
+    # Run migration (copy files, update DB, delete originals)
+    result = cat.migrate_audio_storage(old_dir, new_dir)
+
+    if result["ok"]:
+        state.settings["audio_storage_path"] = str(new_dir)
+        save_settings(state.settings)
+        msg = f"Storage moved to {new_dir}"
+        if result["migrated"] > 0:
+            msg += f" ({result['migrated']} files migrated)"
+        return {"ok": True, "migrated": result["migrated"], "message": msg}
+    else:
+        return {"ok": False, "error": result["error"]}
 
 
 # ── Catalog Routes ────────────────────────────────────────────────────────────
@@ -1355,7 +1400,9 @@ async def album_recording_start(body: dict):
     }
 
     # Create the album recorder
-    state.album_recorder = rec.AlbumRecorder(album_id, side, album_info)
+    audio_dir = cat.get_audio_storage_dir(state.settings)
+    state.album_recorder = rec.AlbumRecorder(album_id, side, album_info,
+                                             audio_dir=audio_dir)
 
     # Notify UI when audio is first detected
     _loop = asyncio.get_event_loop()
@@ -1497,7 +1544,9 @@ async def album_recording_flip(body: dict):
         "genre":  album.get("genre"),
     }
 
-    state.album_recorder = rec.AlbumRecorder(album_id, new_side, album_info)
+    audio_dir = cat.get_audio_storage_dir(state.settings)
+    state.album_recorder = rec.AlbumRecorder(album_id, new_side, album_info,
+                                             audio_dir=audio_dir)
 
     # Notify UI when audio is first detected on new side
     _loop2 = asyncio.get_event_loop()

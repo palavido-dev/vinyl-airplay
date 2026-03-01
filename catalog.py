@@ -47,8 +47,19 @@ MIN_VOTES           = 2           # minimum votes required to declare a match
 ARTWORK_SIZE        = 600         # px — artwork stored at this square size
 DB_PATH             = Path("catalog.db")
 ARTWORK_DIR         = Path("artwork")
-ALBUM_AUDIO_DIR     = Path("album_audio")
+DEFAULT_AUDIO_DIR   = Path("album_audio")       # fallback when no custom path configured
 MB_APP              = "VinylAirPlay/1.0 (local)"  # MusicBrainz user-agent
+
+
+def get_audio_storage_dir(settings: dict = None) -> Path:
+    """Return the configured audio storage directory (absolute), creating it if needed."""
+    custom = (settings or {}).get("audio_storage_path", "")
+    if custom:
+        p = Path(custom).resolve()
+    else:
+        p = DEFAULT_AUDIO_DIR.resolve()
+    p.mkdir(parents=True, exist_ok=True)
+    return p
 
 
 # ── Database ──────────────────────────────────────────────────────────────────
@@ -124,9 +135,9 @@ def get_db() -> sqlite3.Connection:
     return db
 
 
-def init_db():
+def init_db(settings: dict = None):
     ARTWORK_DIR.mkdir(exist_ok=True)
-    ALBUM_AUDIO_DIR.mkdir(exist_ok=True)
+    get_audio_storage_dir(settings)  # creates dir if needed
     db = get_db()
     db.executescript(SCHEMA)
     # Migrations for existing databases — add columns if missing
@@ -1714,6 +1725,110 @@ def delete_album_audio_by_id(audio_id: int) -> bool:
     except Exception as e:
         print(f"[catalog] delete_album_audio_by_id failed: {e}")
         return False
+    finally:
+        db.close()
+
+
+def migrate_audio_storage(old_dir: Path, new_dir: Path) -> dict:
+    """
+    Move all FLAC recordings from old_dir to new_dir and update DB paths.
+    Returns {"ok": bool, "migrated": int, "error": str}.
+    """
+    import shutil
+
+    old_dir = old_dir.resolve()
+    new_dir = new_dir.resolve()
+
+    if old_dir == new_dir:
+        return {"ok": True, "migrated": 0, "error": ""}
+
+    # Validate new directory is writable
+    try:
+        new_dir.mkdir(parents=True, exist_ok=True)
+        test_file = new_dir / ".write_test"
+        test_file.write_text("ok")
+        test_file.unlink()
+    except Exception as e:
+        return {"ok": False, "migrated": 0, "error": f"Cannot write to {new_dir}: {e}"}
+
+    # Get all audio records from DB
+    db = get_db()
+    try:
+        rows = db.execute("SELECT id, file_path FROM album_audio").fetchall()
+        if not rows:
+            return {"ok": True, "migrated": 0, "error": ""}
+
+        # Calculate total size needed
+        total_size = 0
+        files_to_move = []
+        for r in rows:
+            old_path = Path(r["file_path"])
+            if not old_path.is_absolute():
+                old_path = (old_dir.parent / old_path).resolve()
+            if old_path.exists():
+                total_size += old_path.stat().st_size
+                files_to_move.append((r["id"], old_path))
+
+        # Check disk space
+        usage = shutil.disk_usage(str(new_dir))
+        if usage.free < total_size * 1.1:  # 10% headroom
+            need_mb = total_size / (1024 * 1024)
+            free_mb = usage.free / (1024 * 1024)
+            return {"ok": False, "migrated": 0,
+                    "error": f"Insufficient space: need {need_mb:.0f} MB, have {free_mb:.0f} MB free"}
+
+        # Phase 1: Copy files to new location
+        copied = []
+        try:
+            for row_id, old_path in files_to_move:
+                new_path = new_dir / old_path.name
+                # Avoid overwriting
+                counter = 1
+                base = new_path.stem
+                suffix = new_path.suffix
+                while new_path.exists():
+                    new_path = new_dir / f"{base} ({counter}){suffix}"
+                    counter += 1
+                shutil.copy2(str(old_path), str(new_path))
+                copied.append((row_id, old_path, new_path))
+                print(f"[catalog] Migrated: {old_path.name} → {new_path}")
+        except Exception as e:
+            # Rollback: remove any copies made
+            for _, _, new_path in copied:
+                if new_path.exists():
+                    new_path.unlink()
+            return {"ok": False, "migrated": 0,
+                    "error": f"Copy failed: {e}"}
+
+        # Phase 2: Update DB paths (absolute)
+        try:
+            for row_id, old_path, new_path in copied:
+                db.execute(
+                    "UPDATE album_audio SET file_path = ? WHERE id = ?",
+                    (str(new_path), row_id)
+                )
+            db.commit()
+        except Exception as e:
+            db.rollback()
+            # Rollback: remove copies
+            for _, _, new_path in copied:
+                if new_path.exists():
+                    new_path.unlink()
+            return {"ok": False, "migrated": 0,
+                    "error": f"DB update failed: {e}"}
+
+        # Phase 3: Delete originals
+        for _, old_path, _ in copied:
+            try:
+                old_path.unlink()
+            except Exception:
+                pass  # non-fatal, file was already copied
+
+        print(f"[catalog] Storage migration complete: {len(copied)} files moved to {new_dir}")
+        return {"ok": True, "migrated": len(copied), "error": ""}
+
+    except Exception as e:
+        return {"ok": False, "migrated": 0, "error": f"Migration failed: {e}"}
     finally:
         db.close()
 

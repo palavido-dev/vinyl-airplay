@@ -675,6 +675,12 @@
     </div>
     <div class="settings-section"><h3>Audio Input</h3><select class="form-input" id="audio-select"><option value="">Loading…</option></select></div>
     <div class="settings-section"><h3>Discogs Token</h3><p style="font-size:0.75rem;color:var(--muted);margin-bottom:0.4rem;line-height:1.4">Optional — increases rate limits and enables cover art. <a href="https://www.discogs.com/settings/developers" target="_blank" style="color:var(--amber-dk)">Get token</a></p><div style="display:flex;gap:0.4rem;align-items:center"><input type="password" class="form-input" id="discogs-token" placeholder="Paste token" style="flex:1"><button class="btn btn-accent" onclick="saveDiscogsToken()">Save</button></div><span id="discogs-saved" style="display:none;color:var(--sage);font-size:0.75rem">✓ Saved</span></div>
+    <div class="settings-section"><h3>Storage</h3>
+      <div style="font-size:0.82rem;margin-bottom:0.3rem">Location: <strong id="storage-path">—</strong></div>
+      <div style="font-size:0.75rem;color:var(--muted);margin-bottom:0.5rem">Free: <span id="storage-free">—</span> GB of <span id="storage-total">—</span> GB</div>
+      <div style="display:flex;gap:0.4rem;align-items:center"><input type="text" class="form-input" id="new-storage-path" placeholder="/mnt/ssd/vinyl-audio" style="flex:1;font-size:0.85rem"><button class="btn btn-accent" onclick="changeStoragePath()">Move</button></div>
+      <div id="storage-status" style="display:none;font-size:0.75rem;margin-top:0.3rem"></div>
+    </div>
     <button class="btn btn-ghost" onclick="hideSettings()" style="width:100%;margin-top:0.5rem">Close</button>
   </div>
 </div>
@@ -1122,6 +1128,8 @@ async function toggleHidden(did,hide){await fetch('/api/device/hide',{method:'PO
 async function saveAutoStreamSettings(){const en=document.getElementById('auto-stream-enabled').checked,sel=document.getElementById('auto-stream-device-select'),opt=sel.options[sel.selectedIndex],dev=opt&&opt.value?{id:opt.value,name:opt.textContent}:null;await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({auto_stream_enabled:en,auto_stream_device:dev})});document.getElementById('auto-stream-status').textContent=en&&dev?`Auto-streaming to: ${dev.name}`:''}
 async function scanAutoStreamDevices(){const sel=document.getElementById('auto-stream-device-select');sel.innerHTML='<option value="">Scanning\u2026</option>';try{const d=await fetch('/api/scan').then(r=>r.json());sel.innerHTML='<option value="">\u2014 Select \u2014</option>';(d.devices||[]).filter(d=>!d.hidden).forEach(d=>{const o=document.createElement('option');o.value=d.id;o.textContent=d.name;sel.appendChild(o)});if(window._savedAutoStreamDevice)sel.value=window._savedAutoStreamDevice.id}catch(e){sel.innerHTML='<option value="">Scan failed</option>'}}
 async function saveDiscogsToken(){const t=document.getElementById('discogs-token').value.trim();await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({discogs_token:t})});const el=document.getElementById('discogs-saved');el.style.display='inline';setTimeout(()=>el.style.display='none',2000)}
+function updateStorageInfo(storage){if(!storage)return;document.getElementById('storage-path').textContent=storage.path||'—';document.getElementById('storage-free').textContent=storage.free_gb||'—';document.getElementById('storage-total').textContent=storage.total_gb||'—'}
+async function changeStoragePath(){const p=document.getElementById('new-storage-path').value.trim();if(!p){alert('Enter a path');return}if(!confirm('Move all recordings to '+p+'?'))return;const st=document.getElementById('storage-status');st.style.display='block';st.style.color='var(--muted)';st.textContent='Moving files…';try{const r=await fetch('/api/settings/storage',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:p})}).then(r=>r.json());if(r.ok){st.style.color='var(--sage)';st.textContent=r.message;document.getElementById('new-storage-path').value='';const d=await fetch('/api/status').then(r=>r.json());if(d.storage)updateStorageInfo(d.storage)}else{st.style.color='var(--rust)';st.textContent=r.error||'Failed'}}catch(e){st.style.color='var(--rust)';st.textContent='Error: '+e.message}}
 async function loadAudioDevices(){try{const d=await fetch('/api/audio-devices').then(r=>r.json());document.getElementById('audio-select').innerHTML=d.devices.map(d=>`<option value="${d.index}">${esc(d.name)}</option>`).join('')}catch(e){}}
 
 async function init(){
@@ -1136,6 +1144,7 @@ async function init(){
     if(d.settings.saved_devices&&d.settings.saved_devices.length)_lastUsedDevice=d.settings.saved_devices[0].id;
     if(d.settings.auto_stream_enabled!==undefined){document.getElementById('auto-stream-enabled').checked=d.settings.auto_stream_enabled;if(d.settings.auto_stream_device){window._savedAutoStreamDevice=d.settings.auto_stream_device;scanAutoStreamDevices()}const st=document.getElementById('auto-stream-status');if(d.settings.auto_stream_enabled&&d.settings.auto_stream_device)st.textContent=`Auto-streaming to: ${d.settings.auto_stream_device.name}`}
   }
+  if(d.storage)updateStorageInfo(d.storage);
   loadCatalog();
 }
 init();
