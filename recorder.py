@@ -38,6 +38,9 @@ SILENCE_FORGIVE_SECS = 0.3          # ignore above-threshold blips shorter than 
                                     # vinyl pops/crackles shouldn't reset the silence counter
 SILENCE_MIN_SECS  = 1.5             # silence must last this long to split track
                                     # reduced from 2.0 — some albums have short inter-track gaps
+SILENCE_EARLY_SECS = 6.0            # longer silence required when splitting early vs expected duration
+                                    # prevents quiet passages from causing false splits on dynamic albums
+EARLY_SPLIT_RATIO  = 0.75           # "early" means less than 75% of expected track duration elapsed
 END_OF_SIDE_SECS  = 20.0            # silence this long = end of side — auto-flush final track
                                     # _split_track trims to silence_start+pad so no long silence
                                     # is appended to the file
@@ -243,7 +246,17 @@ class RecordingBuffer:
                 # Genuine audio returned — finalize any pending silence
                 self._silence_log_countdown = 0  # reset so next gap logs immediately
                 self._end_of_side_fired = False  # reset if audio returns
-                if self._silence_secs >= SILENCE_MIN_SECS:
+                # Determine minimum silence needed to trigger a split.
+                # If we have expected durations and we're well short of the
+                # expected track length, require longer silence to prevent
+                # quiet passages from causing false splits.
+                min_silence = SILENCE_MIN_SECS
+                if (self._expected_durations
+                        and self._duration_track_idx < len(self._expected_durations)):
+                    expected = self._expected_durations[self._duration_track_idx]
+                    if expected > 0 and self._track_elapsed_secs < expected * EARLY_SPLIT_RATIO:
+                        min_silence = SILENCE_EARLY_SECS
+                if self._silence_secs >= min_silence:
                     # Sustained silence ended — split track
                     self._split_track()
                 self._silence_secs       = 0.0
