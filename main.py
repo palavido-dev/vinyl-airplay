@@ -1378,6 +1378,9 @@ async def album_recording_start(body: dict):
 
     # Tell the recording buffer how many tracks remain so it uses a longer
     # end-of-side threshold and doesn't stop after the first track
+    print(f"[album-rec] rec_buffer={'YES' if state.rec_buffer else 'NO'}, "
+          f"side_tracks={len(side_tracks)}, "
+          f"durations={[t.get('duration_secs') for t in side_tracks]}")
     if state.rec_buffer:
         state.rec_buffer.remaining_tracks = len(side_tracks)
         # Pass expected track durations for time-based fallback splitting
