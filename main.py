@@ -35,7 +35,16 @@ import player as plr
 
 SAMPLE_RATE      = 44100
 CHANNELS         = 2    # processing/output channels (stereo)
-CAPTURE_CHANNELS = 4    # Scarlett 2i2 4th Gen presents as 4-ch to ALSA
+CAPTURE_CHANNELS_MAX = 4  # preferred: Scarlett 2i2 4th Gen presents as 4-ch
+
+def _capture_channels(device_index=None) -> int:
+    """Return the number of input channels to use for a given device.
+    Uses the lesser of CAPTURE_CHANNELS_MAX and the device's actual max."""
+    try:
+        info = sd.query_devices(device_index, kind='input')
+        return min(CAPTURE_CHANNELS_MAX, int(info['max_input_channels']))
+    except Exception:
+        return 2  # safe stereo fallback
 BITS          = 16
 BLOCK_SIZE    = 4096
 READ_SIZE     = 8192
@@ -443,10 +452,10 @@ async def _auto_stream_watcher():
             audio_idx = state.settings.get("audio_device_index")
             try:
                 with sd.InputStream(device=audio_idx, samplerate=44100,
-                                    channels=CAPTURE_CHANNELS, dtype="float32",
+                                    channels=_capture_channels(audio_idx), dtype="float32",
                                     blocksize=POLL_FRAMES) as stream:
                     data, _ = stream.read(POLL_FRAMES)
-                rms = float(np.sqrt(np.mean(data[:, :2] ** 2)))
+                rms = float(np.sqrt(np.mean(data[:, :min(2, data.shape[1])] ** 2)))
             except Exception as e:
                 # Suppress noisy errors when something else has the device
                 if not (state.listen_task or state.is_streaming
@@ -663,7 +672,7 @@ async def _run_stream_inner(targets, audio_device_index, volume):
 
     try:
         with sd.InputStream(device=audio_device_index, samplerate=SAMPLE_RATE,
-                            channels=CAPTURE_CHANNELS, dtype="float32",
+                            channels=_capture_channels(audio_device_index), dtype="float32",
                             blocksize=BLOCK_SIZE, callback=callback):
             stop_task    = asyncio.create_task(state.stop_event.wait())
             if confs:
@@ -699,10 +708,13 @@ async def lifespan(app: FastAPI):
     cat.init_db(state.settings)
     devices = sd.query_devices()
     state.audio_devices = [
-        {"index": i, "name": d["name"]}
+        {"index": i, "name": d["name"], "max_input_channels": d["max_input_channels"]}
         for i, d in enumerate(devices)
         if d["max_input_channels"] > 0
     ]
+    audio_idx = state.settings.get("audio_device_index")
+    ch = _capture_channels(audio_idx)
+    print(f"[audio] Input device={audio_idx}, capture_channels={ch}")
     if state.settings.get("auto_stream_enabled"):
         state.auto_stream_task = asyncio.create_task(_auto_stream_watcher())
         print("[auto-stream] Watcher started on boot")
@@ -2306,7 +2318,7 @@ async def _start_listen_mode():
         callback = make_callback({}, state.eq, state.fp_buffer)
         try:
             with sd.InputStream(device=audio_device_index, samplerate=SAMPLE_RATE,
-                                channels=CAPTURE_CHANNELS, dtype="float32",
+                                channels=_capture_channels(audio_device_index), dtype="float32",
                                 blocksize=BLOCK_SIZE, callback=callback):
                 print("[listen] Audio-only mode started")
                 await broadcast("status", {"streaming": False, "listening": True,
