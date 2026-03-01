@@ -238,6 +238,8 @@
   .track-row { display: flex; align-items: center; gap: 0.4rem; padding: 0.35rem 0; border-bottom: 1px solid rgba(0,0,0,0.06); font-size: 0.82rem; cursor: pointer; transition: background 0.1s; }
   .track-row:last-child { border-bottom: none; }
   .track-row:active { background: var(--paper-dk); }
+  .track-fp-clear { display:inline-flex;align-items:center;justify-content:center;width:1.2rem;height:1.2rem;border-radius:50%;background:rgba(180,80,60,0.12);color:var(--rust);font-size:0.6rem;cursor:pointer;opacity:0.6;transition:opacity 0.15s,background 0.15s;flex-shrink:0;margin-left:0.15rem }
+  .track-fp-clear:hover { opacity:1;background:rgba(180,80,60,0.25) }
   .track-num { color: var(--muted); min-width: 1.6rem; font-size: 0.72rem; }
   .side-label { font-family: var(--display-font); font-size: 0.7rem; font-weight: 700; color: var(--leather); text-transform: uppercase; letter-spacing: 0.1em; padding: 0.55rem 0 0.2rem; }
   .modal-actions { display: flex; flex-wrap: wrap; gap: 0.4rem; padding-top: 0.6rem; border-top: 1px solid rgba(0,0,0,0.08); }
@@ -986,12 +988,13 @@ function renderModalTracks(tracks,reorder){
   let h='';Object.keys(sides).sort().forEach(side=>{
     h+=`<div class="side-label">Side ${side}</div>`;
     sides[side].forEach((t,i)=>{
-      const dur=t.duration_secs?fmtTime(t.duration_secs):(t.start_secs!=null&&t.end_secs!=null?fmtTime(t.end_secs-t.start_secs):'');
+      const dur=t.duration_secs&&t.duration_secs>0?fmtTime(t.duration_secs):(t.start_secs!=null&&t.end_secs!=null?fmtTime(t.end_secs-t.start_secs):'');
       const learned=(t.fingerprint_count||0)>0;
-      const fp=learned?`<span style="color:var(--sage);font-size:0.68rem;cursor:pointer" title="Tap to clear fingerprints" onclick="event.stopPropagation();clearTrackFP(${t.id},'${esc(t.title)}')">\u2713 ${t.fingerprint_count}fp</span>`:'<span style="color:var(--muted);font-size:0.68rem">unlearned</span>';
+      const fpBadge=learned?`<span style="color:var(--sage);font-size:0.68rem">\u2713 ${t.fingerprint_count}fp</span>`:'<span style="color:var(--muted);font-size:0.68rem">unlearned</span>';
+      const fpClear=learned?`<span class="track-fp-clear" title="Clear fingerprints for this track" onclick="event.stopPropagation();clearTrackFP(${t.id},'${esc(t.title)}')">\u2715</span>`:'';
       const handle=reorder?'<span class="drag-handle">\u2807</span>':'';
       const click=t.start_secs!=null&&!reorder?`onclick="seekToTrack(${t.id})"`:'';
-      h+=`<div class="track-row" data-id="${t.id}" data-idx="${i}" ${click}>${handle}<span class="track-num">${esc(t.track_number||'')}</span><span style="flex:1">${esc(t.title)}</span>${fp}<span style="color:var(--muted);font-size:0.72rem;min-width:2.5rem;text-align:right">${dur}</span></div>`;
+      h+=`<div class="track-row" data-id="${t.id}" data-idx="${i}" ${click}>${handle}<span class="track-num">${esc(t.track_number||'')}</span><span style="flex:1">${esc(t.title)}</span>${fpBadge}${fpClear}<span style="color:var(--muted);font-size:0.72rem;min-width:2.5rem;text-align:right">${dur}</span></div>`;
     });
   });
   c.innerHTML=h;if(reorder)initDragReorder();
