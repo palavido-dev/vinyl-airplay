@@ -986,7 +986,7 @@ function renderModalTracks(tracks,reorder){
   let h='';Object.keys(sides).sort().forEach(side=>{
     h+=`<div class="side-label">Side ${side}</div>`;
     sides[side].forEach((t,i)=>{
-      const dur=t.duration_secs?fmtTime(t.duration_secs):'';
+      const dur=t.duration_secs?fmtTime(t.duration_secs):(t.start_secs!=null&&t.end_secs!=null?fmtTime(t.end_secs-t.start_secs):'');
       const learned=(t.fingerprint_count||0)>0;
       const fp=learned?`<span style="color:var(--sage);font-size:0.68rem;cursor:pointer" title="Tap to clear fingerprints" onclick="event.stopPropagation();clearTrackFP(${t.id},'${esc(t.title)}')">\u2713 ${t.fingerprint_count}fp</span>`:'<span style="color:var(--muted);font-size:0.68rem">unlearned</span>';
       const handle=reorder?'<span class="drag-handle">\u2807</span>':'';

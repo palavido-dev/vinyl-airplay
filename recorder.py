@@ -44,6 +44,8 @@ END_OF_SIDE_SECS  = 20.0            # silence this long = end of side — auto-f
 SILENCE_PAD_SECS  = 0.5            # keep this much silence at end of track (natural fade)
 MIN_TRACK_SECS    = 15              # ignore tracks shorter than this (needle drop, interludes)
 STARTUP_AUDIO_SECS = 2.0            # sustained audio required before silence detection begins
+DURATION_SPLIT_TOLERANCE = 10.0     # seconds past expected track duration before forcing a split
+                                    # fallback for albums with seamless transitions (no silence gaps)
 
 
 # ── Recording Buffer ──────────────────────────────────────────────────────────
@@ -95,6 +97,11 @@ class RecordingBuffer:
         # Forgiveness window: brief above-threshold blips don't reset silence counter
         self._above_thresh_secs = 0.0      # how long audio has been above threshold
 
+        # Duration-based fallback for seamless albums (no silence between tracks)
+        self._expected_durations: list[float] = []   # per-track expected durations (seconds)
+        self._duration_track_idx = 0                 # which expected track we're on
+        self._track_elapsed_secs = 0.0               # seconds since last split
+
     def start(self, auto_split: bool = True):
         with self._lock:
             self._chunks        = []
@@ -109,6 +116,9 @@ class RecordingBuffer:
             self._silence_log_countdown = 0
             self._end_of_side_fired    = False
             self._above_thresh_secs    = 0.0
+            self._duration_track_idx   = 0
+            self._track_elapsed_secs   = 0.0
+            # Keep _expected_durations — set externally before start()
         print(f"[recorder] Recording started (auto_split={auto_split})")
 
     def stop(self) -> Optional[bytes]:
@@ -128,6 +138,13 @@ class RecordingBuffer:
 
         print(f"[recorder] Recording stopped — {duration:.1f}s captured")
         return pcm
+
+    def set_expected_durations(self, durations: list[float]):
+        """Set expected track durations (from Discogs) for time-based fallback splitting."""
+        self._expected_durations = [d for d in durations if d > 0]
+        if self._expected_durations:
+            print(f"[recorder] Expected track durations set: "
+                  f"{[f'{d:.0f}s' for d in self._expected_durations]}")
 
     @property
     def is_active(self) -> bool:
@@ -233,6 +250,25 @@ class RecordingBuffer:
                 self._silence_start_byte = 0
             # else: blip is too short, keep accumulating silence
 
+        # ── Duration-based fallback for seamless albums ──────────────────
+        # If we know the expected track durations (from Discogs) and silence
+        # detection hasn't triggered a split, force one after the expected
+        # duration + tolerance. This handles albums where tracks blend
+        # into each other with no silence gaps.
+        if (self._expected_durations
+                and self._audio_seen
+                and self._duration_track_idx < len(self._expected_durations)):
+            self._track_elapsed_secs += chunk_secs
+            expected = self._expected_durations[self._duration_track_idx]
+            if expected > 0 and self._track_elapsed_secs >= expected + DURATION_SPLIT_TOLERANCE:
+                print(f"[recorder] Time-based split: {self._track_elapsed_secs:.1f}s "
+                      f"elapsed (expected ~{expected:.0f}s + {DURATION_SPLIT_TOLERANCE:.0f}s tolerance)")
+                # Cut at the current position (no silence to trim to)
+                with self._lock:
+                    self._silence_start_byte = self._total_bytes
+                self._silence_secs = 0.0
+                self._split_track()
+
     def _split_track(self):
         """Called when silence gap detected — extract the completed track."""
         with self._lock:
@@ -257,6 +293,10 @@ class RecordingBuffer:
         print(f"[recorder] Auto-split: track ready ({duration:.1f}s)")
         if self.remaining_tracks > 0:
             self.remaining_tracks -= 1
+        # Reset duration-based tracking after a real split
+        self._track_elapsed_secs = 0.0
+        if self._expected_durations and self._duration_track_idx < len(self._expected_durations):
+            self._duration_track_idx += 1
         self._on_track_ready(track_pcm, duration)
 
 
