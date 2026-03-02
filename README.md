@@ -2,7 +2,9 @@
 
 **A Raspberry Pi–powered vinyl jukebox that records, recognizes, and streams your records — so you can enjoy them without the wear.**
 
-<!-- TODO: Add hero photo of setup (touchscreen + turntable + Scarlett) -->
+<p align="center">
+  <img src="screenshots/IMG_0153.JPG" width="700" alt="Vinyl Streamer setup — turntable, touchscreen, and Focusrite Scarlett">
+</p>
 
 Vinyl Streamer captures audio from your turntable through a USB audio interface, learns your record collection through audio fingerprinting, and streams lossless audio to AirPlay and Bluetooth speakers throughout your home. It also records full album sides as FLAC files, turning your Pi into a vinyl jukebox — play back your entire collection at CD quality without ever touching the physical records.
 
@@ -18,7 +20,9 @@ Vinyl Streamer sits between your turntable and your speakers. It captures analog
 
 But it goes further than just streaming live vinyl. Every album you teach it gets recorded as a high-quality FLAC file. Those recordings live in your catalog and can be played back at any time — no turntable needed. Think of it as a jukebox for your vinyl collection: browse your albums on the touchscreen or your phone, tap one, and it plays through your speakers. The physical records stay safely on the shelf.
 
-<!-- TODO: Add screenshot of main catalog/now-playing UI -->
+<p align="center">
+  <img src="screenshots/now_playing.png" width="700" alt="Now playing — album detail with playback controls">
+</p>
 
 ### Key Features
 
@@ -35,8 +39,6 @@ But it goes further than just streaming live vinyl. Every album you teach it get
 
 ## Hardware
 
-<!-- TODO: Add photo of the back of the touchscreen showing Pi mounted -->
-
 | Component | What I Use | Notes |
 |---|---|---|
 | **Raspberry Pi** | [CanaKit Pi 5 Starter Kit (8GB)](https://www.amazon.com/dp/B0CRSNCJ6Y) | Developed and tested on a Pi 5 8GB. Other models may work but are untested. |
@@ -45,6 +47,13 @@ But it goes further than just streaming live vinyl. Every album you teach it get
 | **Touchscreen** | [ROADOM 10.1" IPS Touch Display (1024x600)](https://www.amazon.com/dp/B0CSQGZ91P) | Runs the web UI in Chromium kiosk mode as a dedicated now-playing display and jukebox interface. |
 | **Turntable** | Any with line-level output | If your turntable has a built-in preamp, connect directly. Otherwise, run it through a phono preamp first. |
 | **Speakers** | Any AirPlay or Bluetooth speaker | See compatibility notes below. |
+
+The Pi mounts right on the back of the touchscreen with the NVMe HAT, keeping the whole setup compact:
+
+<p align="center">
+  <img src="screenshots/IMG_0154.JPG" width="500" alt="Pi 5 with NVMe HAT mounted on the back of the touchscreen">
+  <img src="screenshots/IMG_0155.JPG" width="500" alt="Close-up of Pi ports and cabling behind the screen">
+</p>
 
 ### Speaker Compatibility
 
@@ -132,13 +141,34 @@ sudo systemctl start vinyl-airplay
 
 3. **Add an album** — Search for your record on Discogs to import the track listing and artwork. No API token needed for basic use.
 
+<p align="center">
+  <img src="screenshots/add_album_search_results.png" width="400" alt="Discogs search results">
+  <img src="screenshots/add_album_search_save.png" width="400" alt="Confirm track listing before saving">
+</p>
+
 4. **Record and teach** — Start a recording session, then play Side A all the way through. The system records a lossless FLAC and automatically detects track boundaries to build a fingerprint database. Flip and repeat for Side B.
+
+<p align="center">
+  <img src="screenshots/album_details_and_record.png" width="500" alt="Album detail with record and learn options">
+</p>
 
 5. **Enjoy two ways:**
    - **Live vinyl** — Drop the needle anytime. Vinyl Streamer recognizes the record and streams to your speakers automatically.
    - **Jukebox mode** — Tap any album in your catalog to play the FLAC recording through your speakers. No turntable needed — your vinyl stays on the shelf.
 
-<!-- TODO: Add screenshots of the recording flow and album detail -->
+<p align="center">
+  <img src="screenshots/Catalog Screenshot.png" width="700" alt="Album catalog — browse and play your collection">
+</p>
+
+---
+
+## Settings & Device Management
+
+Configure AirPlay devices, Bluetooth speakers, auto-streaming, audio input, and storage all from the settings panel.
+
+<p align="center">
+  <img src="screenshots/settings.png" width="400" alt="Settings — AirPlay, Bluetooth, and streaming configuration">
+</p>
 
 ---
 
