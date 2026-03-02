@@ -32,7 +32,8 @@
     --display-font: 'Libre Baskerville', 'Fallback Serif', Georgia, serif;
     --body-font:    'DM Sans', 'Fallback Sans', 'Helvetica Neue', sans-serif;
   }
-  * { margin: 0; padding: 0; box-sizing: border-box; cursor: none !important; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  @media (max-width: 1024px) and (max-height: 600px) { * { cursor: none !important; } }
   body {
     font-family: var(--body-font);
     background: var(--walnut);
