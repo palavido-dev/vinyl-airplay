@@ -311,6 +311,11 @@ class RecordingBuffer:
         self._track_elapsed_secs = 0.0
         if self._expected_durations and self._duration_track_idx < len(self._expected_durations):
             self._duration_track_idx += 1
+        # Re-arm startup gate: require sustained audio before looking for
+        # the next silence gap. Prevents false splits from residual silence
+        # or quiet passages right after a legitimate split.
+        self._audio_seen = False
+        self._sustained_audio_secs = 0.0
         self._on_track_ready(track_pcm, duration)
 
 
