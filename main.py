@@ -1241,7 +1241,7 @@ async def audio_devices():
 async def bluetooth_scan():
     """Scan for nearby Bluetooth audio devices."""
     devices = await state.bluetooth_manager.scan(timeout=12)
-    return {"devices": devices}
+    return {"ok": True, "devices": devices}
 
 
 @app.post("/api/bluetooth/{device_id}/pair")
