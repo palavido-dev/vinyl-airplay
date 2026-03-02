@@ -271,6 +271,53 @@
   .dir-picker-item:hover { background:rgba(212,162,78,0.15) }
   .dir-picker-item:active { background:rgba(212,162,78,0.3) }
   .dir-picker-item:last-child { border-bottom:none }
+
+  /* ── Catalog Controls ── */
+  .catalog-controls {
+    display: flex; align-items: center; gap: 0.4rem;
+    padding: 0.35rem 0.5rem; flex-wrap: wrap;
+  }
+  .catalog-controls select {
+    font-family: var(--body-font); font-size: 0.78rem; font-weight: 600;
+    background: var(--cream); color: var(--ink); border: 1px solid var(--shelf);
+    border-radius: 6px; padding: 0.3rem 0.5rem; min-height: 36px;
+    outline: none; -webkit-appearance: none; appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%237A6652'/%3E%3C/svg%3E");
+    background-repeat: no-repeat; background-position: right 0.5rem center;
+    padding-right: 1.4rem;
+  }
+  .catalog-controls select:focus { border-color: var(--amber-dk); }
+  .filter-chip {
+    font-family: var(--body-font); font-size: 0.75rem; font-weight: 600;
+    background: var(--paper); color: var(--muted); border: 1px solid var(--shelf);
+    border-radius: 16px; padding: 0.25rem 0.7rem; min-height: 36px;
+    display: inline-flex; align-items: center; gap: 0.25rem;
+    transition: all 0.15s; text-transform: uppercase; letter-spacing: 0.04em;
+  }
+  .filter-chip:active, .filter-chip.active {
+    background: var(--amber-dk); color: #fff; border-color: var(--amber-dk);
+  }
+  .filter-chip.active { box-shadow: 0 1px 4px rgba(184,134,45,0.3); }
+  .btn-play-all {
+    font-family: var(--body-font); font-size: 0.75rem; font-weight: 700;
+    background: var(--sage); color: #fff; border: 1px solid var(--sage-dk);
+    border-radius: 6px; padding: 0.3rem 0.7rem; min-height: 36px;
+    display: none; align-items: center; gap: 0.3rem;
+    margin-left: auto; transition: opacity 0.15s;
+  }
+  .btn-play-all:active { background: var(--sage-dk); }
+  .btn-play-all.visible { display: inline-flex; }
+  .group-header {
+    grid-column: 1 / -1;
+    font-family: var(--display-font); font-size: 0.85rem; font-weight: 700;
+    color: var(--ink); padding: 0.6rem 0 0.25rem;
+    border-bottom: 2px solid var(--amber-dk); margin-bottom: 0.15rem;
+    display: flex; align-items: baseline; gap: 0.5rem;
+  }
+  .group-header .group-count {
+    font-family: var(--body-font); font-size: 0.65rem; font-weight: 600;
+    color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em;
+  }
   .settings-section { margin-bottom: 1.2rem; }
   .settings-section h3 { font-family: var(--display-font); font-size: 0.78rem; font-weight: 700; color: var(--leather); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 0.5rem; }
   .device-item { display: flex; align-items: center; gap: 0.6rem; padding: 0.5rem 0; border-bottom: 1px solid rgba(0,0,0,0.06); font-size: 0.82rem; }
@@ -494,6 +541,18 @@
 </div>
 <div class="status-bar"><span class="status-dot" id="dot"></span><span id="status-text">Connecting…</span></div>
 <div class="main-content" id="main-content">
+  <div class="catalog-controls" id="catalog-controls">
+    <select id="sort-select" onchange="applySortMode(this.value)" title="Sort by">
+      <option value="artist">Artist</option>
+      <option value="title">Title</option>
+      <option value="year">Year</option>
+      <option value="recent_play">Recently Played</option>
+      <option value="recent_add">Recently Added</option>
+    </select>
+    <button class="filter-chip" id="chip-genre" onclick="toggleGroupBy('genre')">By Genre</button>
+    <button class="filter-chip" id="chip-artist" onclick="toggleGroupBy('artist')">By Artist</button>
+    <button class="btn-play-all" id="btn-play-all" onclick="playAllFiltered()">&#9654; Play All</button>
+  </div>
   <div class="album-grid-wrap"><div class="album-grid" id="album-grid"><div class="catalog-empty">Loading catalog…</div></div></div>
   <div class="np-hero" id="np-hero">
     <div class="np-hero-art" id="np-hero-art"><div class="np-hero-art-placeholder"></div></div>
@@ -728,6 +787,7 @@
 </div>
 <script>
 let ws,currentAlbumId=null,_catalogAlbums=[],_playerActive=false,_playerSource=null,_isStreaming=false,_lastUsedDevice=null,_pendingAlbumId=null,_currentDevices=null,_playerAlbumId=null,_learnLog=[],_learnLevelInterval=null,_audioPlayer=null,_audioPlayingId=null,_reorderMode=false,_pendingRelease=null,_recTimerInterval=null;
+var _viewState={sortMode:'artist',groupBy:null};
 
 function esc(s){if(!s)return'';const d=document.createElement('div');d.textContent=s;return d.innerHTML}
 function fmtTime(s){return Math.floor(s/60)+':'+String(Math.floor(s%60)).padStart(2,'0')}
@@ -772,22 +832,116 @@ async function loadCatalog(){
   try{const d=await fetch('/api/catalog').then(r=>r.json());_catalogAlbums=d.albums||[];renderCatalog(_catalogAlbums)}
   catch(e){showError('Failed to load catalog')}
 }
-function renderCatalog(albums){
-  const g=document.getElementById('album-grid');
-  if(!albums.length){g.innerHTML='<div class="catalog-empty">No albums yet.<br>Tap + to add your first record.</div>';return}
-  g.innerHTML=albums.map(a=>{
-    const art=a.user_artwork_path||a.artwork_path;
-    const artH=art?`<img src="/artwork/${art.split('/').pop()}?t=${a.id}" alt="" loading="lazy">`:'<div class="album-art-placeholder">\uD83D\uDCBF</div>';
-    const has=a.audio_count>0;
-    const badge=has?'':'<div class="album-badge unrecorded">not recorded</div>';
-    return `<div class="album-card" onclick="onAlbumTap(${a.id},${has})"><div class="album-art-wrap">${artH}<button class="album-info-btn" onclick="event.stopPropagation();openAlbumDetail(${a.id})" title="Details">\u2139</button>${badge}</div><div class="album-meta"><div class="title">${esc(a.title)}</div><div class="artist">${esc(a.artist)}</div></div></div>`;
-  }).join('');
+// ── Sort comparators ──
+var _sortComparators={
+  artist:function(a,b){return (a.artist||'').localeCompare(b.artist||'')||( a.title||'').localeCompare(b.title||'')},
+  title:function(a,b){return (a.title||'').localeCompare(b.title||'')},
+  year:function(a,b){return (b.year||0)-(a.year||0)||(a.artist||'').localeCompare(b.artist||'')},
+  recent_play:function(a,b){return (b.last_played||'').localeCompare(a.last_played||'')||(a.artist||'').localeCompare(b.artist||'')},
+  recent_add:function(a,b){return (b.created_at||'').localeCompare(a.created_at||'')||(a.artist||'').localeCompare(b.artist||'')}
+};
+
+function sortAlbums(albums){
+  var cmp=_sortComparators[_viewState.sortMode]||_sortComparators.artist;
+  return albums.slice().sort(cmp);
 }
-function filterCatalog(q){if(!q){renderCatalog(_catalogAlbums);return}const ql=q.toLowerCase();renderCatalog(_catalogAlbums.filter(a=>(a.title||'').toLowerCase().includes(ql)||(a.artist||'').toLowerCase().includes(ql)||(a.genre||'').toLowerCase().includes(ql)))}
+
+function renderAlbumCard(a){
+  var art=a.user_artwork_path||a.artwork_path;
+  var artH=art?'<img src="/artwork/'+art.split('/').pop()+'?t='+a.id+'" alt="" loading="lazy">':'<div class="album-art-placeholder">\uD83D\uDCBF</div>';
+  var has=a.audio_count>0;
+  var badge=has?'':'<div class="album-badge unrecorded">not recorded</div>';
+  return '<div class="album-card" onclick="onAlbumTap('+a.id+','+has+')"><div class="album-art-wrap">'+artH+'<button class="album-info-btn" onclick="event.stopPropagation();openAlbumDetail('+a.id+')" title="Details">\u2139</button>'+badge+'</div><div class="album-meta"><div class="title">'+esc(a.title)+'</div><div class="artist">'+esc(a.artist)+'</div></div></div>';
+}
+
+function renderCatalog(albums){
+  var g=document.getElementById('album-grid');
+  if(!albums.length){g.innerHTML='<div class="catalog-empty">No albums yet.<br>Tap + to add your first record.</div>';updatePlayAllButton([]);return}
+  var sorted=sortAlbums(albums);
+  if(_viewState.groupBy){
+    var groups={},order=[];
+    sorted.forEach(function(a){
+      var key=(_viewState.groupBy==='genre'?(a.genre||'Unknown Genre'):(a.artist||'Unknown Artist'));
+      if(!groups[key]){groups[key]=[];order.push(key)}
+      groups[key].push(a);
+    });
+    var html='';
+    order.forEach(function(key){
+      html+='<div class="group-header"><span>'+esc(key)+'</span><span class="group-count">'+groups[key].length+' album'+(groups[key].length!==1?'s':'')+'</span></div>';
+      groups[key].forEach(function(a){html+=renderAlbumCard(a)});
+    });
+    g.innerHTML=html;
+  }else{
+    g.innerHTML=sorted.map(renderAlbumCard).join('');
+  }
+  updatePlayAllButton(sorted);
+}
+
+function filterCatalog(q){
+  var albums=_catalogAlbums;
+  if(q){var ql=q.toLowerCase();albums=albums.filter(function(a){return (a.title||'').toLowerCase().includes(ql)||(a.artist||'').toLowerCase().includes(ql)||(a.genre||'').toLowerCase().includes(ql)})}
+  renderCatalog(albums);
+}
+
+function applySortMode(mode){
+  _viewState.sortMode=mode;
+  var q=(document.getElementById('catalog-search').value||'').trim();
+  filterCatalog(q);
+}
+
+function toggleGroupBy(field){
+  if(_viewState.groupBy===field){_viewState.groupBy=null}else{_viewState.groupBy=field}
+  document.getElementById('chip-genre').classList.toggle('active',_viewState.groupBy==='genre');
+  document.getElementById('chip-artist').classList.toggle('active',_viewState.groupBy==='artist');
+  var q=(document.getElementById('catalog-search').value||'').trim();
+  filterCatalog(q);
+}
+
+function updatePlayAllButton(albums){
+  var btn=document.getElementById('btn-play-all');
+  var playable=(albums||[]).filter(function(a){return a.audio_count>0});
+  if(playable.length>0&&(_viewState.groupBy||document.getElementById('catalog-search').value.trim())){
+    btn.classList.add('visible');
+    btn.textContent='\u25B6 Play All ('+playable.length+')';
+  }else{
+    btn.classList.remove('visible');
+  }
+}
+
+function getFilteredAlbums(){
+  var albums=_catalogAlbums;
+  var q=(document.getElementById('catalog-search').value||'').trim();
+  if(q){var ql=q.toLowerCase();albums=albums.filter(function(a){return (a.title||'').toLowerCase().includes(ql)||(a.artist||'').toLowerCase().includes(ql)||(a.genre||'').toLowerCase().includes(ql)})}
+  return sortAlbums(albums);
+}
 
 function onAlbumTap(id,has){if(!has){openAlbumDetail(id);return}if(_isStreaming||_playerActive){playAlbum(id)}else{_pendingAlbumId=id;showOutputPicker(id)}}
 async function playAlbum(id){showToast('Starting playback\u2026');var body={album_id:id};if(_currentDevices)body.devices=_currentDevices;const r=await fetch('/api/player/play',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(r=>r.json());if(!r.ok)showError(r.error||'Playback failed')}
 async function shufflePlay(){const p=_catalogAlbums.filter(a=>a.audio_count>0);if(!p.length){showToast('No recorded albums to shuffle');return}const a=p[Math.floor(Math.random()*p.length)];if(_isStreaming||_playerActive){showToast(`Shuffling: ${a.artist} \u2014 ${a.title}`);playAlbum(a.id)}else{_pendingAlbumId=a.id;showOutputPicker(a.id)}}
+
+// ── Play All (multi-album queue) ──
+var _pendingAlbumIds=null;
+function playAllFiltered(){
+  var albums=getFilteredAlbums().filter(function(a){return a.audio_count>0});
+  if(!albums.length){showToast('No recorded albums in this view');return}
+  var ids=albums.map(function(a){return a.id});
+  if(_isStreaming||_playerActive){
+    playMultipleAlbums(ids);
+  }else{
+    _pendingAlbumIds=ids;
+    // Show output picker with first album as context
+    _pendingAlbumId=ids[0];
+    showOutputPicker(ids[0]);
+  }
+}
+async function playMultipleAlbums(ids,devices){
+  showToast('Queueing '+ids.length+' album'+(ids.length!==1?'s':'')+'\u2026');
+  var body={album_ids:ids};
+  if(devices)body.devices=devices;
+  else if(_currentDevices)body.devices=_currentDevices;
+  var r=await fetch('/api/player/play-queue',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(function(r){return r.json()});
+  if(!r.ok)showError(r.error||'Playback failed');
+}
 
 // ── Output Picker ──
 var _outputDevices=[];
@@ -797,7 +951,10 @@ async function showOutputPicker(albumId){
   var overlay=document.getElementById('output-picker-overlay');
   var grid=document.getElementById('output-device-grid');
   var album=_catalogAlbums.find(function(a){return a.id===albumId});
-  if(album){
+  if(_pendingAlbumIds&&_pendingAlbumIds.length>1){
+    document.getElementById('output-picker-title').textContent='Play All \u2014 '+_pendingAlbumIds.length+' albums';
+    document.getElementById('output-picker-subtitle').textContent='Choose where to play';
+  }else if(album){
     document.getElementById('output-picker-title').textContent=album.artist+' \u2014 '+album.title;
     document.getElementById('output-picker-subtitle').textContent='Choose where to play';
   }
@@ -868,6 +1025,7 @@ async function pickOutput(idx){
   var dev=_outputDevices[idx];
   if(!dev)return;
   var aid=_pendingAlbumId;
+  var aids=_pendingAlbumIds;
   closeOutputPicker();
   _lastUsedDevice=dev.id;
   var displayName=dev.custom_name||dev.name;
@@ -876,7 +1034,8 @@ async function pickOutput(idx){
   if(dev.type==='local'){target.hw_index=dev.hw_index;if(dev.alsa_device)target.alsa_device=dev.alsa_device}
   _currentDevices=[target];
   fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({saved_devices:[target]})});
-  if(aid){var resume=_resumeInfo;_resumeInfo=null;playAlbumTo(aid,[target],resume)}
+  if(aids&&aids.length>1){_pendingAlbumIds=null;playMultipleAlbums(aids,[target])}
+  else if(aid){var resume=_resumeInfo;_resumeInfo=null;playAlbumTo(aid,[target],resume)}
 }
 async function playAlbumTo(id,devices,resume){
   showToast('Starting playback\u2026');
@@ -886,7 +1045,7 @@ async function playAlbumTo(id,devices,resume){
   var r=await fetch('/api/player/play',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(function(r){return r.json()});
   if(!r.ok)showError(r.error||'Playback failed');
 }
-function closeOutputPicker(){document.getElementById('output-picker-overlay').classList.remove('open');_pendingAlbumId=null;_pickerAlbumId=null}
+function closeOutputPicker(){document.getElementById('output-picker-overlay').classList.remove('open');_pendingAlbumId=null;_pendingAlbumIds=null;_pickerAlbumId=null}
 async function rescanOutputDevices(){
   var grid=document.getElementById('output-device-grid');
   grid.innerHTML='<div style="color:var(--muted);font-size:0.82rem">Scanning\u2026</div>';

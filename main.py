@@ -2047,6 +2047,151 @@ async def _run_playback(album_id: int, targets: list[dict], volume: int,
         await broadcast("now_playing", {"track_title": None})
 
 
+async def _run_playback_queue(album_id: int, album_info: dict,
+                              playlist: list, targets: list[dict], volume: int):
+    """
+    Run playback from a pre-built playlist (used by play-queue for multi-album).
+    Reuses the same device-connection and player logic as _run_playback.
+    """
+    main_loop = asyncio.get_event_loop()
+
+    if not playlist:
+        await broadcast("error", {"message": "No audio files found"})
+        return
+
+    state.airplay_metadata = MediaMetadata(
+        title=None, artist=None, album=album_info.get("title"), artwork=None,
+    )
+
+    local_targets = [t for t in targets if str(t.get("id", "")).startswith("local:")]
+    airplay_targets = [t for t in targets if not str(t.get("id", "")).startswith("local:")]
+
+    confs = []
+    if airplay_targets:
+        found = await pyatv.scan(main_loop, timeout=7, protocol=pyatv.Protocol.AirPlay)
+        id_to_conf = {d.identifier: d for d in found}
+        confs = [id_to_conf[t["id"]] for t in airplay_targets if t["id"] in id_to_conf]
+
+    if not confs and not local_targets:
+        await broadcast("error", {"message": "No paired devices found on network"})
+        state.airplay_metadata = None
+        return
+
+    n_albums = len(set(e.album_id for e in playlist if e.album_id))
+    await broadcast("player_status", {
+        "state": "loading",
+        "album_id": album_id,
+        "message": f"Connecting — {n_albums} album(s) queued…",
+    })
+
+    audio_streams = {conf.identifier: AsyncAudioStream() for conf in confs}
+    local_streams = []
+    for lt in local_targets:
+        alsa_dev = lt.get("alsa_device")
+        if not alsa_dev:
+            local_devs = {d["id"]: d for d in _get_local_outputs()}
+            info = local_devs.get(lt["id"])
+            if info:
+                alsa_dev = info["alsa_device"]
+        if not alsa_dev:
+            continue
+        try:
+            lo = LocalOutputStream(alsa_dev)
+            lo.start()
+            local_streams.append(lo)
+        except Exception as e:
+            print(f"[player] Failed to open local device {alsa_dev}: {e}")
+
+    all_streams = list(audio_streams.values()) + local_streams
+    if not all_streams:
+        await broadcast("error", {"message": "No output devices available"})
+        state.airplay_metadata = None
+        return
+
+    active_count = len(confs)
+    threads_done = asyncio.Event()
+    if active_count == 0:
+        threads_done.set()
+
+    def on_device_done(name, err):
+        nonlocal active_count
+        if err:
+            asyncio.run_coroutine_threadsafe(
+                broadcast("error", {"message": f"{name}: {err}"}), main_loop)
+        active_count -= 1
+        if active_count <= 0:
+            main_loop.call_soon_threadsafe(threads_done.set)
+
+    for conf in confs:
+        threading.Thread(
+            target=run_device_stream,
+            args=(conf, audio_streams[conf.identifier], volume, on_device_done),
+            daemon=True,
+        ).start()
+
+    def on_track_change(track_info):
+        state.now_playing = track_info
+        if state.airplay_metadata is not None:
+            state.airplay_metadata.title = track_info.get("track_title")
+            state.airplay_metadata.artist = (
+                track_info.get("track_artist") or track_info.get("album_artist"))
+            state.airplay_metadata.album = track_info.get("album_title")
+            state.airplay_metadata.artwork = _art_jpeg(track_info)
+        asyncio.run_coroutine_threadsafe(broadcast("now_playing", {
+            "track_title":  track_info.get("track_title"),
+            "track_artist": track_info.get("track_artist"),
+            "album_title":  track_info.get("album_title"),
+            "album_artist": track_info.get("album_artist"),
+            "year":         track_info.get("year"),
+            "album_id":     track_info.get("album_id"),
+            "track_id":     track_info.get("track_id"),
+            "artwork_url":  _art_url(track_info),
+            "source":       "player",
+        }), main_loop)
+        if track_info.get("track_id") and track_info.get("album_id"):
+            cat.log_play(track_info["track_id"], track_info["album_id"])
+
+    def on_status_change(status):
+        asyncio.run_coroutine_threadsafe(
+            broadcast("player_status", status), main_loop)
+
+    def on_finished():
+        state.now_playing = None
+        asyncio.run_coroutine_threadsafe(
+            broadcast("now_playing", {"track_title": None}), main_loop)
+        asyncio.run_coroutine_threadsafe(
+            broadcast("player_status", {"state": "stopped"}), main_loop)
+
+    player = plr.Player(
+        eq=state.eq, streams=all_streams,
+        on_track_change=on_track_change,
+        on_status_change=on_status_change,
+        on_finished=on_finished,
+    )
+    state.player = player
+    player.play(album_id, album_info, playlist)
+
+    try:
+        while player.state != "stopped":
+            if threads_done.is_set() and not local_streams:
+                player.stop()
+                break
+            await asyncio.sleep(0.5)
+    except asyncio.CancelledError:
+        player.stop()
+    finally:
+        for s in audio_streams.values():
+            s.stop()
+        for s in local_streams:
+            s.stop()
+        state.player = None
+        state.player_task = None
+        state.now_playing = None
+        state.airplay_metadata = None
+        await broadcast("player_status", {"state": "stopped"})
+        await broadcast("now_playing", {"track_title": None})
+
+
 @app.post("/api/player/play")
 async def player_play(body: dict):
     """
@@ -2095,6 +2240,95 @@ async def player_play(body: dict):
                       resume_position_secs=resume_position)
     )
     return {"ok": True}
+
+
+@app.post("/api/player/play-queue")
+async def player_play_queue(body: dict):
+    """
+    Queue multiple albums for sequential playback.
+    body: { album_ids: [int], devices?: [{id, name}], volume?: int }
+    """
+    album_ids = body.get("album_ids", [])
+    if not album_ids:
+        return {"ok": False, "error": "album_ids required"}
+
+    targets = body.get("devices") or state.settings.get("saved_devices", [])
+    if not targets:
+        return {"ok": False, "error": "No AirPlay devices selected"}
+
+    volume = body.get("volume", state.settings.get("volume", 80))
+
+    # Build combined playlist from all albums
+    combined_playlist = []
+    for aid in album_ids:
+        audio_files = cat.get_album_audio(aid)
+        if not audio_files:
+            continue
+        albums = cat.get_all_albums()
+        album_info = next((a for a in albums if a["id"] == aid), None)
+        if not album_info:
+            continue
+        all_tracks = cat.get_album_tracks(aid)
+        for af in audio_files:
+            side = af["side"]
+            side_tracks = [
+                {
+                    "id":           t["id"],
+                    "title":        t["title"],
+                    "artist":       t.get("artist") or album_info["artist"],
+                    "track_number": t["track_number"],
+                    "start_secs":   t.get("start_secs"),
+                    "end_secs":     t.get("end_secs"),
+                }
+                for t in all_tracks
+                if t["side"] == side
+            ]
+            if side_tracks:
+                first_start = min(
+                    (t["start_secs"] for t in side_tracks if t["start_secs"] is not None),
+                    default=0,
+                )
+                if first_start > 5.0:
+                    for t in side_tracks:
+                        if t["start_secs"] is not None:
+                            t["start_secs"] -= first_start
+                        if t["end_secs"] is not None:
+                            t["end_secs"] -= first_start
+            combined_playlist.append(plr.PlaylistEntry(
+                audio_path=af["file_path"],
+                side=side,
+                duration_secs=af.get("duration_secs"),
+                tracks=side_tracks,
+                album_id=aid,
+                album_title=album_info["title"],
+                album_artist=album_info["artist"],
+                artwork_path=album_info.get("user_artwork_path") or album_info.get("artwork_path"),
+            ))
+
+    if not combined_playlist:
+        return {"ok": False, "error": "No recorded audio found for any of the selected albums"}
+
+    # Stop streaming / listen / existing playback
+    if state.is_streaming:
+        if state.stop_event:
+            state.stop_event.set()
+        if state.stream_task:
+            state.stream_task.cancel()
+            try: await state.stream_task
+            except (asyncio.CancelledError, Exception): pass
+            state.stream_task = None
+    _stop_listen_mode()
+    await asyncio.sleep(0.3)
+    await _stop_playback()
+
+    # Start combined playback using first album as the "base" info
+    first_aid = album_ids[0]
+    first_info = next((a for a in cat.get_all_albums() if a["id"] == first_aid), {})
+
+    state.player_task = asyncio.create_task(
+        _run_playback_queue(first_aid, first_info, combined_playlist, targets, volume)
+    )
+    return {"ok": True, "queued": len(combined_playlist)}
 
 
 @app.post("/api/player/pause")
