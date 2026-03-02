@@ -537,6 +537,16 @@
   }
   .output-device-orig { font-size: 0.65rem; color: var(--muted); text-align: center; }
   .output-device-rename { font-size: 0.6rem; color: var(--amber-dk); cursor: pointer; text-decoration: underline; }
+  .device-type-badge { font-size: 0.58rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; padding: 0.1rem 0.35rem; border-radius: 3px; }
+  .device-type-badge.bt { background: #E3F2FD; color: #1565C0; }
+  .device-type-badge.local { background: #FFF3E0; color: var(--amber-dk); }
+  .device-type-badge.airplay { background: #F3E5F5; color: #7B1FA2; }
+  .bt-device-item { display: flex; align-items: center; justify-content: space-between; padding: 0.35rem 0; border-bottom: 1px solid rgba(0,0,0,0.06); gap: 0.4rem; }
+  .bt-device-item:last-child { border-bottom: none; }
+  .bt-status { font-size: 0.68rem; padding: 0.1rem 0.3rem; border-radius: 3px; }
+  .bt-status.connected { background: #E8F5E9; color: #2E7D32; }
+  .bt-status.paired { background: #FFF3E0; color: var(--amber-dk); }
+  .bt-status.available { background: #ECEFF1; color: #546E7A; }
   .output-picker-actions { display: flex; justify-content: flex-end; gap: 0.5rem; }
 </style>
 </head>
@@ -751,6 +761,14 @@
     <button class="modal-x" onclick="hideSettings()" title="Close">✕</button>
     <h2 style="font-family:var(--display-font);font-size:1rem;margin-bottom:0.8rem">⚙ Settings</h2>
     <div class="settings-section"><h3>AirPlay Devices</h3><div id="settings-device-list" style="margin-bottom:0.5rem"><div style="color:var(--muted);font-size:0.82rem">Press scan to find devices</div></div><button class="btn" onclick="scanDevices()">⟳ Scan for Devices</button><div style="margin-top:0.7rem;padding-top:0.5rem;border-top:1px solid rgba(0,0,0,0.08)"><h4 style="font-size:0.78rem;color:var(--muted);margin-bottom:0.3rem">Hidden Devices</h4><div id="hidden-device-list" style="font-size:0.82rem;color:var(--muted)">Scan to manage</div></div></div>
+    <div class="settings-section"><h3>Bluetooth Speakers</h3>
+      <p style="font-size:0.72rem;color:var(--muted);margin-bottom:0.4rem;line-height:1.3">Scan for nearby Bluetooth speakers. Only one Bluetooth speaker can stream at a time.</p>
+      <div id="bt-paired-list" style="margin-bottom:0.5rem"><div style="color:var(--muted);font-size:0.82rem">No paired Bluetooth devices</div></div>
+      <div style="display:flex;gap:0.4rem">
+        <button class="btn" id="btn-bt-scan" onclick="scanBluetoothDevices()">⟳ Scan for Bluetooth</button>
+      </div>
+      <div id="bt-scan-results" style="margin-top:0.5rem"></div>
+    </div>
     <div class="settings-section"><h3>Vinyl Streaming</h3>
       <div style="display:flex;gap:0.4rem;margin-bottom:0.5rem"><button class="btn btn-primary" id="btn-start-stream" onclick="startStream()">▶ Start Streaming</button><button class="btn btn-danger" id="btn-stop-stream" onclick="stopStream()" style="display:none">■ Stop</button></div>
       <label class="device-item" style="border:none;padding:0.3rem 0;gap:0.5rem"><input type="checkbox" id="auto-stream-enabled" onchange="saveAutoStreamSettings()"><span style="font-size:0.82rem">Auto-stream when record plays</span></label>
@@ -1016,14 +1034,18 @@ function renderOutputCards(allDevices){
   var html=visible.map(function(dev,idx){
     var name=dev.custom_name||dev.name;
     var orig=dev.custom_name?dev.name:null;
-    var icon=guessDeviceIcon(dev.name);
+    var icon=guessDeviceIcon(dev.name,dev.type);
     var last=_lastUsedDevice&&_lastUsedDevice===dev.id;
     var isLocal=dev.type==='local';
+    var isBT=dev.type==='bluetooth';
+    var typeBadge=isLocal?'<div class="device-type-badge local">Local</div>'
+      :isBT?'<div class="device-type-badge bt">Bluetooth</div>'
+      :'<div class="device-type-badge airplay">AirPlay</div>';
     return '<div class="output-device-card'+(last?' last-used':'')+'" onclick="pickOutput('+idx+')" data-device-id="'+dev.id+'">'
       +'<div class="output-device-icon">'+icon+'</div>'
       +'<div class="output-device-name">'+esc(name)+'</div>'
       +(orig?'<div class="output-device-orig">'+esc(orig)+'</div>':'')
-      +(isLocal?'<div style="font-size:0.6rem;color:var(--amber-dk);font-weight:700;text-transform:uppercase;letter-spacing:0.05em">Local</div>':'')
+      +typeBadge
       +'<div class="output-device-rename" onclick="event.stopPropagation();renameDevice(\''+dev.id+'\',\''+esc(name).replace(/'/g,"\\'")+'\')">rename</div>'
       +'<div class="output-device-rename" onclick="event.stopPropagation();hideOutputDevice(\''+dev.id+'\',\''+esc(name).replace(/'/g,"\\'")+'\')">hide</div>'
       +'</div>';
@@ -1045,8 +1067,9 @@ function renderOutputCards(allDevices){
   }
   grid.innerHTML=html;
 }
-function guessDeviceIcon(name){
-  var n=name.toLowerCase();
+function guessDeviceIcon(name,type){
+  var n=(name||'').toLowerCase();
+  if(type==='bluetooth')return'\u{1F4FB}';
   if(n.includes('homepod'))return'\uD83C\uDFDB\uFE0F';
   if(n.includes('tv')||n.includes('apple tv'))return'\uD83D\uDCFA';
   if(n.includes('mac')||n.includes('book'))return'\uD83D\uDCBB';
@@ -1068,6 +1091,7 @@ async function pickOutput(idx){
   showToast('Connecting to '+displayName+'\u2026');
   var target={id:dev.id,name:dev.name};
   if(dev.type==='local'){target.hw_index=dev.hw_index;if(dev.alsa_device)target.alsa_device=dev.alsa_device}
+  if(dev.type==='bluetooth'){target.address=dev.address||dev.id.replace('bt:','')}
   _currentDevices=[target];
   fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({saved_devices:[target]})});
   if(aids&&aids.length>1){_pendingAlbumIds=null;playMultipleAlbums(aids,[target])}
@@ -1267,13 +1291,15 @@ async function startAlbumRecording(){
   html+='<div class="output-device-card" onclick="beginRecordingWithDevice(null)" style="min-width:80px;padding:0.4rem 0.5rem;cursor:pointer"><div class="output-device-icon">🔇</div><div class="output-device-name" style="font-size:0.72rem">No audio</div></div>';
   devices.forEach(function(dev,idx){
     var name=dev.custom_name||dev.name;
-    var icon=guessDeviceIcon(dev.name);
+    var icon=guessDeviceIcon(dev.name,dev.type);
     var isLocal=dev.type==='local';
     var j=JSON.stringify(dev).replace(/'/g,"\\'").replace(/"/g,'&quot;');
     html+='<div class="output-device-card" onclick="beginRecordingWithDevice('+idx+')" style="min-width:80px;padding:0.4rem 0.5rem;cursor:pointer" data-rec-dev="'+idx+'">'
       +'<div class="output-device-icon">'+icon+'</div>'
       +'<div class="output-device-name" style="font-size:0.72rem">'+esc(name)+'</div>'
-      +(isLocal?'<div style="font-size:0.55rem;color:var(--amber-dk);font-weight:700;text-transform:uppercase">Local</div>':'')
+      +(isLocal?'<div class="device-type-badge local">Local</div>'
+        :dev.type==='bluetooth'?'<div class="device-type-badge bt">Bluetooth</div>'
+        :'<div class="device-type-badge airplay">AirPlay</div>')
       +'</div>';
   });
   html+='</div>';
@@ -1288,6 +1314,7 @@ async function beginRecordingWithDevice(devIdx){
   if(dev){
     var target={id:dev.id,name:dev.name};
     if(dev.type==='local'){target.hw_index=dev.hw_index;if(dev.alsa_device)target.alsa_device=dev.alsa_device}
+    if(dev.type==='bluetooth'){target.address=dev.address||dev.id.replace('bt:','')}
     _recOutputDevice=target;
     await fetch('/api/start',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({devices:[target],volume:parseInt(document.getElementById('volume-slider')?.value||80)})});
     await new Promise(function(r){setTimeout(r,500)});
@@ -1333,7 +1360,7 @@ async function selectResult(idx){const r=window._searchResults[idx];if(!r)return
 async function saveRelease(){if(!_pendingRelease)return;const r=await fetch('/api/catalog/release',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({release:_pendingRelease})}).then(r=>r.json());if(r.ok){hideAddForm();loadCatalog()}else showError(r.error||'Failed to save')}
 async function submitManual(){const t=document.getElementById('m-album-title').value.trim(),a=document.getElementById('m-artist').value.trim();if(!t||!a){showError('Album title and artist required');return}const ta=document.getElementById('m-tracks-a').value.split('\n').map(s=>s.trim()).filter(Boolean).map((x,i)=>({title:x,side:'A',track_number:String(i+1)}));const tb=document.getElementById('m-tracks-b').value.split('\n').map(s=>s.trim()).filter(Boolean).map((x,i)=>({title:x,side:'B',track_number:String(i+1)}));const tracks=[...ta,...tb];if(!tracks.length){showError('Enter at least one track');return}const r=await fetch('/api/catalog/manual',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({album_title:t,album_artist:a,year:parseInt(document.getElementById('m-year').value)||null,genre:document.getElementById('m-genre').value.trim()||null,label:document.getElementById('m-label').value.trim()||null,notes:document.getElementById('m-notes').value.trim()||null,tracks})}).then(r=>r.json());if(r.ok){hideAddForm();loadCatalog()}else showError(r.error||'Failed')}
 
-function showSettings(){document.getElementById('settings-modal').classList.add('open')}
+function showSettings(){document.getElementById('settings-modal').classList.add('open');loadBluetoothPaired()}
 function hideSettings(){document.getElementById('settings-modal').classList.remove('open')}
 async function scanDevices(){try{const d=await fetch('/api/scan').then(r=>r.json());renderSettingsDevices(d.devices);renderHiddenDevices(d.devices)}catch(e){showError('Scan failed')}}
 function renderSettingsDevices(devs){const l=document.getElementById('settings-device-list');const v=(devs||[]).filter(d=>!d.hidden);if(!v.length){l.innerHTML='<div style="color:var(--muted);font-size:0.82rem">No devices found</div>';return}l.innerHTML=v.map(d=>{const np=d.needs_pairing&&d.paired===false;return `<label class="device-item" style="opacity:${np?'0.6':'1'}"><input type="checkbox" class="dev-check" value='${JSON.stringify({id:d.id,name:d.name}).replace(/'/g,"&apos;")}'><span style="flex:1">${esc(d.name)}</span>${np?`<button class="btn btn-ghost" onclick="pairDevice('${d.id}')">Pair</button>`:''}</label>`}).join('')}
@@ -1389,6 +1416,78 @@ async function createDirInPicker(){
   }catch(e){showError('Could not create folder')}
 }
 async function loadAudioDevices(){try{const d=await fetch('/api/audio-devices').then(r=>r.json());document.getElementById('audio-select').innerHTML=d.devices.map(d=>`<option value="${d.index}">${esc(d.name)}</option>`).join('')}catch(e){}}
+
+// ── Bluetooth Management ──
+async function scanBluetoothDevices(){
+  var btn=document.getElementById('btn-bt-scan');
+  var results=document.getElementById('bt-scan-results');
+  btn.disabled=true;btn.textContent='Scanning…';
+  results.innerHTML='<div style="color:var(--muted);font-size:0.82rem">Scanning for nearby devices (12s)…</div>';
+  try{
+    var d=await fetch('/api/bluetooth/scan').then(r=>r.json());
+    if(!d.ok){results.innerHTML='<div style="color:var(--rust);font-size:0.82rem">'+(d.error||'Scan failed')+'</div>';return}
+    var devs=(d.devices||[]).filter(dev=>!dev.paired);
+    if(!devs.length){results.innerHTML='<div style="color:var(--muted);font-size:0.82rem">No new devices found. Make sure your speaker is in pairing mode.</div>';return}
+    results.innerHTML=devs.map(dev=>'<div class="bt-device-item">'
+      +'<span style="font-size:0.82rem;flex:1">'+esc(dev.name||dev.address)+'</span>'
+      +'<button class="btn btn-accent" style="padding:0.2rem 0.5rem;font-size:0.72rem" onclick="pairBluetoothDevice(\''+dev.address+'\',\''+esc(dev.name||dev.address).replace(/'/g,"\\'")+'\')">Pair</button>'
+      +'</div>').join('');
+    loadBluetoothPaired();
+  }catch(e){results.innerHTML='<div style="color:var(--rust);font-size:0.82rem">Error: '+e.message+'</div>'}
+  finally{btn.disabled=false;btn.textContent='⟳ Scan for Bluetooth'}
+}
+async function pairBluetoothDevice(addr,name){
+  showToast('Pairing with '+name+'…');
+  try{
+    var r=await fetch('/api/bluetooth/bt:'+addr+'/pair',{method:'POST'}).then(r=>r.json());
+    if(r.ok){showToast('Paired: '+name);loadBluetoothPaired();document.getElementById('bt-scan-results').innerHTML=''}
+    else showError(r.error||'Pairing failed');
+  }catch(e){showError('Pairing error: '+e.message)}
+}
+async function connectBluetoothDevice(addr,name){
+  showToast('Connecting to '+name+'…');
+  try{
+    var r=await fetch('/api/bluetooth/bt:'+addr+'/connect',{method:'POST'}).then(r=>r.json());
+    if(r.ok){showToast('Connected: '+name);loadBluetoothPaired()}
+    else showError(r.error||'Connection failed');
+  }catch(e){showError('Connection error: '+e.message)}
+}
+async function disconnectBluetoothDevice(addr,name){
+  try{
+    var r=await fetch('/api/bluetooth/bt:'+addr+'/disconnect',{method:'POST'}).then(r=>r.json());
+    if(r.ok){showToast('Disconnected: '+name);loadBluetoothPaired()}
+    else showError(r.error||'Disconnect failed');
+  }catch(e){showError('Error: '+e.message)}
+}
+async function removeBluetoothDevice(addr,name){
+  if(!confirm('Remove '+name+'? You will need to pair again.'))return;
+  try{
+    var r=await fetch('/api/bluetooth/bt:'+addr+'/remove',{method:'POST'}).then(r=>r.json());
+    if(r.ok){showToast('Removed: '+name);loadBluetoothPaired()}
+    else showError(r.error||'Remove failed');
+  }catch(e){showError('Error: '+e.message)}
+}
+async function loadBluetoothPaired(){
+  var list=document.getElementById('bt-paired-list');
+  try{
+    var d=await fetch('/api/devices').then(r=>r.json());
+    var btDevs=(d.devices||[]).filter(dev=>dev.type==='bluetooth');
+    if(!btDevs.length){list.innerHTML='<div style="color:var(--muted);font-size:0.82rem">No paired Bluetooth devices</div>';return}
+    list.innerHTML=btDevs.map(dev=>{
+      var addr=dev.address||dev.id.replace('bt:','');
+      var name=dev.custom_name||dev.name||addr;
+      var conn=dev.connected;
+      return '<div class="bt-device-item">'
+        +'<span style="font-size:0.82rem;flex:1">'+esc(name)+'</span>'
+        +'<span class="bt-status '+(conn?'connected':'paired')+'">'+(conn?'Connected':'Paired')+'</span>'
+        +(conn
+          ?'<button class="btn btn-ghost" style="padding:0.15rem 0.4rem;font-size:0.68rem" onclick="disconnectBluetoothDevice(\''+addr+'\',\''+esc(name).replace(/'/g,"\\'")+'\')">Disconnect</button>'
+          :'<button class="btn btn-accent" style="padding:0.15rem 0.4rem;font-size:0.68rem" onclick="connectBluetoothDevice(\''+addr+'\',\''+esc(name).replace(/'/g,"\\'")+'\')">Connect</button>')
+        +'<button class="btn btn-ghost" style="padding:0.15rem 0.3rem;font-size:0.68rem;color:var(--rust)" onclick="removeBluetoothDevice(\''+addr+'\',\''+esc(name).replace(/'/g,"\\'")+'\')">✕</button>'
+        +'</div>'
+    }).join('');
+  }catch(e){list.innerHTML='<div style="color:var(--rust);font-size:0.82rem">Failed to load</div>'}
+}
 
 async function init(){
   connectWS();await loadAudioDevices();

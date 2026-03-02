@@ -182,6 +182,8 @@ class AppState:
         self.player: Optional[plr.Player] = None
         self.player_task: Optional[asyncio.Task] = None
         self.airplay_metadata: Optional[MediaMetadata] = None
+        self.bluetooth_manager = BluetoothManager()
+        self.available_bt_devices: list = []
 
 
 state = AppState()
@@ -312,6 +314,195 @@ class LocalOutputStream:
                 self._proc.kill()
             self._proc = None
             print("[local-out] Closed")
+
+
+# ── Bluetooth Manager ─────────────────────────────────────────────────────────
+
+class BluetoothManager:
+    """Manage Bluetooth device discovery, pairing, and connection via bluetoothctl."""
+
+    def __init__(self):
+        self._scanning = False
+
+    @staticmethod
+    def _run_ctl(*args, timeout=10) -> str:
+        """Run a bluetoothctl command and return stdout."""
+        try:
+            result = subprocess.run(
+                ["bluetoothctl"] + list(args),
+                capture_output=True, text=True, timeout=timeout
+            )
+            return result.stdout.strip()
+        except subprocess.TimeoutExpired:
+            return ""
+        except Exception as e:
+            print(f"[bluetooth] bluetoothctl error: {e}")
+            return ""
+
+    @staticmethod
+    def _parse_device_line(line: str) -> tuple[str, str]:
+        """Parse 'Device XX:XX:XX:XX:XX:XX Name' → (address, name)."""
+        parts = line.strip().split(" ", 2)
+        if len(parts) >= 3 and parts[0] == "Device":
+            return parts[1], parts[2]
+        elif len(parts) == 2 and parts[0] == "Device":
+            return parts[1], parts[1]  # no name, use address
+        return "", ""
+
+    @staticmethod
+    def _parse_info(address: str) -> dict:
+        """Get detailed info about a device from 'bluetoothctl info'."""
+        output = BluetoothManager._run_ctl("info", address)
+        info = {"address": address, "name": address, "paired": False,
+                "trusted": False, "connected": False, "icon": "audio-card"}
+        for line in output.splitlines():
+            line = line.strip()
+            if line.startswith("Name:"):
+                info["name"] = line.split(":", 1)[1].strip()
+            elif line.startswith("Alias:"):
+                info["name"] = line.split(":", 1)[1].strip()
+            elif line.startswith("Paired:"):
+                info["paired"] = "yes" in line.lower()
+            elif line.startswith("Trusted:"):
+                info["trusted"] = "yes" in line.lower()
+            elif line.startswith("Connected:"):
+                info["connected"] = "yes" in line.lower()
+            elif line.startswith("Icon:"):
+                info["icon"] = line.split(":", 1)[1].strip()
+        return info
+
+    async def scan(self, timeout=12) -> list[dict]:
+        """Discover nearby Bluetooth devices. Returns list of device dicts."""
+        loop = asyncio.get_event_loop()
+
+        # Enable the adapter and make it discoverable
+        await loop.run_in_executor(None, lambda: self._run_ctl("power", "on"))
+
+        # Start scanning in background
+        await loop.run_in_executor(
+            None, lambda: self._run_ctl("--timeout", str(timeout), "scan", "on",
+                                        timeout=timeout + 5)
+        )
+
+        # Get all known devices (includes paired + newly discovered)
+        output = await loop.run_in_executor(None, lambda: self._run_ctl("devices"))
+        devices = []
+        custom_names = state.settings.get("device_names", {})
+        hidden = set(state.settings.get("hidden_devices", []))
+
+        for line in output.splitlines():
+            address, name = self._parse_device_line(line)
+            if not address:
+                continue
+
+            info = await loop.run_in_executor(
+                None, lambda addr=address: self._parse_info(addr)
+            )
+
+            # Filter to audio-capable devices (skip phones, keyboards, etc.)
+            icon = info.get("icon", "")
+            if icon and icon not in ("audio-card", "audio-headphones",
+                                     "audio-headset", "audio-speakers", ""):
+                continue
+
+            dev_id = f"bt:{address}"
+            devices.append({
+                "id": dev_id,
+                "name": info.get("name", name),
+                "custom_name": custom_names.get(dev_id),
+                "address": address,
+                "paired": info.get("paired", False),
+                "trusted": info.get("trusted", False),
+                "connected": info.get("connected", False),
+                "hidden": dev_id in hidden,
+                "needs_pairing": not info.get("paired", False),
+                "type": "bluetooth",
+            })
+
+        state.available_bt_devices = devices
+        return devices
+
+    async def pair(self, address: str) -> dict:
+        """Pair and trust a Bluetooth device."""
+        loop = asyncio.get_event_loop()
+
+        # Pair
+        output = await loop.run_in_executor(
+            None, lambda: self._run_ctl("pair", address, timeout=30)
+        )
+        if "Failed" in output and "AlreadyExists" not in output:
+            return {"ok": False, "error": f"Pairing failed: {output}"}
+
+        # Trust (auto-reconnect)
+        await loop.run_in_executor(None, lambda: self._run_ctl("trust", address))
+
+        return {"ok": True, "message": "Paired and trusted"}
+
+    async def connect(self, address: str) -> dict:
+        """Connect to a paired Bluetooth device."""
+        loop = asyncio.get_event_loop()
+        output = await loop.run_in_executor(
+            None, lambda: self._run_ctl("connect", address, timeout=15)
+        )
+        if "Failed" in output:
+            return {"ok": False, "error": f"Connection failed: {output}"}
+
+        # Verify connection
+        info = await loop.run_in_executor(
+            None, lambda: self._parse_info(address)
+        )
+        if info.get("connected"):
+            return {"ok": True, "message": f"Connected to {info.get('name', address)}"}
+        return {"ok": False, "error": "Connection attempt finished but device not connected"}
+
+    async def disconnect(self, address: str) -> dict:
+        """Disconnect from a Bluetooth device."""
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(
+            None, lambda: self._run_ctl("disconnect", address)
+        )
+        return {"ok": True, "message": "Disconnected"}
+
+    async def remove(self, address: str) -> dict:
+        """Unpair and remove a Bluetooth device."""
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(
+            None, lambda: self._run_ctl("remove", address)
+        )
+        return {"ok": True, "message": "Device removed"}
+
+    async def get_paired_devices(self) -> list[dict]:
+        """Get list of paired Bluetooth devices with current status."""
+        loop = asyncio.get_event_loop()
+        output = await loop.run_in_executor(
+            None, lambda: self._run_ctl("devices", "Paired")
+        )
+        custom_names = state.settings.get("device_names", {})
+        hidden = set(state.settings.get("hidden_devices", []))
+        devices = []
+
+        for line in output.splitlines():
+            address, name = self._parse_device_line(line)
+            if not address:
+                continue
+            info = await loop.run_in_executor(
+                None, lambda addr=address: self._parse_info(addr)
+            )
+            dev_id = f"bt:{address}"
+            devices.append({
+                "id": dev_id,
+                "name": info.get("name", name),
+                "custom_name": custom_names.get(dev_id),
+                "address": address,
+                "paired": True,
+                "trusted": info.get("trusted", False),
+                "connected": info.get("connected", False),
+                "hidden": dev_id in hidden,
+                "needs_pairing": False,
+                "type": "bluetooth",
+            })
+
+        return devices
 
 
 # ── Audio Callback ────────────────────────────────────────────────────────────
@@ -535,9 +726,15 @@ async def _run_stream_inner(targets, audio_device_index, volume):
     state.stop_event     = asyncio.Event()
     main_loop            = asyncio.get_event_loop()
 
-    # Separate local vs AirPlay targets
-    local_targets  = [t for t in targets if str(t.get("id", "")).startswith("local:")]
-    airplay_targets = [t for t in targets if not str(t.get("id", "")).startswith("local:")]
+    # Separate local vs Bluetooth vs AirPlay targets
+    local_targets      = [t for t in targets if str(t.get("id", "")).startswith("local:")]
+    bluetooth_targets  = [t for t in targets if str(t.get("id", "")).startswith("bt:")]
+    airplay_targets    = [t for t in targets if not str(t.get("id", "")).startswith(("local:", "bt:"))]
+
+    # A2DP supports only one device at a time
+    if len(bluetooth_targets) > 1:
+        print("[bluetooth] Multiple BT devices selected; using first only")
+        bluetooth_targets = bluetooth_targets[:1]
 
     # Create a shared mutable MediaMetadata object — passed once to stream_file
     # and updated in-place via on_match() whenever a new track is identified
@@ -576,7 +773,23 @@ async def _run_stream_inner(targets, audio_device_index, volume):
         except Exception as e:
             print(f"[local-out] Failed to open {alsa_dev}: {e}")
 
-    if not confs and not local_streams:
+    # Set up Bluetooth output streams
+    bt_streams = []
+    for bt in bluetooth_targets:
+        address = bt.get("address") or bt.get("id", "").replace("bt:", "")
+        if not address:
+            print(f"[bluetooth] No address for {bt.get('id')}, skipping")
+            continue
+        alsa_dev = f"bluealsa:DEV={address},PROFILE=a2dp"
+        try:
+            bts = LocalOutputStream(alsa_dev)
+            bts.start()
+            bt_streams.append(bts)
+            print(f"[bluetooth] Opened stream to {address}")
+        except Exception as e:
+            print(f"[bluetooth] Failed to open {address}: {e}")
+
+    if not confs and not local_streams and not bt_streams:
         await broadcast("error", {"message": "No paired devices found on network"})
         state.stop_event=None
         return
@@ -586,7 +799,7 @@ async def _run_stream_inner(targets, audio_device_index, volume):
     state.active_devices = [d["name"] for d in targets]
     await broadcast("status", {
         "streaming": True, "devices": state.active_devices,
-        "message": f"Streaming to {len(confs) + len(local_streams)} device(s)"
+        "message": f"Streaming to {len(confs) + len(local_streams) + len(bt_streams)} device(s)"
     })
 
     audio_streams = {conf.identifier: AsyncAudioStream() for conf in confs}
@@ -675,7 +888,7 @@ async def _run_stream_inner(targets, audio_device_index, volume):
     )
     state.recogniser.start()
 
-    callback = make_callback(list(audio_streams.values()) + local_streams, state.eq, state.fp_buffer)
+    callback = make_callback(list(audio_streams.values()) + local_streams + bt_streams, state.eq, state.fp_buffer)
 
     try:
         with sd.InputStream(device=audio_device_index, samplerate=SAMPLE_RATE,
@@ -703,6 +916,7 @@ async def _run_stream_inner(targets, audio_device_index, volume):
         state.now_playing=None
         for s in audio_streams.values(): s.stop()
         for lo in local_streams: lo.stop()
+        for bts in bt_streams: bts.stop()
         state.is_streaming=False; state.active_devices=[]; state.stop_event=None
         await broadcast("status",      {"streaming": False, "message": "Stopped"})
         await broadcast("now_playing", {"track_title": None})
@@ -977,13 +1191,18 @@ def _get_local_outputs():
     return outputs
 
 
+def _get_bluetooth_devices():
+    """Return cached paired Bluetooth devices for the device list."""
+    return [d for d in state.available_bt_devices if d.get("paired")]
+
+
 @app.get("/api/devices")
 async def get_cached_devices():
     """Return cached devices from last scan (instant). Use /api/scan to refresh."""
     custom_names = state.settings.get("device_names", {})
     for d in state.available_devices:
         d["custom_name"] = custom_names.get(d["id"])
-    return {"devices": state.available_devices + _get_local_outputs()}
+    return {"devices": state.available_devices + _get_local_outputs() + _get_bluetooth_devices()}
 
 
 @app.post("/api/devices/{device_id}/rename")
@@ -1006,6 +1225,62 @@ async def rename_device(device_id: str, body: dict = {}):
 @app.get("/api/audio-devices")
 async def audio_devices():
     return {"devices": state.audio_devices}
+
+
+# ── Bluetooth Routes ──────────────────────────────────────────────────────────
+
+@app.get("/api/bluetooth/scan")
+async def bluetooth_scan():
+    """Scan for nearby Bluetooth audio devices."""
+    devices = await state.bluetooth_manager.scan(timeout=12)
+    return {"devices": devices}
+
+
+@app.post("/api/bluetooth/{device_id}/pair")
+async def bluetooth_pair(device_id: str):
+    """Pair and trust a Bluetooth device."""
+    address = device_id.replace("bt:", "", 1)
+    result = await state.bluetooth_manager.pair(address)
+    if result.get("ok"):
+        # Refresh paired devices list
+        state.available_bt_devices = await state.bluetooth_manager.get_paired_devices()
+    return result
+
+
+@app.post("/api/bluetooth/{device_id}/connect")
+async def bluetooth_connect(device_id: str):
+    """Connect to a paired Bluetooth device."""
+    address = device_id.replace("bt:", "", 1)
+    result = await state.bluetooth_manager.connect(address)
+    if result.get("ok"):
+        state.available_bt_devices = await state.bluetooth_manager.get_paired_devices()
+    return result
+
+
+@app.post("/api/bluetooth/{device_id}/disconnect")
+async def bluetooth_disconnect(device_id: str):
+    """Disconnect from a Bluetooth device."""
+    address = device_id.replace("bt:", "", 1)
+    result = await state.bluetooth_manager.disconnect(address)
+    state.available_bt_devices = await state.bluetooth_manager.get_paired_devices()
+    return result
+
+
+@app.post("/api/bluetooth/{device_id}/remove")
+async def bluetooth_remove(device_id: str):
+    """Unpair and remove a Bluetooth device."""
+    address = device_id.replace("bt:", "", 1)
+    result = await state.bluetooth_manager.remove(address)
+    # Remove from cached list
+    state.available_bt_devices = [d for d in state.available_bt_devices
+                                  if d["address"] != address]
+    # Clean up from hidden/names settings
+    state.settings.get("hidden_devices", [])
+    if device_id in state.settings.get("hidden_devices", []):
+        state.settings["hidden_devices"].remove(device_id)
+        save_settings(state.settings)
+    state.settings.get("device_names", {}).pop(device_id, None)
+    return result
 
 
 @app.get("/api/status")
@@ -1900,9 +2175,12 @@ async def _run_playback(album_id: int, targets: list[dict], volume: int,
         title=None, artist=None, album=album_info.get("title"), artwork=None,
     )
 
-    # Separate local targets from AirPlay targets
-    local_targets = [t for t in targets if str(t.get("id", "")).startswith("local:")]
-    airplay_targets = [t for t in targets if not str(t.get("id", "")).startswith("local:")]
+    # Separate local / Bluetooth / AirPlay targets
+    local_targets     = [t for t in targets if str(t.get("id", "")).startswith("local:")]
+    bluetooth_targets = [t for t in targets if str(t.get("id", "")).startswith("bt:")]
+    airplay_targets   = [t for t in targets if not str(t.get("id", "")).startswith(("local:", "bt:"))]
+    if len(bluetooth_targets) > 1:
+        bluetooth_targets = bluetooth_targets[:1]
 
     # Scan and connect to AirPlay devices
     confs = []
@@ -1912,7 +2190,7 @@ async def _run_playback(album_id: int, targets: list[dict], volume: int,
         id_to_conf = {d.identifier: d for d in found}
         confs      = [id_to_conf[t["id"]] for t in airplay_targets if t["id"] in id_to_conf]
 
-    if not confs and not local_targets:
+    if not confs and not local_targets and not bluetooth_targets:
         await broadcast("error", {"message": "No paired devices found on network"})
         state.airplay_metadata = None
         return
@@ -1920,7 +2198,7 @@ async def _run_playback(album_id: int, targets: list[dict], volume: int,
     await broadcast("player_status", {
         "state": "loading",
         "album_id": album_id,
-        "message": f"Connecting to {len(confs) + len(local_targets)} device(s)…",
+        "message": f"Connecting to {len(confs) + len(local_targets) + len(bluetooth_targets)} device(s)…",
     })
 
     audio_streams = {conf.identifier: AsyncAudioStream() for conf in confs}
@@ -1930,7 +2208,6 @@ async def _run_playback(album_id: int, targets: list[dict], volume: int,
     for lt in local_targets:
         alsa_dev = lt.get("alsa_device")
         if not alsa_dev:
-            # Fallback: look up from current local outputs
             local_devs = {d["id"]: d for d in _get_local_outputs()}
             info = local_devs.get(lt["id"])
             if info:
@@ -1945,7 +2222,21 @@ async def _run_playback(album_id: int, targets: list[dict], volume: int,
         except Exception as e:
             print(f"[player] Failed to open local device {alsa_dev}: {e}")
 
-    all_streams = list(audio_streams.values()) + local_streams
+    # Set up Bluetooth output streams
+    bt_streams = []
+    for bt in bluetooth_targets:
+        address = bt.get("address") or bt.get("id", "").replace("bt:", "")
+        if not address:
+            continue
+        alsa_dev = f"bluealsa:DEV={address},PROFILE=a2dp"
+        try:
+            bts = LocalOutputStream(alsa_dev)
+            bts.start()
+            bt_streams.append(bts)
+        except Exception as e:
+            print(f"[player] Failed to open BT device {address}: {e}")
+
+    all_streams = list(audio_streams.values()) + local_streams + bt_streams
 
     if not all_streams:
         await broadcast("error", {"message": "No output devices available"})
@@ -2034,8 +2325,8 @@ async def _run_playback(album_id: int, targets: list[dict], volume: int,
     try:
         # Wait for either: player finishes, devices disconnect, or external stop
         while player.state != "stopped":
-            if threads_done.is_set() and not local_streams:
-                # All AirPlay devices disconnected and no local fallback
+            if threads_done.is_set() and not local_streams and not bt_streams:
+                # All AirPlay devices disconnected and no local/BT fallback
                 player.stop()
                 break
             await asyncio.sleep(0.5)
@@ -2045,6 +2336,8 @@ async def _run_playback(album_id: int, targets: list[dict], volume: int,
         for s in audio_streams.values():
             s.stop()
         for s in local_streams:
+            s.stop()
+        for s in bt_streams:
             s.stop()
         state.player = None
         state.player_task = None
@@ -2070,8 +2363,9 @@ async def _run_playback_queue(album_id: int, album_info: dict,
         title=None, artist=None, album=album_info.get("title"), artwork=None,
     )
 
-    local_targets = [t for t in targets if str(t.get("id", "")).startswith("local:")]
-    airplay_targets = [t for t in targets if not str(t.get("id", "")).startswith("local:")]
+    local_targets      = [t for t in targets if str(t.get("id", "")).startswith("local:")]
+    bluetooth_targets  = [t for t in targets if str(t.get("id", "")).startswith("bt:")]
+    airplay_targets    = [t for t in targets if not str(t.get("id", "")).startswith(("local:", "bt:"))]
 
     confs = []
     if airplay_targets:
@@ -2079,7 +2373,7 @@ async def _run_playback_queue(album_id: int, album_info: dict,
         id_to_conf = {d.identifier: d for d in found}
         confs = [id_to_conf[t["id"]] for t in airplay_targets if t["id"] in id_to_conf]
 
-    if not confs and not local_targets:
+    if not confs and not local_targets and not bluetooth_targets:
         await broadcast("error", {"message": "No paired devices found on network"})
         state.airplay_metadata = None
         return
@@ -2109,7 +2403,20 @@ async def _run_playback_queue(album_id: int, album_info: dict,
         except Exception as e:
             print(f"[player] Failed to open local device {alsa_dev}: {e}")
 
-    all_streams = list(audio_streams.values()) + local_streams
+    bt_streams = []
+    if bluetooth_targets:
+        bt_target = bluetooth_targets[0]  # A2DP: max one BT device
+        bt_addr = str(bt_target.get("id", "")).replace("bt:", "")
+        if bt_addr:
+            try:
+                bt_lo = LocalOutputStream(f"bluealsa:DEV={bt_addr},PROFILE=a2dp")
+                bt_lo.start()
+                bt_streams.append(bt_lo)
+                print(f"[player-playlist] Bluetooth stream started → {bt_addr}")
+            except Exception as e:
+                print(f"[player-playlist] Failed to open BT device {bt_addr}: {e}")
+
+    all_streams = list(audio_streams.values()) + local_streams + bt_streams
     if not all_streams:
         await broadcast("error", {"message": "No output devices available"})
         state.airplay_metadata = None
@@ -2180,7 +2487,7 @@ async def _run_playback_queue(album_id: int, album_info: dict,
 
     try:
         while player.state != "stopped":
-            if threads_done.is_set() and not local_streams:
+            if threads_done.is_set() and not local_streams and not bt_streams:
                 player.stop()
                 break
             await asyncio.sleep(0.5)
@@ -2190,6 +2497,8 @@ async def _run_playback_queue(album_id: int, album_info: dict,
         for s in audio_streams.values():
             s.stop()
         for s in local_streams:
+            s.stop()
+        for s in bt_streams:
             s.stop()
         state.player = None
         state.player_task = None
