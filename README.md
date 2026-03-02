@@ -79,7 +79,7 @@ Turntable ──▶ (Phono Preamp if needed) ──▶ USB Audio Interface (line
 
 ### Prerequisites
 
-- Raspberry Pi OS (Bookworm or later, 64-bit recommended)
+- Raspberry Pi OS (Bookworm or later) or Debian 13+ (64-bit)
 - Python 3.10+
 - ffmpeg, fpcalc (Chromaprint CLI), PortAudio, bluez-alsa-utils
 
