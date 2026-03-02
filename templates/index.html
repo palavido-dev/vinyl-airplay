@@ -267,8 +267,9 @@
   .form-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
   #error-msg { display: none; position: fixed; top: 0.5rem; left: 50%; transform: translateX(-50%); z-index: 999; background: var(--rust); color: #fff; padding: 0.5rem 1rem; border-radius: 6px; font-size: 0.82rem; font-weight: 600; max-width: 90vw; text-align: center; box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
   #toast-msg { display: none; position: fixed; bottom: 5rem; left: 50%; transform: translateX(-50%); z-index: 999; background: var(--walnut); color: var(--cream); padding: 0.5rem 1rem; border-radius: 6px; font-size: 0.82rem; max-width: 90vw; text-align: center; box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
-  .dir-picker-item { padding:0.45rem 0.6rem;font-size:0.85rem;cursor:pointer;border-bottom:1px solid var(--border);transition:background 0.12s }
-  .dir-picker-item:hover { background:rgba(255,255,255,0.05) }
+  .dir-picker-item { padding:0.5rem 0.6rem;font-size:0.85rem;cursor:pointer;border-bottom:1px solid var(--shelf);color:var(--ink);transition:background 0.12s }
+  .dir-picker-item:hover { background:rgba(212,162,78,0.15) }
+  .dir-picker-item:active { background:rgba(212,162,78,0.3) }
   .dir-picker-item:last-child { border-bottom:none }
   .settings-section { margin-bottom: 1.2rem; }
   .settings-section h3 { font-family: var(--display-font); font-size: 0.78rem; font-weight: 700; color: var(--leather); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 0.5rem; }
@@ -1535,12 +1536,12 @@ _ssLog('screensaver initialized, interval=' + _ssIntervalId);
   buildKeyboard();
 })();
 </script>
-<!-- Directory Picker Overlay (must be outside settings modal for z-index) -->
-<div id="dir-picker-overlay" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);z-index:200;align-items:center;justify-content:center">
-  <div style="background:var(--surface);border-radius:12px;padding:1rem;width:90%;max-width:400px;max-height:70vh;display:flex;flex-direction:column">
-    <div style="font-weight:600;margin-bottom:0.4rem">Select Folder</div>
-    <div id="dir-picker-path" style="font-size:0.75rem;color:var(--muted);word-break:break-all;margin-bottom:0.5rem">/</div>
-    <div id="dir-picker-list" style="flex:1;overflow-y:auto;min-height:150px;max-height:45vh;border:1px solid var(--border);border-radius:8px;margin-bottom:0.5rem"></div>
+<!-- Directory Picker Overlay -->
+<div id="dir-picker-overlay" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(44,24,16,0.8);z-index:300;align-items:center;justify-content:center;backdrop-filter:blur(4px)">
+  <div style="background:linear-gradient(180deg, var(--cream) 0%, var(--paper) 100%);border:2px solid var(--shelf);border-radius:10px;padding:1.2rem;width:90%;max-width:400px;max-height:75vh;display:flex;flex-direction:column;box-shadow:0 8px 32px rgba(0,0,0,0.35)">
+    <div style="font-family:var(--display-font);font-weight:700;font-size:0.95rem;margin-bottom:0.3rem;color:var(--ink)">📂 Select Folder</div>
+    <div id="dir-picker-path" style="font-size:0.75rem;color:var(--muted);word-break:break-all;margin-bottom:0.5rem;padding:0.3rem 0.4rem;background:rgba(0,0,0,0.05);border-radius:4px">/</div>
+    <div id="dir-picker-list" style="flex:1;overflow-y:auto;min-height:150px;max-height:45vh;border:1px solid var(--shelf);border-radius:8px;margin-bottom:0.5rem;background:rgba(255,255,255,0.4)"></div>
     <div style="display:flex;gap:0.4rem;align-items:center">
       <input type="text" class="form-input" id="dir-picker-new" placeholder="New folder name" style="flex:1;font-size:0.82rem">
       <button class="btn" onclick="createDirInPicker()" style="font-size:0.78rem">+ Create</button>
