@@ -350,12 +350,24 @@ class BluetoothManager:
             return parts[1], parts[1]  # no name, use address
         return "", ""
 
+    # A2DP-related Bluetooth UUIDs that indicate audio capability
+    AUDIO_UUIDS = {
+        "0000110a",  # Audio Source
+        "0000110b",  # Audio Sink
+        "0000110c",  # A/V Remote Control Target
+        "0000110d",  # Advanced Audio Distribution
+        "0000110e",  # A/V Remote Control
+    }
+    AUDIO_ICONS = {"audio-card", "audio-headphones", "audio-headset", "audio-speakers"}
+
     @staticmethod
     def _parse_info(address: str) -> dict:
         """Get detailed info about a device from 'bluetoothctl info'."""
         output = BluetoothManager._run_ctl("info", address)
+        if not output or "Missing device address" in output:
+            return None  # ephemeral BLE device, no info available
         info = {"address": address, "name": address, "paired": False,
-                "trusted": False, "connected": False, "icon": "audio-card"}
+                "trusted": False, "connected": False, "icon": "", "uuids": []}
         for line in output.splitlines():
             line = line.strip()
             if line.startswith("Name:"):
@@ -370,6 +382,11 @@ class BluetoothManager:
                 info["connected"] = "yes" in line.lower()
             elif line.startswith("Icon:"):
                 info["icon"] = line.split(":", 1)[1].strip()
+            elif line.startswith("UUID:"):
+                # Extract UUID hex from parenthesized value
+                if "(" in line and ")" in line:
+                    uuid = line.split("(")[1].split(")")[0].strip()
+                    info["uuids"].append(uuid)
         return info
 
     async def scan(self, timeout=12) -> list[dict]:
@@ -400,10 +417,17 @@ class BluetoothManager:
                 None, lambda addr=address: self._parse_info(addr)
             )
 
-            # Filter to audio-capable devices (skip phones, keyboards, etc.)
+            # Skip ephemeral BLE devices with no info
+            if info is None:
+                continue
+
+            # Only include devices that look like audio devices:
+            # must have an audio icon OR at least one A2DP-related UUID
             icon = info.get("icon", "")
-            if icon and icon not in ("audio-card", "audio-headphones",
-                                     "audio-headset", "audio-speakers", ""):
+            uuids = set(u[:8] for u in info.get("uuids", []))
+            has_audio_icon = icon in self.AUDIO_ICONS
+            has_audio_uuid = bool(uuids & self.AUDIO_UUIDS)
+            if not has_audio_icon and not has_audio_uuid:
                 continue
 
             dev_id = f"bt:{address}"
@@ -489,6 +513,8 @@ class BluetoothManager:
             info = await loop.run_in_executor(
                 None, lambda addr=address: self._parse_info(addr)
             )
+            if info is None:
+                continue
             dev_id = f"bt:{address}"
             devices.append({
                 "id": dev_id,
