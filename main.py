@@ -1509,12 +1509,14 @@ async def album_recording_start(body: dict):
                     next_id = state.learn_session.next_track_id() if state.learn_session else None
                     state.album_recorder.mark_track_boundary(next_id)
                     # Notify UI of track boundary with completed track name
+                    # tc includes the new boundary for the upcoming track, so
+                    # the just-completed track is at tc-2 (tc-1 is the next one)
                     tc = state.album_recorder.track_count if state.album_recorder else 0
-                    track_name = side_tracks[tc-1]["title"] if tc <= len(side_tracks) else None
+                    track_name = side_tracks[tc-2]["title"] if tc >= 2 and (tc-2) < len(side_tracks) else None
                     asyncio.run_coroutine_threadsafe(
                         broadcast("album_recording_status", {
                             "recording": True, "album_id": _aid, "side": _side,
-                            "message": f"\u23fa Recording Side {_side} — {tc} track(s)",
+                            "message": f"\u23fa Recording Side {_side} — {tc-1} track(s) learned",
                             "track_name": track_name,
                         }), _loop)
 
@@ -1642,12 +1644,14 @@ async def album_recording_flip(body: dict):
                 if state.album_recorder and state.album_recorder.is_active:
                     next_id = state.learn_session.next_track_id() if state.learn_session else None
                     state.album_recorder.mark_track_boundary(next_id)
+                    # tc includes the new boundary for the upcoming track, so
+                    # the just-completed track is at tc-2 (tc-1 is the next one)
                     tc = state.album_recorder.track_count if state.album_recorder else 0
-                    track_name = side_tracks[tc-1]["title"] if tc <= len(side_tracks) else None
+                    track_name = side_tracks[tc-2]["title"] if tc >= 2 and (tc-2) < len(side_tracks) else None
                     asyncio.run_coroutine_threadsafe(
                         broadcast("album_recording_status", {
                             "recording": True, "album_id": _aid2, "side": _side2,
-                            "message": f"\u23fa Recording Side {_side2} — {tc} track(s)",
+                            "message": f"\u23fa Recording Side {_side2} — {tc-1} track(s) learned",
                             "track_name": track_name,
                         }), _loop2)
 
