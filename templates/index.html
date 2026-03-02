@@ -267,6 +267,9 @@
   .form-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
   #error-msg { display: none; position: fixed; top: 0.5rem; left: 50%; transform: translateX(-50%); z-index: 999; background: var(--rust); color: #fff; padding: 0.5rem 1rem; border-radius: 6px; font-size: 0.82rem; font-weight: 600; max-width: 90vw; text-align: center; box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
   #toast-msg { display: none; position: fixed; bottom: 5rem; left: 50%; transform: translateX(-50%); z-index: 999; background: var(--walnut); color: var(--cream); padding: 0.5rem 1rem; border-radius: 6px; font-size: 0.82rem; max-width: 90vw; text-align: center; box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
+  .dir-picker-item { padding:0.45rem 0.6rem;font-size:0.85rem;cursor:pointer;border-bottom:1px solid var(--border);transition:background 0.12s }
+  .dir-picker-item:hover { background:rgba(255,255,255,0.05) }
+  .dir-picker-item:last-child { border-bottom:none }
   .settings-section { margin-bottom: 1.2rem; }
   .settings-section h3 { font-family: var(--display-font); font-size: 0.78rem; font-weight: 700; color: var(--leather); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 0.5rem; }
   .device-item { display: flex; align-items: center; gap: 0.6rem; padding: 0.5rem 0; border-bottom: 1px solid rgba(0,0,0,0.06); font-size: 0.82rem; }
@@ -675,6 +678,27 @@
     </div>
     <div class="settings-section"><h3>Audio Input</h3><select class="form-input" id="audio-select"><option value="">Loading…</option></select></div>
     <div class="settings-section"><h3>Discogs Token</h3><p style="font-size:0.75rem;color:var(--muted);margin-bottom:0.4rem;line-height:1.4">Optional — increases rate limits and enables cover art. <a href="https://www.discogs.com/settings/developers" target="_blank" style="color:var(--amber-dk)">Get token</a></p><div style="display:flex;gap:0.4rem;align-items:center"><input type="password" class="form-input" id="discogs-token" placeholder="Paste token" style="flex:1"><button class="btn btn-accent" onclick="saveDiscogsToken()">Save</button></div><span id="discogs-saved" style="display:none;color:var(--sage);font-size:0.75rem">✓ Saved</span></div>
+    <div class="settings-section"><h3>Storage</h3>
+      <div style="font-size:0.82rem;margin-bottom:0.3rem">Location: <strong id="storage-path">—</strong></div>
+      <div style="font-size:0.75rem;color:var(--muted);margin-bottom:0.5rem">Free: <span id="storage-free">—</span> GB of <span id="storage-total">—</span> GB</div>
+      <div style="display:flex;gap:0.4rem;align-items:center"><input type="text" class="form-input" id="new-storage-path" placeholder="/mnt/ssd/vinyl-audio" style="flex:1;font-size:0.85rem"><button class="btn" onclick="openDirPicker()">📂 Browse</button><button class="btn btn-accent" onclick="changeStoragePath()">Move</button></div>
+      <div id="storage-status" style="display:none;font-size:0.75rem;margin-top:0.3rem"></div>
+      <div id="dir-picker-overlay" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);z-index:200;display:none;align-items:center;justify-content:center">
+        <div style="background:var(--surface);border-radius:12px;padding:1rem;width:90%;max-width:400px;max-height:70vh;display:flex;flex-direction:column">
+          <div style="font-weight:600;margin-bottom:0.4rem">Select Folder</div>
+          <div id="dir-picker-path" style="font-size:0.75rem;color:var(--muted);word-break:break-all;margin-bottom:0.5rem">/</div>
+          <div id="dir-picker-list" style="flex:1;overflow-y:auto;min-height:150px;max-height:45vh;border:1px solid var(--border);border-radius:8px;margin-bottom:0.5rem"></div>
+          <div style="display:flex;gap:0.4rem;align-items:center">
+            <input type="text" class="form-input" id="dir-picker-new" placeholder="New folder name" style="flex:1;font-size:0.82rem">
+            <button class="btn" onclick="createDirInPicker()" style="font-size:0.78rem">+ Create</button>
+          </div>
+          <div style="display:flex;gap:0.4rem;margin-top:0.5rem">
+            <button class="btn btn-accent" onclick="selectDir()" style="flex:1">Select This Folder</button>
+            <button class="btn btn-ghost" onclick="closeDirPicker()">Cancel</button>
+          </div>
+        </div>
+      </div>
+    </div>
     <button class="btn btn-ghost" onclick="hideSettings()" style="width:100%;margin-top:0.5rem">Close</button>
   </div>
 </div>
@@ -976,7 +1000,11 @@ async function openAlbumDetail(id){
   window._modalTracks=td.tracks.slice();renderModalTracks(window._modalTracks,false);
   const ad=await fetch('/api/album-audio/'+id).then(r=>r.json());
   document.getElementById('btn-modal-play').style.display=(ad.audio&&ad.audio.length)?'':'none';
-  loadAlbumAudio(id);hideAlbumRecPanel();document.getElementById('album-modal').classList.add('open');
+  loadAlbumAudio(id);
+  if(_recAlbumId===id&&_recStartTime){restoreAlbumRecPanel()}else{hideAlbumRecPanel()}
+  const recBtn=document.getElementById('btn-modal-rec');
+  if(_recAlbumId&&_recStartTime&&_recAlbumId!==id){recBtn.disabled=true;recBtn.title='Recording in progress on another album'}else{recBtn.disabled=false;recBtn.title=''}
+  document.getElementById('album-modal').classList.add('open');
 }
 function closeModal(){document.getElementById('album-modal').classList.remove('open');currentAlbumId=null}
 function playAlbumFromModal(){if(!currentAlbumId)return;if(_isStreaming||_playerActive){playAlbum(currentAlbumId);closeModal()}else{closeModal();_pendingAlbumId=currentAlbumId;showOutputPicker(currentAlbumId)}}
@@ -1022,9 +1050,22 @@ function initDragReorder(){const c=document.getElementById('modal-tracks');let d
 function showAlbumRecPanel(){document.getElementById('album-rec-panel').style.display='block';var setup=document.getElementById('album-rec-setup');if(_recSetupHTML)setup.innerHTML=_recSetupHTML;setup.style.display='block';document.getElementById('album-rec-active').style.display='none';document.getElementById('album-rec-saving').style.display='none';document.getElementById('album-rec-flip-prompt').style.display='none';var sel=document.getElementById('album-rec-side');if(sel){var sides=[...new Set((window._modalTracks||[]).map(t=>t.side||'A'))].sort();if(!sides.length)sides=['A','B'];sel.innerHTML=sides.map(s=>'<option value="'+s+'">'+s+'</option>').join('')}updateRecSideInfo()}
 function updateRecSideInfo(){const side=document.getElementById('album-rec-side').value;const tracks=(window._modalTracks||[]).filter(t=>t.side===side);document.getElementById('album-rec-side-info').textContent=tracks.length?`${tracks.length} track${tracks.length>1?'s':''} on Side ${side}`:''}
 function hideAlbumRecPanel(){document.getElementById('album-rec-panel').style.display='none'}
+function restoreAlbumRecPanel(){
+  document.getElementById('album-rec-panel').style.display='block';
+  document.getElementById('album-rec-setup').style.display='none';
+  document.getElementById('album-rec-active').style.display='block';
+  document.getElementById('album-rec-saving').style.display='none';
+  document.getElementById('album-rec-flip-prompt').style.display='none';
+  document.getElementById('album-rec-active-side').textContent=_recSide||'?';
+  clearInterval(_recTimerInterval);
+  _recTimerInterval=setInterval(()=>{const s=Math.floor((Date.now()-_recStartTime)/1000);document.getElementById('album-rec-timer').textContent=String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0')},1000);
+  const s=Math.floor((Date.now()-_recStartTime)/1000);document.getElementById('album-rec-timer').textContent=String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0');
+}
 var _recOutputDevice=null;
 var _recSetupHTML=null;
 var _recSide=null;
+var _recStartTime=null;
+var _recAlbumId=null;
 async function startAlbumRecording(){
   var setup=document.getElementById('album-rec-setup');
   if(!_recSetupHTML)_recSetupHTML=setup.innerHTML;
@@ -1072,15 +1113,16 @@ async function beginRecordingWithDevice(devIdx){
   // Now start recording
   var r=await fetch('/api/album-recording/start',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({album_id:currentAlbumId,side:side})}).then(function(r){return r.json()});
   if(!r.ok){showError(r.error||'Failed');showAlbumRecPanel();return}
-  document.getElementById('album-rec-setup').style.display='none';document.getElementById('album-rec-active').style.display='block';document.getElementById('album-rec-active-side').textContent=side;document.getElementById('album-rec-timer').textContent='00:00';document.getElementById('album-rec-track-log').innerHTML='';const st=Date.now();clearInterval(_recTimerInterval);_recTimerInterval=setInterval(()=>{const s=Math.floor((Date.now()-st)/1000);document.getElementById('album-rec-timer').textContent=String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0')},1000)
+  _recAlbumId=currentAlbumId;_recStartTime=Date.now();
+  document.getElementById('album-rec-setup').style.display='none';document.getElementById('album-rec-active').style.display='block';document.getElementById('album-rec-active-side').textContent=side;document.getElementById('album-rec-timer').textContent='00:00';document.getElementById('album-rec-track-log').innerHTML='';clearInterval(_recTimerInterval);_recTimerInterval=setInterval(()=>{const s=Math.floor((Date.now()-_recStartTime)/1000);document.getElementById('album-rec-timer').textContent=String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0')},1000)
 }
-async function stopAlbumRecording(keepStream){clearInterval(_recTimerInterval);document.getElementById('album-rec-active').style.display='none';document.getElementById('album-rec-saving').style.display='block';await fetch('/api/album-recording/stop',{method:'POST'});if(!keepStream&&_recOutputDevice){await fetch('/api/stop',{method:'POST'});_recOutputDevice=null}}
-async function cancelAlbumRecording(){clearInterval(_recTimerInterval);await fetch('/api/album-recording/cancel',{method:'POST'});hideAlbumRecPanel()}
+async function stopAlbumRecording(keepStream){clearInterval(_recTimerInterval);_recStartTime=null;_recAlbumId=null;document.getElementById('album-rec-active').style.display='none';document.getElementById('album-rec-saving').style.display='block';await fetch('/api/album-recording/stop',{method:'POST'});if(!keepStream&&_recOutputDevice){await fetch('/api/stop',{method:'POST'});_recOutputDevice=null}}
+async function cancelAlbumRecording(){clearInterval(_recTimerInterval);_recStartTime=null;_recAlbumId=null;await fetch('/api/album-recording/cancel',{method:'POST'});hideAlbumRecPanel()}
 function flipAlbumRecording(){stopAlbumRecording(true)}
 function onAlbumRecStatus(d){if(d.message)document.getElementById('album-rec-status-text').textContent=d.message;if(d.album_id&&currentAlbumId===d.album_id)refreshModalTracks(d.album_id);if(d.track_name){var log=document.getElementById('album-rec-track-log');log.innerHTML+='<div style="padding:0.15rem 0;color:var(--sage)">\u2713 '+esc(d.track_name)+'</div>';log.scrollTop=log.scrollHeight}}
 function onAlbumRecSideSaved(d){clearInterval(_recTimerInterval);document.getElementById('album-rec-active').style.display='none';document.getElementById('album-rec-saving').style.display='none';document.getElementById('album-rec-flip-prompt').style.display='block';document.getElementById('album-rec-done-side').textContent=d.side||'?';const ns=String.fromCharCode((d.side||'A').charCodeAt(0)+1);document.getElementById('album-rec-next-side-label').textContent=ns;if(currentAlbumId){loadAlbumAudio(currentAlbumId);loadCatalog()}}
-async function startNextSideRecording(){const ns=document.getElementById('album-rec-next-side-label').textContent;_recSide=ns;document.getElementById('album-rec-flip-prompt').style.display='none';document.getElementById('album-rec-saving').style.display='none';var r=await fetch('/api/album-recording/start',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({album_id:currentAlbumId,side:ns})}).then(function(r){return r.json()});if(!r.ok){showError(r.error||'Failed to start next side');showAlbumRecPanel();return}document.getElementById('album-rec-setup').style.display='none';document.getElementById('album-rec-active').style.display='block';document.getElementById('album-rec-active-side').textContent=ns;document.getElementById('album-rec-timer').textContent='00:00';document.getElementById('album-rec-track-log').innerHTML='';document.getElementById('album-rec-status-text').textContent='Waiting for audio\u2026';const st=Date.now();clearInterval(_recTimerInterval);_recTimerInterval=setInterval(()=>{const s=Math.floor((Date.now()-st)/1000);document.getElementById('album-rec-timer').textContent=String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0')},1000)}
-function finishAlbumRecSession(){hideAlbumRecPanel();if(currentAlbumId){loadAlbumAudio(currentAlbumId);loadCatalog()}}
+async function startNextSideRecording(){const ns=document.getElementById('album-rec-next-side-label').textContent;_recSide=ns;document.getElementById('album-rec-flip-prompt').style.display='none';document.getElementById('album-rec-saving').style.display='none';var r=await fetch('/api/album-recording/start',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({album_id:currentAlbumId,side:ns})}).then(function(r){return r.json()});if(!r.ok){showError(r.error||'Failed to start next side');showAlbumRecPanel();return}_recAlbumId=currentAlbumId;_recStartTime=Date.now();document.getElementById('album-rec-setup').style.display='none';document.getElementById('album-rec-active').style.display='block';document.getElementById('album-rec-active-side').textContent=ns;document.getElementById('album-rec-timer').textContent='00:00';document.getElementById('album-rec-track-log').innerHTML='';document.getElementById('album-rec-status-text').textContent='Waiting for audio\u2026';clearInterval(_recTimerInterval);_recTimerInterval=setInterval(()=>{const s=Math.floor((Date.now()-_recStartTime)/1000);document.getElementById('album-rec-timer').textContent=String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0')},1000)}
+function finishAlbumRecSession(){clearInterval(_recTimerInterval);_recStartTime=null;_recAlbumId=null;hideAlbumRecPanel();if(currentAlbumId){loadAlbumAudio(currentAlbumId);loadCatalog()}}
 
 function openLearnForAlbum(){if(!currentAlbumId)return;const a=_catalogAlbums.find(x=>x.id===currentAlbumId);if(!a)return;document.getElementById('learn-album-input').value=a.artist+' \u2014 '+a.title;document.getElementById('learn-album-id').value=currentAlbumId;const sa=(window._modalTracks||[]).filter(t=>t.side==='A').length;document.getElementById('learn-track-count').value=sa||5;closeModal();showLearnOverlay()}
 function showLearnOverlay(){document.getElementById('learn-overlay').classList.add('open');showLearnStep('setup');populateLearnAlbumSelect()}
@@ -1122,6 +1164,46 @@ async function toggleHidden(did,hide){await fetch('/api/device/hide',{method:'PO
 async function saveAutoStreamSettings(){const en=document.getElementById('auto-stream-enabled').checked,sel=document.getElementById('auto-stream-device-select'),opt=sel.options[sel.selectedIndex],dev=opt&&opt.value?{id:opt.value,name:opt.textContent}:null;await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({auto_stream_enabled:en,auto_stream_device:dev})});document.getElementById('auto-stream-status').textContent=en&&dev?`Auto-streaming to: ${dev.name}`:''}
 async function scanAutoStreamDevices(){const sel=document.getElementById('auto-stream-device-select');sel.innerHTML='<option value="">Scanning\u2026</option>';try{const d=await fetch('/api/scan').then(r=>r.json());sel.innerHTML='<option value="">\u2014 Select \u2014</option>';(d.devices||[]).filter(d=>!d.hidden).forEach(d=>{const o=document.createElement('option');o.value=d.id;o.textContent=d.name;sel.appendChild(o)});if(window._savedAutoStreamDevice)sel.value=window._savedAutoStreamDevice.id}catch(e){sel.innerHTML='<option value="">Scan failed</option>'}}
 async function saveDiscogsToken(){const t=document.getElementById('discogs-token').value.trim();await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({discogs_token:t})});const el=document.getElementById('discogs-saved');el.style.display='inline';setTimeout(()=>el.style.display='none',2000)}
+function updateStorageInfo(storage){if(!storage)return;document.getElementById('storage-path').textContent=storage.path||'—';document.getElementById('storage-free').textContent=storage.free_gb||'—';document.getElementById('storage-total').textContent=storage.total_gb||'—'}
+async function changeStoragePath(){const p=document.getElementById('new-storage-path').value.trim();if(!p){alert('Enter a path');return}if(!confirm('Move all recordings to '+p+'?'))return;const st=document.getElementById('storage-status');st.style.display='block';st.style.color='var(--muted)';st.textContent='Moving files…';try{const r=await fetch('/api/settings/storage',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:p})}).then(r=>r.json());if(r.ok){st.style.color='var(--sage)';st.textContent=r.message;document.getElementById('new-storage-path').value='';const d=await fetch('/api/status').then(r=>r.json());if(d.storage)updateStorageInfo(d.storage)}else{st.style.color='var(--rust)';st.textContent=r.error||'Failed'}}catch(e){st.style.color='var(--rust)';st.textContent='Error: '+e.message}}
+var _dirPickerPath='/';
+function openDirPicker(){
+  const cur=document.getElementById('storage-path').textContent;
+  _dirPickerPath=(cur&&cur!=='—')?cur:'/';
+  document.getElementById('dir-picker-overlay').style.display='flex';
+  loadDirPicker(_dirPickerPath);
+}
+function closeDirPicker(){document.getElementById('dir-picker-overlay').style.display='none'}
+async function loadDirPicker(path){
+  _dirPickerPath=path;
+  document.getElementById('dir-picker-path').textContent=path;
+  document.getElementById('dir-picker-list').innerHTML='<div style="padding:0.5rem;color:var(--muted);font-size:0.82rem">Loading…</div>';
+  const d=await fetch('/api/browse-dirs?path='+encodeURIComponent(path)).then(r=>r.json());
+  if(!d.ok){document.getElementById('dir-picker-list').innerHTML='<div style="padding:0.5rem;color:var(--rust);font-size:0.82rem">'+esc(d.error||'Error')+'</div>';return}
+  _dirPickerPath=d.path;
+  document.getElementById('dir-picker-path').textContent=d.path;
+  let h='';
+  if(d.path!=='/'){var parent=d.path.replace(/\/[^/]*$/,'')||'/';h+='<div class="dir-picker-item" onclick="loadDirPicker(\''+parent+'\')">⬆ ..</div>'}
+  d.dirs.forEach(name=>{var full=(d.path+'/'+name).replace(/\/\//g,'/');h+='<div class="dir-picker-item" onclick="loadDirPicker(\''+full.replace(/'/g,"\\'")+'\')">📁 '+esc(name)+'</div>'});
+  if(!d.dirs.length&&d.path==='/'){h='<div style="padding:0.5rem;color:var(--muted);font-size:0.82rem">No subdirectories</div>'}
+  document.getElementById('dir-picker-list').innerHTML=h||'<div style="padding:0.5rem;color:var(--muted);font-size:0.82rem">Empty folder</div>';
+}
+function selectDir(){
+  document.getElementById('new-storage-path').value=_dirPickerPath;
+  closeDirPicker();
+}
+async function createDirInPicker(){
+  const name=document.getElementById('dir-picker-new').value.trim();
+  if(!name)return;
+  const newPath=(_dirPickerPath+'/'+name).replace(/\/\//g,'/');
+  try{
+    const r=await fetch('/api/browse-dirs?path='+encodeURIComponent(newPath)).then(r=>r.json());
+    if(r.ok){loadDirPicker(newPath);document.getElementById('dir-picker-new').value='';return}
+    // Directory doesn't exist, create via storage endpoint test
+    await fetch('/api/settings/storage',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:newPath,create_only:true})});
+    loadDirPicker(newPath);document.getElementById('dir-picker-new').value='';
+  }catch(e){showError('Could not create folder')}
+}
 async function loadAudioDevices(){try{const d=await fetch('/api/audio-devices').then(r=>r.json());document.getElementById('audio-select').innerHTML=d.devices.map(d=>`<option value="${d.index}">${esc(d.name)}</option>`).join('')}catch(e){}}
 
 async function init(){
@@ -1136,6 +1218,8 @@ async function init(){
     if(d.settings.saved_devices&&d.settings.saved_devices.length)_lastUsedDevice=d.settings.saved_devices[0].id;
     if(d.settings.auto_stream_enabled!==undefined){document.getElementById('auto-stream-enabled').checked=d.settings.auto_stream_enabled;if(d.settings.auto_stream_device){window._savedAutoStreamDevice=d.settings.auto_stream_device;scanAutoStreamDevices()}const st=document.getElementById('auto-stream-status');if(d.settings.auto_stream_enabled&&d.settings.auto_stream_device)st.textContent=`Auto-streaming to: ${d.settings.auto_stream_device.name}`}
   }
+  if(d.storage)updateStorageInfo(d.storage);
+  if(d.album_recording){_recAlbumId=d.album_recording.album_id;_recSide=d.album_recording.side;if(!_recStartTime)_recStartTime=Date.now()}
   loadCatalog();
 }
 init();
@@ -1143,7 +1227,7 @@ init();
 
 /* ── Screensaver / Screen Off ── */
 var _ssActive = false, _ssLastNP = null;
-var SS_IDLE_SECS = 60;
+var SS_IDLE_SECS = 600;
 var _ssLastActivity = Date.now();
 var _ssDebugLog = [];
 
