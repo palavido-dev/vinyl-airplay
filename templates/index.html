@@ -267,6 +267,9 @@
   .form-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
   #error-msg { display: none; position: fixed; top: 0.5rem; left: 50%; transform: translateX(-50%); z-index: 999; background: var(--rust); color: #fff; padding: 0.5rem 1rem; border-radius: 6px; font-size: 0.82rem; font-weight: 600; max-width: 90vw; text-align: center; box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
   #toast-msg { display: none; position: fixed; bottom: 5rem; left: 50%; transform: translateX(-50%); z-index: 999; background: var(--walnut); color: var(--cream); padding: 0.5rem 1rem; border-radius: 6px; font-size: 0.82rem; max-width: 90vw; text-align: center; box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
+  .dir-picker-item { padding:0.45rem 0.6rem;font-size:0.85rem;cursor:pointer;border-bottom:1px solid var(--border);transition:background 0.12s }
+  .dir-picker-item:hover { background:rgba(255,255,255,0.05) }
+  .dir-picker-item:last-child { border-bottom:none }
   .settings-section { margin-bottom: 1.2rem; }
   .settings-section h3 { font-family: var(--display-font); font-size: 0.78rem; font-weight: 700; color: var(--leather); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 0.5rem; }
   .device-item { display: flex; align-items: center; gap: 0.6rem; padding: 0.5rem 0; border-bottom: 1px solid rgba(0,0,0,0.06); font-size: 0.82rem; }
@@ -678,8 +681,23 @@
     <div class="settings-section"><h3>Storage</h3>
       <div style="font-size:0.82rem;margin-bottom:0.3rem">Location: <strong id="storage-path">—</strong></div>
       <div style="font-size:0.75rem;color:var(--muted);margin-bottom:0.5rem">Free: <span id="storage-free">—</span> GB of <span id="storage-total">—</span> GB</div>
-      <div style="display:flex;gap:0.4rem;align-items:center"><input type="text" class="form-input" id="new-storage-path" placeholder="/mnt/ssd/vinyl-audio" style="flex:1;font-size:0.85rem"><button class="btn btn-accent" onclick="changeStoragePath()">Move</button></div>
+      <div style="display:flex;gap:0.4rem;align-items:center"><input type="text" class="form-input" id="new-storage-path" placeholder="/mnt/ssd/vinyl-audio" style="flex:1;font-size:0.85rem"><button class="btn" onclick="openDirPicker()">📂 Browse</button><button class="btn btn-accent" onclick="changeStoragePath()">Move</button></div>
       <div id="storage-status" style="display:none;font-size:0.75rem;margin-top:0.3rem"></div>
+      <div id="dir-picker-overlay" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);z-index:200;display:none;align-items:center;justify-content:center">
+        <div style="background:var(--surface);border-radius:12px;padding:1rem;width:90%;max-width:400px;max-height:70vh;display:flex;flex-direction:column">
+          <div style="font-weight:600;margin-bottom:0.4rem">Select Folder</div>
+          <div id="dir-picker-path" style="font-size:0.75rem;color:var(--muted);word-break:break-all;margin-bottom:0.5rem">/</div>
+          <div id="dir-picker-list" style="flex:1;overflow-y:auto;min-height:150px;max-height:45vh;border:1px solid var(--border);border-radius:8px;margin-bottom:0.5rem"></div>
+          <div style="display:flex;gap:0.4rem;align-items:center">
+            <input type="text" class="form-input" id="dir-picker-new" placeholder="New folder name" style="flex:1;font-size:0.82rem">
+            <button class="btn" onclick="createDirInPicker()" style="font-size:0.78rem">+ Create</button>
+          </div>
+          <div style="display:flex;gap:0.4rem;margin-top:0.5rem">
+            <button class="btn btn-accent" onclick="selectDir()" style="flex:1">Select This Folder</button>
+            <button class="btn btn-ghost" onclick="closeDirPicker()">Cancel</button>
+          </div>
+        </div>
+      </div>
     </div>
     <button class="btn btn-ghost" onclick="hideSettings()" style="width:100%;margin-top:0.5rem">Close</button>
   </div>
@@ -1148,6 +1166,44 @@ async function scanAutoStreamDevices(){const sel=document.getElementById('auto-s
 async function saveDiscogsToken(){const t=document.getElementById('discogs-token').value.trim();await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({discogs_token:t})});const el=document.getElementById('discogs-saved');el.style.display='inline';setTimeout(()=>el.style.display='none',2000)}
 function updateStorageInfo(storage){if(!storage)return;document.getElementById('storage-path').textContent=storage.path||'—';document.getElementById('storage-free').textContent=storage.free_gb||'—';document.getElementById('storage-total').textContent=storage.total_gb||'—'}
 async function changeStoragePath(){const p=document.getElementById('new-storage-path').value.trim();if(!p){alert('Enter a path');return}if(!confirm('Move all recordings to '+p+'?'))return;const st=document.getElementById('storage-status');st.style.display='block';st.style.color='var(--muted)';st.textContent='Moving files…';try{const r=await fetch('/api/settings/storage',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:p})}).then(r=>r.json());if(r.ok){st.style.color='var(--sage)';st.textContent=r.message;document.getElementById('new-storage-path').value='';const d=await fetch('/api/status').then(r=>r.json());if(d.storage)updateStorageInfo(d.storage)}else{st.style.color='var(--rust)';st.textContent=r.error||'Failed'}}catch(e){st.style.color='var(--rust)';st.textContent='Error: '+e.message}}
+var _dirPickerPath='/';
+function openDirPicker(){
+  const cur=document.getElementById('storage-path').textContent;
+  _dirPickerPath=(cur&&cur!=='—')?cur:'/';
+  document.getElementById('dir-picker-overlay').style.display='flex';
+  loadDirPicker(_dirPickerPath);
+}
+function closeDirPicker(){document.getElementById('dir-picker-overlay').style.display='none'}
+async function loadDirPicker(path){
+  _dirPickerPath=path;
+  document.getElementById('dir-picker-path').textContent=path;
+  document.getElementById('dir-picker-list').innerHTML='<div style="padding:0.5rem;color:var(--muted);font-size:0.82rem">Loading…</div>';
+  const d=await fetch('/api/browse-dirs?path='+encodeURIComponent(path)).then(r=>r.json());
+  if(!d.ok){document.getElementById('dir-picker-list').innerHTML='<div style="padding:0.5rem;color:var(--rust);font-size:0.82rem">'+esc(d.error||'Error')+'</div>';return}
+  _dirPickerPath=d.path;
+  document.getElementById('dir-picker-path').textContent=d.path;
+  let h='';
+  if(d.path!=='/'){var parent=d.path.replace(/\/[^/]*$/,'')||'/';h+='<div class="dir-picker-item" onclick="loadDirPicker(\''+parent+'\')">⬆ ..</div>'}
+  d.dirs.forEach(name=>{var full=(d.path+'/'+name).replace(/\/\//g,'/');h+='<div class="dir-picker-item" onclick="loadDirPicker(\''+full.replace(/'/g,"\\'")+'\')">📁 '+esc(name)+'</div>'});
+  if(!d.dirs.length&&d.path==='/'){h='<div style="padding:0.5rem;color:var(--muted);font-size:0.82rem">No subdirectories</div>'}
+  document.getElementById('dir-picker-list').innerHTML=h||'<div style="padding:0.5rem;color:var(--muted);font-size:0.82rem">Empty folder</div>';
+}
+function selectDir(){
+  document.getElementById('new-storage-path').value=_dirPickerPath;
+  closeDirPicker();
+}
+async function createDirInPicker(){
+  const name=document.getElementById('dir-picker-new').value.trim();
+  if(!name)return;
+  const newPath=(_dirPickerPath+'/'+name).replace(/\/\//g,'/');
+  try{
+    const r=await fetch('/api/browse-dirs?path='+encodeURIComponent(newPath)).then(r=>r.json());
+    if(r.ok){loadDirPicker(newPath);document.getElementById('dir-picker-new').value='';return}
+    // Directory doesn't exist, create via storage endpoint test
+    await fetch('/api/settings/storage',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:newPath,create_only:true})});
+    loadDirPicker(newPath);document.getElementById('dir-picker-new').value='';
+  }catch(e){showError('Could not create folder')}
+}
 async function loadAudioDevices(){try{const d=await fetch('/api/audio-devices').then(r=>r.json());document.getElementById('audio-select').innerHTML=d.devices.map(d=>`<option value="${d.index}">${esc(d.name)}</option>`).join('')}catch(e){}}
 
 async function init(){
