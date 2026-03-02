@@ -185,7 +185,8 @@ vinyl-streamer/
 
 This project represents a significant investment of time, effort, and hardware testing costs. If you find it useful and want to support continued development, donations are greatly appreciated.
 
-**[Donate via PayPal](https://paypal.me/YOUR_PAYPAL_LINK)**
+- **[Donate via PayPal](https://paypal.me/palavido)**
+- **[Sponsor on GitHub](https://github.com/sponsors/palavido-dev)** *(coming soon — pending approval)*
 
 ---
 
