@@ -1452,6 +1452,9 @@ async def album_recording_start(body: dict):
         "genre":  album.get("genre"),
     }
 
+    # Clear stale track timestamps from any previous recording of this side
+    cat.reset_side_track_timestamps(album_id, side)
+
     # Create the album recorder
     audio_dir = cat.get_audio_storage_dir(state.settings)
     state.album_recorder = rec.AlbumRecorder(album_id, side, album_info,

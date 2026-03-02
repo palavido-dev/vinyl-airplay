@@ -208,14 +208,19 @@ class RecordingBuffer:
                 # never reopens. Detect end-of-side here so we don't record
                 # silence indefinitely.
                 self._silence_secs += chunk_secs
+                # Mark where silence started so _split_track trims correctly
+                if self._silence_start_byte == 0:
+                    with self._lock:
+                        self._silence_start_byte = self._total_bytes - len(pcm_chunk)
                 if (not self._end_of_side_fired
                         and self._silence_secs >= END_OF_SIDE_SECS
                         and self._total_bytes > 0):
                     self._end_of_side_fired = True
                     print(f"[recorder] End-of-side detected while waiting for audio"
-                          f" ({self._silence_secs:.1f}s silence, gate closed)"
-                          f" — flushing final track")
-                    self._split_track()
+                          f" ({self._silence_secs:.1f}s silence, gate closed)")
+                    # Don't call _split_track — the last real track already
+                    # split cleanly. Only silence scraps remain in the buffer.
+                    # Just fire end-of-side so the album recorder can finalize.
                     if self._on_end_of_side:
                         self._on_end_of_side()
             return  # don't do split logic until gate is open

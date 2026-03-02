@@ -1686,6 +1686,23 @@ def update_track_timestamps(track_id: int, start_secs: float, end_secs: float):
         db.close()
 
 
+def reset_side_track_timestamps(album_id: int, side: str):
+    """Clear start_secs/end_secs for all tracks on a side before re-recording."""
+    db = get_db()
+    try:
+        db.execute(
+            "UPDATE tracks SET start_secs = NULL, end_secs = NULL "
+            "WHERE album_id = ? AND side = ?",
+            (album_id, side)
+        )
+        db.commit()
+        print(f"[catalog] Reset track timestamps for album {album_id} side {side}")
+    except Exception as e:
+        print(f"[catalog] reset_side_track_timestamps failed: {e}")
+    finally:
+        db.close()
+
+
 def delete_album_audio(album_id: int) -> int:
     """Delete all audio files and DB records for an album. Returns files deleted."""
     db = get_db()
