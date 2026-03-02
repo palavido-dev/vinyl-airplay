@@ -1418,6 +1418,27 @@ async def update_settings(body: dict):
     return {"ok": True}
 
 
+@app.get("/api/screenshot")
+async def take_screenshot():
+    """Capture a screenshot of the kiosk display (Wayland/grim)."""
+    import tempfile
+    tmp = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
+    tmp.close()
+    try:
+        env = {**os.environ, "WAYLAND_DISPLAY": "wayland-0",
+               "XDG_RUNTIME_DIR": f"/run/user/{os.getuid()}"}
+        result = subprocess.run(["grim", tmp.name], env=env,
+                                capture_output=True, text=True, timeout=5)
+        if result.returncode != 0:
+            return {"ok": False, "error": result.stderr.strip() or "Screenshot failed"}
+        return FileResponse(tmp.name, media_type="image/png",
+                            filename="vinyl-streamer-screenshot.png")
+    except FileNotFoundError:
+        return {"ok": False, "error": "grim not installed (apt install grim)"}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
 @app.get("/api/browse-dirs")
 async def browse_dirs(path: str = "/"):
     """List subdirectories of a given path for the folder picker."""
