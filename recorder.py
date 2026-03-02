@@ -189,6 +189,7 @@ class RecordingBuffer:
         if not self._audio_seen:
             if rms >= SILENCE_RATIO_MIN:
                 self._sustained_audio_secs += chunk_secs
+                self._silence_secs = 0.0  # reset gate silence counter
                 if self._sustained_audio_secs >= STARTUP_AUDIO_SECS:
                     self._audio_seen = True
                     # Seed signal level from the startup burst so threshold is
@@ -202,6 +203,21 @@ class RecordingBuffer:
             else:
                 # Reset sustained counter if audio drops before gate opens
                 self._sustained_audio_secs = 0.0
+                # Track silence while gate is closed — if we just split the
+                # final track and the needle is in the run-out groove, the gate
+                # never reopens. Detect end-of-side here so we don't record
+                # silence indefinitely.
+                self._silence_secs += chunk_secs
+                if (not self._end_of_side_fired
+                        and self._silence_secs >= END_OF_SIDE_SECS
+                        and self._total_bytes > 0):
+                    self._end_of_side_fired = True
+                    print(f"[recorder] End-of-side detected while waiting for audio"
+                          f" ({self._silence_secs:.1f}s silence, gate closed)"
+                          f" — flushing final track")
+                    self._split_track()
+                    if self._on_end_of_side:
+                        self._on_end_of_side()
             return  # don't do split logic until gate is open
 
         # Adaptive silence detection (gate is open)
