@@ -272,41 +272,53 @@
   .dir-picker-item:active { background:rgba(212,162,78,0.3) }
   .dir-picker-item:last-child { border-bottom:none }
 
-  /* ── Catalog Controls ── */
-  .catalog-controls {
-    display: flex; align-items: center; gap: 0.4rem;
-    padding: 0.35rem 0.5rem; flex-wrap: wrap;
+  /* ── Sort / Group Popover ── */
+  .sort-panel {
+    display: none; position: absolute; top: 100%; right: 0.5rem;
+    z-index: 150; width: 230px;
+    background: linear-gradient(180deg, var(--cream) 0%, var(--paper) 100%);
+    border: 2px solid var(--shelf); border-radius: 10px;
+    padding: 0.8rem; margin-top: 0.3rem;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.3);
   }
-  .catalog-controls select {
-    font-family: var(--body-font); font-size: 0.78rem; font-weight: 600;
-    background: var(--cream); color: var(--ink); border: 1px solid var(--shelf);
-    border-radius: 6px; padding: 0.3rem 0.5rem; min-height: 36px;
-    outline: none; -webkit-appearance: none; appearance: none;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%237A6652'/%3E%3C/svg%3E");
-    background-repeat: no-repeat; background-position: right 0.5rem center;
-    padding-right: 1.4rem;
+  .sort-panel.open { display: block; }
+  .sort-panel-backdrop {
+    display: none; position: fixed; inset: 0; z-index: 149;
   }
-  .catalog-controls select:focus { border-color: var(--amber-dk); }
-  .filter-chip {
-    font-family: var(--body-font); font-size: 0.75rem; font-weight: 600;
+  .sort-panel-backdrop.open { display: block; }
+  .sort-panel-section { margin-bottom: 0.6rem; }
+  .sort-panel-section:last-child { margin-bottom: 0; }
+  .sort-panel-label {
+    font-family: var(--body-font); font-size: 0.68rem; font-weight: 700;
+    color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em;
+    margin-bottom: 0.35rem;
+  }
+  .sort-panel-options { display: flex; flex-wrap: wrap; gap: 0.3rem; }
+  .sort-option {
+    font-family: var(--body-font); font-size: 0.72rem; font-weight: 600;
     background: var(--paper); color: var(--muted); border: 1px solid var(--shelf);
-    border-radius: 16px; padding: 0.25rem 0.7rem; min-height: 36px;
-    display: inline-flex; align-items: center; gap: 0.25rem;
-    transition: all 0.15s; text-transform: uppercase; letter-spacing: 0.04em;
+    border-radius: 14px; padding: 0.28rem 0.6rem; min-height: 32px;
+    display: inline-flex; align-items: center;
+    transition: all 0.12s; cursor: pointer;
   }
-  .filter-chip:active, .filter-chip.active {
+  .sort-option:active, .sort-option.active {
     background: var(--amber-dk); color: #fff; border-color: var(--amber-dk);
   }
-  .filter-chip.active { box-shadow: 0 1px 4px rgba(184,134,45,0.3); }
-  .btn-play-all {
-    font-family: var(--body-font); font-size: 0.75rem; font-weight: 700;
-    background: var(--sage); color: #fff; border: 1px solid var(--sage-dk);
-    border-radius: 6px; padding: 0.3rem 0.7rem; min-height: 36px;
-    display: none; align-items: center; gap: 0.3rem;
-    margin-left: auto; transition: opacity 0.15s;
+  .sort-option.active { box-shadow: 0 1px 4px rgba(184,134,45,0.25); }
+  .header-btn.has-filter { position: relative; }
+  .header-btn.has-filter::after {
+    content: ''; position: absolute; top: 4px; right: 4px;
+    width: 7px; height: 7px; border-radius: 50%;
+    background: var(--amber); box-shadow: 0 0 4px rgba(212,162,78,0.6);
   }
-  .btn-play-all:active { background: var(--sage-dk); }
-  .btn-play-all.visible { display: inline-flex; }
+  .group-play-btn {
+    width: 28px; height: 28px; border-radius: 50%;
+    background: var(--sage); color: #fff; border: 1px solid var(--sage-dk);
+    font-size: 0.7rem; cursor: pointer; margin-left: auto;
+    display: flex; align-items: center; justify-content: center;
+    transition: background 0.12s; flex-shrink: 0;
+  }
+  .group-play-btn:active { background: var(--sage-dk); }
   .group-header {
     grid-column: 1 / -1;
     font-family: var(--display-font); font-size: 0.85rem; font-weight: 700;
@@ -535,24 +547,33 @@
 <div class="app-header">
   <span class="brand"><span class="brand-icon"></span>The Listening Room</span>
   <input type="search" class="search-bar" id="catalog-search" placeholder="Search your collection…" oninput="filterCatalog(this.value)">
+  <button class="header-btn" id="btn-sort" onclick="toggleSortPanel()" title="Sort &amp; group">&#8645;</button>
   <button class="header-btn" onclick="shufflePlay()" title="Shuffle play">🔀</button>
   <button class="header-btn" onclick="showAddForm()" title="Add record" style="font-size:1.5rem;font-weight:700;line-height:1">+</button>
   <button class="header-btn" onclick="showSettings()" title="Settings">⚙</button>
+  <div id="sort-panel-backdrop" class="sort-panel-backdrop" onclick="closeSortPanel()"></div>
+  <div id="sort-panel" class="sort-panel">
+    <div class="sort-panel-section">
+      <div class="sort-panel-label">Sort by</div>
+      <div class="sort-panel-options" id="sort-options">
+        <button class="sort-option active" onclick="applySortMode('artist')">Artist</button>
+        <button class="sort-option" onclick="applySortMode('title')">Title</button>
+        <button class="sort-option" onclick="applySortMode('year')">Year</button>
+        <button class="sort-option" onclick="applySortMode('recent_play')">Recent</button>
+        <button class="sort-option" onclick="applySortMode('recent_add')">Newest</button>
+      </div>
+    </div>
+    <div class="sort-panel-section">
+      <div class="sort-panel-label">Group by</div>
+      <div class="sort-panel-options">
+        <button class="sort-option" id="grp-genre" onclick="toggleGroupBy('genre')">Genre</button>
+        <button class="sort-option" id="grp-artist" onclick="toggleGroupBy('artist')">Artist</button>
+      </div>
+    </div>
+  </div>
 </div>
 <div class="status-bar"><span class="status-dot" id="dot"></span><span id="status-text">Connecting…</span></div>
 <div class="main-content" id="main-content">
-  <div class="catalog-controls" id="catalog-controls">
-    <select id="sort-select" onchange="applySortMode(this.value)" title="Sort by">
-      <option value="artist">Artist</option>
-      <option value="title">Title</option>
-      <option value="year">Year</option>
-      <option value="recent_play">Recently Played</option>
-      <option value="recent_add">Recently Added</option>
-    </select>
-    <button class="filter-chip" id="chip-genre" onclick="toggleGroupBy('genre')">By Genre</button>
-    <button class="filter-chip" id="chip-artist" onclick="toggleGroupBy('artist')">By Artist</button>
-    <button class="btn-play-all" id="btn-play-all" onclick="playAllFiltered()">&#9654; Play All</button>
-  </div>
   <div class="album-grid-wrap"><div class="album-grid" id="album-grid"><div class="catalog-empty">Loading catalog…</div></div></div>
   <div class="np-hero" id="np-hero">
     <div class="np-hero-art" id="np-hero-art"><div class="np-hero-art-placeholder"></div></div>
@@ -856,7 +877,7 @@ function renderAlbumCard(a){
 
 function renderCatalog(albums){
   var g=document.getElementById('album-grid');
-  if(!albums.length){g.innerHTML='<div class="catalog-empty">No albums yet.<br>Tap + to add your first record.</div>';updatePlayAllButton([]);return}
+  if(!albums.length){g.innerHTML='<div class="catalog-empty">No albums yet.<br>Tap + to add your first record.</div>';return}
   var sorted=sortAlbums(albums);
   if(_viewState.groupBy){
     var groups={},order=[];
@@ -867,14 +888,15 @@ function renderCatalog(albums){
     });
     var html='';
     order.forEach(function(key){
-      html+='<div class="group-header"><span>'+esc(key)+'</span><span class="group-count">'+groups[key].length+' album'+(groups[key].length!==1?'s':'')+'</span></div>';
+      var playable=groups[key].filter(function(a){return a.audio_count>0}).length;
+      var playBtn=playable>0?'<button class="group-play-btn" data-group="'+esc(key)+'" onclick="event.stopPropagation();playGroup(this.dataset.group)" title="Play this group">\u25B6</button>':'';
+      html+='<div class="group-header"><span>'+esc(key)+'</span><span class="group-count">'+groups[key].length+' album'+(groups[key].length!==1?'s':'')+'</span>'+playBtn+'</div>';
       groups[key].forEach(function(a){html+=renderAlbumCard(a)});
     });
     g.innerHTML=html;
   }else{
     g.innerHTML=sorted.map(renderAlbumCard).join('');
   }
-  updatePlayAllButton(sorted);
 }
 
 function filterCatalog(q){
@@ -883,29 +905,39 @@ function filterCatalog(q){
   renderCatalog(albums);
 }
 
+// ── Sort Panel ──
+function toggleSortPanel(){
+  var p=document.getElementById('sort-panel');
+  var b=document.getElementById('sort-panel-backdrop');
+  var open=p.classList.toggle('open');
+  b.classList.toggle('open',open);
+}
+function closeSortPanel(){
+  document.getElementById('sort-panel').classList.remove('open');
+  document.getElementById('sort-panel-backdrop').classList.remove('open');
+}
+function updateFilterIndicator(){
+  var btn=document.getElementById('btn-sort');
+  if(_viewState.sortMode!=='artist'||_viewState.groupBy){btn.classList.add('has-filter')}else{btn.classList.remove('has-filter')}
+}
 function applySortMode(mode){
   _viewState.sortMode=mode;
+  // Update active state on sort option buttons
+  var opts=document.getElementById('sort-options').children;
+  var labels={artist:0,title:1,year:2,recent_play:3,recent_add:4};
+  for(var i=0;i<opts.length;i++){opts[i].classList.toggle('active',i===labels[mode])}
+  updateFilterIndicator();
   var q=(document.getElementById('catalog-search').value||'').trim();
   filterCatalog(q);
 }
 
 function toggleGroupBy(field){
   if(_viewState.groupBy===field){_viewState.groupBy=null}else{_viewState.groupBy=field}
-  document.getElementById('chip-genre').classList.toggle('active',_viewState.groupBy==='genre');
-  document.getElementById('chip-artist').classList.toggle('active',_viewState.groupBy==='artist');
+  document.getElementById('grp-genre').classList.toggle('active',_viewState.groupBy==='genre');
+  document.getElementById('grp-artist').classList.toggle('active',_viewState.groupBy==='artist');
+  updateFilterIndicator();
   var q=(document.getElementById('catalog-search').value||'').trim();
   filterCatalog(q);
-}
-
-function updatePlayAllButton(albums){
-  var btn=document.getElementById('btn-play-all');
-  var playable=(albums||[]).filter(function(a){return a.audio_count>0});
-  if(playable.length>0&&(_viewState.groupBy||document.getElementById('catalog-search').value.trim())){
-    btn.classList.add('visible');
-    btn.textContent='\u25B6 Play All ('+playable.length+')';
-  }else{
-    btn.classList.remove('visible');
-  }
 }
 
 function getFilteredAlbums(){
@@ -919,17 +951,21 @@ function onAlbumTap(id,has){if(!has){openAlbumDetail(id);return}if(_isStreaming|
 async function playAlbum(id){showToast('Starting playback\u2026');var body={album_id:id};if(_currentDevices)body.devices=_currentDevices;const r=await fetch('/api/player/play',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(r=>r.json());if(!r.ok)showError(r.error||'Playback failed')}
 async function shufflePlay(){const p=_catalogAlbums.filter(a=>a.audio_count>0);if(!p.length){showToast('No recorded albums to shuffle');return}const a=p[Math.floor(Math.random()*p.length)];if(_isStreaming||_playerActive){showToast(`Shuffling: ${a.artist} \u2014 ${a.title}`);playAlbum(a.id)}else{_pendingAlbumId=a.id;showOutputPicker(a.id)}}
 
-// ── Play All (multi-album queue) ──
+// ── Per-Group Play (multi-album queue) ──
 var _pendingAlbumIds=null;
-function playAllFiltered(){
-  var albums=getFilteredAlbums().filter(function(a){return a.audio_count>0});
-  if(!albums.length){showToast('No recorded albums in this view');return}
+function playGroup(groupKey){
+  var field=_viewState.groupBy;
+  if(!field)return;
+  var albums=getFilteredAlbums().filter(function(a){
+    var val=(field==='genre'?(a.genre||'Unknown Genre'):(a.artist||'Unknown Artist'));
+    return val===groupKey&&a.audio_count>0;
+  });
+  if(!albums.length){showToast('No recorded albums in this group');return}
   var ids=albums.map(function(a){return a.id});
   if(_isStreaming||_playerActive){
     playMultipleAlbums(ids);
   }else{
     _pendingAlbumIds=ids;
-    // Show output picker with first album as context
     _pendingAlbumId=ids[0];
     showOutputPicker(ids[0]);
   }
@@ -952,7 +988,7 @@ async function showOutputPicker(albumId){
   var grid=document.getElementById('output-device-grid');
   var album=_catalogAlbums.find(function(a){return a.id===albumId});
   if(_pendingAlbumIds&&_pendingAlbumIds.length>1){
-    document.getElementById('output-picker-title').textContent='Play All \u2014 '+_pendingAlbumIds.length+' albums';
+    document.getElementById('output-picker-title').textContent='\u25B6 '+_pendingAlbumIds.length+' album'+(_pendingAlbumIds.length!==1?'s':'');
     document.getElementById('output-picker-subtitle').textContent='Choose where to play';
   }else if(album){
     document.getElementById('output-picker-title').textContent=album.artist+' \u2014 '+album.title;
