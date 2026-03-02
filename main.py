@@ -1109,12 +1109,41 @@ async def update_settings(body: dict):
     return {"ok": True}
 
 
+@app.get("/api/browse-dirs")
+async def browse_dirs(path: str = "/"):
+    """List subdirectories of a given path for the folder picker."""
+    p = Path(path).resolve()
+    if not p.is_dir():
+        return {"ok": False, "error": "Not a directory", "path": str(p), "dirs": []}
+    dirs = []
+    try:
+        for entry in sorted(p.iterdir()):
+            if entry.is_dir() and not entry.name.startswith('.'):
+                try:
+                    # Check we can actually read it
+                    list(entry.iterdir())
+                    dirs.append(entry.name)
+                except PermissionError:
+                    pass
+    except PermissionError:
+        return {"ok": False, "error": "Permission denied", "path": str(p), "dirs": []}
+    return {"ok": True, "path": str(p), "dirs": dirs}
+
+
 @app.post("/api/settings/storage")
 async def change_storage_path(body: dict):
     """Change the FLAC recording storage location, migrating existing files."""
     new_path = (body.get("path") or "").strip()
     if not new_path:
         return {"ok": False, "error": "Path is required"}
+
+    # Create-only mode: just ensure the directory exists (for folder picker)
+    if body.get("create_only"):
+        try:
+            Path(new_path).mkdir(parents=True, exist_ok=True)
+            return {"ok": True, "message": "Directory created"}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
 
     # Block if recording is active
     if state.album_recorder and state.album_recorder.is_active:
