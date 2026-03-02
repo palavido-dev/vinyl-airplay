@@ -1,16 +1,14 @@
 #!/usr/bin/env python3
 """
 Vinyl AirPlay — Record Catalog
-Chromaprint fingerprinting → AcoustID lookup (once) → SQLite storage → local matching forever.
+Chromaprint fingerprinting → local SQLite matching.
 
 Flow:
   1. Audio callback feeds FingerprintBuffer
-  2. Background task samples 15s of audio every 20s
+  2. Background task samples audio periodically
   3. Writes temp WAV, runs fpcalc to get fingerprint
-  4. Checks local SQLite first  →  if match, done (no internet)
-  5. If no local match + API key set  →  AcoustID lookup + MusicBrainz metadata
-  6. Saves everything to SQLite including artwork
-  7. On all future plays: step 4 matches locally, steps 5-6 never run again
+  4. Checks local SQLite → if match, done (no internet needed)
+  5. Albums added manually via Discogs search in the web UI
 """
 
 import json
@@ -21,12 +19,10 @@ import tempfile
 import threading
 import time
 import urllib.parse
-import requests
 import wave
 from pathlib import Path
 from typing import Optional
 
-import musicbrainzngs
 import numpy as np
 from PIL import Image
 
@@ -48,7 +44,7 @@ ARTWORK_SIZE        = 600         # px — artwork stored at this square size
 DB_PATH             = Path("catalog.db")
 ARTWORK_DIR         = Path("artwork")
 DEFAULT_AUDIO_DIR   = Path("album_audio")       # fallback when no custom path configured
-MB_APP              = "VinylAirPlay/1.0 (local)"  # MusicBrainz user-agent
+USER_AGENT          = "VinylAirPlay/1.0 (local)"
 
 
 def get_audio_storage_dir(settings: dict = None) -> Path:
@@ -230,7 +226,7 @@ def fingerprint_wav(wav_bytes: bytes) -> Optional[tuple[list[int], str, float]]:
     Returns (raw_ints, compressed_str, duration_secs) or None on failure.
 
     raw_ints       — signed int32 list for local BER comparison
-    compressed_str — chromaprint-compressed base64 string for AcoustID API
+    compressed_str — chromaprint-compressed base64 string (kept for compatibility)
     """
     with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
         f.write(wav_bytes)
@@ -521,230 +517,7 @@ def _get_track_full(db: sqlite3.Connection, track_id: int) -> Optional[dict]:
     return dict(row)
 
 
-# ── AcoustID + MusicBrainz Lookup ─────────────────────────────────────────────
-
-def lookup_acoustid(fingerprint: str, duration: float, client_key: str) -> Optional[dict]:
-    """
-    Lookup an AcoustID by Chromaprint fingerprint.
-
-    We request only recording IDs from AcoustID, then fetch human-friendly metadata
-    from MusicBrainz (recording + releases).
-
-    Returns a dict compatible with save_identified_track():
-      {
-        track_title, track_artist,
-        album_title, album_artist,
-        year, acoustid,
-        mb_recording, mb_release,
-        duration_secs
-      }
-    """
-    client_key = (client_key or "").strip()
-    if not client_key:
-        return None
-
-    try:
-        params = {
-            "client": client_key,
-            "meta": "recordingids",
-            "duration": str(int(round(duration))),
-            "fingerprint": fingerprint,
-            "format": "json",
-        }
-        # POST is preferred for long fingerprints; keep it simple: application/x-www-form-urlencoded
-        resp = requests.post("https://api.acoustid.org/v2/lookup", data=params, timeout=15)
-        data = resp.json()
-        if data.get("status") != "ok":
-            print(f"[catalog] AcoustID error: {data.get('error', 'unknown')}")
-            return None
-
-        results = data.get("results") or []
-        if not results:
-            print("[catalog] AcoustID: no results")
-            return None
-
-        # Choose highest-score AcoustID result
-        results.sort(key=lambda r: float(r.get("score", 0.0) or 0.0), reverse=True)
-        best = results[0]
-        acoustid_id = best.get("id")
-        score = float(best.get("score", 0.0) or 0.0)
-
-        recordings = best.get("recordings") or []
-        if not recordings:
-            print("[catalog] AcoustID: result had no recordings")
-            return None
-
-        # Prefer first recording ID (often best); you can later improve heuristics if needed
-        mb_recording = recordings[0].get("id")
-        if not mb_recording:
-            return None
-
-        mb_meta = _lookup_musicbrainz_recording(mb_recording)
-        if not mb_meta:
-            return None
-
-        mb_meta["acoustid"] = acoustid_id
-        mb_meta["acoustid_score"] = round(score, 3)
-        return mb_meta
-
-    except Exception as e:
-        print(f"[catalog] AcoustID lookup failed: {e}")
-        return None
-
-
-def _lookup_musicbrainz_recording(mb_recording_id: str) -> Optional[dict]:
-    """Fetch title/artist and a reasonable album candidate from MusicBrainz."""
-    if not mb_recording_id:
-        return None
-
-    musicbrainzngs.set_useragent(*MB_APP.split("/", 1))
-
-    def _artist_from_credit(credit) -> str:
-        if not credit:
-            return ""
-        parts = []
-        for c in credit:
-            if isinstance(c, dict):
-                a = c.get("artist", {})
-                parts.append(a.get("name") or c.get("name") or "")
-            elif isinstance(c, str):
-                parts.append(c)
-        return " ".join([p for p in parts if p]).strip()
-
-    try:
-        rec = musicbrainzngs.get_recording_by_id(
-            mb_recording_id, includes=["artists", "releases"]
-        )
-        recording = rec.get("recording", {})
-
-        track_title = recording.get("title") or "Unknown Track"
-        track_artist = _artist_from_credit(recording.get("artist-credit")) or "Unknown Artist"
-
-        # Pick a release (album) if present. Heuristic: choose the first one returned.
-        releases = recording.get("release-list") or []
-        mb_release = releases[0].get("id") if releases else None
-        album_title = releases[0].get("title") if releases else "Unknown Album"
-
-        # Album artist is usually same as track artist for most records; can be refined via release lookup if needed.
-        album_artist = track_artist
-
-        year = None
-        if releases and releases[0].get("date"):
-            try:
-                year = int(str(releases[0]["date"])[:4])
-            except Exception:
-                year = None
-
-        return {
-            "track_title": track_title,
-            "track_artist": track_artist,
-            "album_title": album_title,
-            "album_artist": album_artist,
-            "year": year,
-            "mb_recording": mb_recording_id,
-            "mb_release": mb_release,
-            "duration_secs": 0,
-        }
-    except Exception as e:
-        print(f"[catalog] MusicBrainz recording lookup failed: {e}")
-        return None
-
-def enrich_from_musicbrainz(mb_release_id: str) -> dict:
-    """
-    Fetch additional metadata from MusicBrainz for a release ID.
-    Returns dict with genre, label, country, tracks.
-    """
-    if not mb_release_id:
-        return {}
-
-    musicbrainzngs.set_useragent(*MB_APP.split("/", 1))
-
-    try:
-        result = musicbrainzngs.get_release_by_id(
-            mb_release_id,
-            includes=["artists", "recordings", "release-groups", "labels", "tags"]
-        )
-        release = result.get("release", {})
-
-        # Genre from tags
-        tags   = release.get("tag-list", [])
-        genre  = tags[0]["name"].title() if tags else None
-
-        # Label
-        label_info = release.get("label-info-list", [])
-        label      = None
-        if label_info:
-            lbl   = label_info[0].get("label", {})
-            label = lbl.get("name")
-
-        country = release.get("country")
-
-        # Track listing
-        tracks = []
-        medium_list = release.get("medium-list", [])
-        for medium in medium_list:
-            position = medium.get("position", 1)
-            side     = chr(64 + int(position)) if position <= 26 else str(position)
-            for track in medium.get("track-list", []):
-                rec = track.get("recording", {})
-                tracks.append({
-                    "title":        rec.get("title", track.get("title", "Unknown")),
-                    "track_number": track.get("number"),
-                    "side":         side,
-                    "duration_secs": int(rec.get("length", 0) or 0) // 1000,
-                    "mb_id":        rec.get("id"),
-                })
-
-        return {
-            "genre":   genre,
-            "label":   label,
-            "country": country,
-            "tracks":  tracks,
-        }
-
-    except Exception as e:
-        print(f"[catalog] MusicBrainz enrichment failed: {e}")
-        return {}
-
-
-
-
-# ── MusicBrainz Search ────────────────────────────────────────────────────────
-
-def search_musicbrainz(artist: str, album: str, limit: int = 8) -> list[dict]:
-    """
-    Search MusicBrainz for releases matching artist + album.
-    Returns a list of release summaries for the user to pick from.
-    No API key required.
-    """
-    musicbrainzngs.set_useragent(*MB_APP.split("/", 1))
-    try:
-        result = musicbrainzngs.search_releases(
-            artist=artist, release=album, limit=limit
-        )
-        releases = result.get("release-list", [])
-        out = []
-        for r in releases:
-            artist_credit = r.get("artist-credit", [])
-            artist_name = ""
-            if artist_credit:
-                first = artist_credit[0]
-                if isinstance(first, dict):
-                    artist_name = first.get("artist", {}).get("name", "")
-            out.append({
-                "id":      r.get("id"),
-                "title":   r.get("title", ""),
-                "artist":  artist_name,
-                "date":    r.get("date", ""),
-                "country": r.get("country", ""),
-                "label":   (r.get("label-info-list") or [{}])[0].get("label", {}).get("name", "") if r.get("label-info-list") else "",
-                "tracks":  r.get("medium-list", [{}])[0].get("track-count", 0) if r.get("medium-list") else 0,
-            })
-        return out
-    except Exception as e:
-        print(f"[catalog] MusicBrainz search failed: {e}")
-        return []
-
+# ── Discogs Search ────────────────────────────────────────────────────────────
 
 def search_discogs(artist: str, album: str, token: str = "", limit: int = 8, barcode: str = "") -> list[dict]:
     """
@@ -758,7 +531,7 @@ def search_discogs(artist: str, album: str, token: str = "", limit: int = 8, bar
     if album:  params["release_title"] = album
     if barcode: params["barcode"] = barcode
     url = "https://api.discogs.com/database/search?" + urllib.parse.urlencode(params)
-    headers = {"User-Agent": MB_APP}
+    headers = {"User-Agent": USER_AGENT}
     if token:
         headers["Authorization"] = f"Discogs token={token}"
     try:
@@ -801,7 +574,7 @@ def get_discogs_release(discogs_id: str, token: str = "") -> dict:
     """
     import urllib.request
     url = f"https://api.discogs.com/releases/{discogs_id}"
-    headers = {"User-Agent": MB_APP}
+    headers = {"User-Agent": USER_AGENT}
     if token:
         headers["Authorization"] = f"Discogs token={token}"
     try:
@@ -882,85 +655,11 @@ def get_discogs_release(discogs_id: str, token: str = "") -> dict:
         return {"ok": False, "error": str(e)}
 
 
-def get_release_tracks(mb_release_id: str) -> dict:
-    """
-    Fetch full track listing for a MusicBrainz release ID.
-    Returns dict with album info and tracks list ready for display/saving.
-    """
-    musicbrainzngs.set_useragent(*MB_APP.split("/", 1))
-    try:
-        result = musicbrainzngs.get_release_by_id(
-            mb_release_id,
-            includes=["artists", "recordings", "labels", "tags", "release-groups"]
-        )
-        release = result.get("release", {})
-
-        # Artist
-        artist_credit = release.get("artist-credit", [])
-        artist = ""
-        if artist_credit:
-            first = artist_credit[0]
-            if isinstance(first, dict):
-                artist = first.get("artist", {}).get("name", "")
-
-        # Year
-        year = None
-        date = release.get("date", "")
-        if date:
-            try: year = int(str(date)[:4])
-            except (ValueError, TypeError): pass
-
-        # Genre from tags
-        tags  = release.get("tag-list", [])
-        genre = tags[0]["name"].title() if tags else None
-
-        # Label
-        label_info = release.get("label-info-list", [])
-        label = None
-        if label_info:
-            label = label_info[0].get("label", {}).get("name")
-
-        country = release.get("country")
-
-        # Tracks — grouped by medium (side)
-        tracks = []
-        medium_list = release.get("medium-list", [])
-        for medium in medium_list:
-            position = medium.get("position", 1)
-            # Convert position to side letter: 1=A, 2=B, 3=C, 4=D
-            side = chr(64 + int(position)) if int(position) <= 26 else str(position)
-            for track in medium.get("track-list", []):
-                rec = track.get("recording", {})
-                duration_ms = rec.get("length") or track.get("length") or 0
-                tracks.append({
-                    "title":        rec.get("title") or track.get("title", "Unknown"),
-                    "track_number": track.get("number", ""),
-                    "side":         side,
-                    "duration_secs": int(duration_ms) // 1000,
-                    "mb_id":        rec.get("id", ""),
-                })
-
-        return {
-            "mb_release_id": mb_release_id,
-            "title":   release.get("title", ""),
-            "artist":  artist,
-            "year":    year,
-            "genre":   genre,
-            "label":   label,
-            "country": country,
-            "tracks":  tracks,
-        }
-
-    except Exception as e:
-        print(f"[catalog] get_release_tracks failed: {e}")
-        return {}
-
-
 def save_release_to_catalog(release_data: dict,
                              fingerprint: Optional[list[int]] = None,
                              duration: Optional[float] = None) -> Optional[int]:
     """
-    Save a full MusicBrainz release (album + all tracks) to the catalog.
+    Save a release (from Discogs search) to the catalog.
     Returns the new album_id, or None on failure.
     """
     db = get_db()
@@ -1023,35 +722,12 @@ def save_release_to_catalog(release_data: dict,
 
 # ── Album Art ─────────────────────────────────────────────────────────────────
 
-def fetch_artwork(mb_release_id: str, album_id: int) -> Optional[str]:
-    """
-    Download artwork from the MusicBrainz Cover Art Archive.
-    Saves as JPEG to artwork/ dir. Returns relative path or None.
-    """
-    if not mb_release_id:
-        return None
-
-    url = f"https://coverartarchive.org/release/{mb_release_id}/front-500"
-
-    try:
-        req = urllib.request.Request(url, headers={"User-Agent": MB_APP})
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            data = resp.read()
-
-        path = _save_artwork(data, album_id, user=False)
-        return path
-
-    except Exception as e:
-        print(f"[catalog] Artwork fetch failed: {e}")
-        return None
-
-
 def fetch_artwork_from_url(url: str, album_id: int) -> Optional[str]:
     """Download artwork from any URL (e.g. Discogs). Returns relative path or None."""
     if not url:
         return None
     try:
-        req = urllib.request.Request(url, headers={"User-Agent": MB_APP})
+        req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
         with urllib.request.urlopen(req, timeout=15) as resp:
             data = resp.read()
         path = _save_artwork(data, album_id, user=False)
@@ -1084,107 +760,6 @@ def _save_artwork(image_bytes: bytes, album_id: int, user: bool) -> Optional[str
 
 
 # ── Database Write ────────────────────────────────────────────────────────────
-
-def save_identified_track(
-    acoustid_result: dict,
-    mb_extra: dict,
-    fingerprint: list[int],
-    duration: float,
-    artwork_path: Optional[str] = None,
-) -> Optional[dict]:
-    """
-    Save a newly identified track + album to the DB.
-    Returns the full track dict for broadcasting to the UI.
-    """
-    db = get_db()
-    try:
-        # Check if album already exists by MusicBrainz release ID
-        mb_release = acoustid_result.get("mb_release")
-        album_row  = None
-        if mb_release:
-            album_row = db.execute(
-                "SELECT id FROM albums WHERE musicbrainz_release_id = ?",
-                (mb_release,)
-            ).fetchone()
-
-        if album_row:
-            album_id = album_row["id"]
-        else:
-            cur = db.execute("""
-                INSERT INTO albums
-                    (title, artist, year, genre, label, country,
-                     musicbrainz_release_id, artwork_path)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                acoustid_result.get("album_title", "Unknown Album"),
-                acoustid_result.get("album_artist", "Unknown Artist"),
-                acoustid_result.get("year"),
-                mb_extra.get("genre"),
-                mb_extra.get("label"),
-                mb_extra.get("country"),
-                mb_release,
-                artwork_path,
-            ))
-            album_id = cur.lastrowid
-
-            # Save full track listing if we got it from MusicBrainz
-            for t in mb_extra.get("tracks", []):
-                db.execute("""
-                    INSERT INTO tracks
-                        (album_id, title, artist, track_number, side,
-                         duration_secs, musicbrainz_track_id)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                """, (
-                    album_id,
-                    t["title"],
-                    acoustid_result.get("album_artist"),
-                    t.get("track_number"),
-                    t.get("side"),
-                    t.get("duration_secs"),
-                    t.get("mb_id"),
-                ))
-
-        # Find or create the specific track being played
-        track_title = acoustid_result.get("track_title", "Unknown Track")
-        track_row   = db.execute(
-            "SELECT id FROM tracks WHERE album_id = ? AND title = ?",
-            (album_id, track_title)
-        ).fetchone()
-
-        if track_row:
-            track_id = track_row["id"]
-        else:
-            cur = db.execute("""
-                INSERT INTO tracks
-                    (album_id, title, artist, duration_secs,
-                     acoustid, musicbrainz_track_id)
-                VALUES (?, ?, ?, ?, ?, ?)
-            """, (
-                album_id,
-                track_title,
-                acoustid_result.get("track_artist"),
-                acoustid_result.get("duration_secs"),
-                acoustid_result.get("acoustid"),
-                acoustid_result.get("mb_recording"),
-            ))
-            track_id = cur.lastrowid
-
-        # Save fingerprint
-        db.execute("""
-            INSERT INTO fingerprints (track_id, fingerprint, duration)
-            VALUES (?, ?, ?)
-        """, (track_id, json.dumps(fingerprint), duration))
-
-        db.commit()
-        return _get_track_full(db, track_id)
-
-    except Exception as e:
-        print(f"[catalog] save_identified_track failed: {e}")
-        db.rollback()
-        return None
-    finally:
-        db.close()
-
 
 def save_manual_track(data: dict, fingerprint: Optional[list[int]] = None,
                       duration: Optional[float] = None) -> Optional[dict]:
@@ -1391,7 +966,7 @@ def save_track_fingerprints(
 
         rows_added = 0
 
-        # 1. Save the full fingerprint (used by AcoustID path, future-proof)
+        # 1. Save the full fingerprint
         db.execute(
             "INSERT INTO fingerprints (track_id, fingerprint, duration) VALUES (?,?,?)",
             (track_id, json.dumps(raw_ints), duration)
@@ -1866,19 +1441,15 @@ class Recogniser:
     """
 
     def __init__(self, buffer: FingerprintBuffer,
-                 on_match, on_unknown,
-                 api_key: Optional[str] = None,
-                 acoustid_enabled: bool = False):
+                 on_match, on_unknown):
         self._buffer          = buffer
         self._on_match        = on_match
         self._on_unknown      = on_unknown
-        self._api_key         = api_key
-        self._acoustid_enabled = acoustid_enabled
         self._stop            = threading.Event()
         self._thread          = None
         self._last_track_id: Optional[int] = None
         self._auto_learn_album_id: Optional[int] = None  # album being auto-learned
-        self._learning_mode   = False  # when True, skip AcoustID lookups entirely
+        self._learning_mode   = False  # when True, skip recognition during learn sessions
         self._matched         = False  # True after successful match; pauses attempts until reset
 
     def start(self):
@@ -1891,13 +1462,6 @@ class Recogniser:
     def stop(self):
         self._stop.set()
 
-    def set_api_key(self, key: str):
-        self._api_key = key
-
-    def set_acoustid_enabled(self, enabled: bool):
-        self._acoustid_enabled = enabled
-        print(f"[catalog] AcoustID lookup {'enabled' if enabled else 'disabled'}")
-
     def reset_match(self):
         """Call when a new track starts — re-enables recognition attempts."""
         self._matched       = False
@@ -1906,9 +1470,9 @@ class Recogniser:
         print("[catalog] Recogniser: match reset — listening for next track")
 
     def set_learning_mode(self, enabled: bool):
-        """Suppress AcoustID lookups while a learn session is active."""
+        """Suppress recognition attempts while a learn session is active."""
         self._learning_mode = enabled
-        print(f"[catalog] Recogniser: learning_mode={'ON — AcoustID suppressed' if enabled else 'OFF'}")
+        print(f"[catalog] Recogniser: learning_mode={'ON' if enabled else 'OFF'}")
 
     def set_auto_learn_album(self, album_id: Optional[int]):
         """
@@ -1992,54 +1556,6 @@ class Recogniser:
                 # Even if we can't immediately match back, don't call on_unknown
                 print(f"[catalog] Auto-learned fingerprint for album {self._auto_learn_album_id}")
                 return
-        # 3. Online lookup via AcoustID if client key available
-        if self._learning_mode:
-            # Learn session active — we already know what album is playing,
-            # no point making AcoustID calls
-            self._on_unknown()
-            return
-
-        if not self._acoustid_enabled:
-            self._on_unknown()
-            return
-
-        if not self._api_key:
-            print("[catalog] No AcoustID client key set — skipping online lookup")
-            self._on_unknown()
-            return
-
-        print("[catalog] No local match — querying AcoustID...")
-        acoustid_result = lookup_acoustid(compressed_str, duration, self._api_key)
-        if not acoustid_result:
-            print("[catalog] AcoustID returned no match")
-            self._on_unknown()
-            return
-
-        print(f"[catalog] AcoustID matched: {acoustid_result['track_title']} "
-              f"— {acoustid_result['album_title']} (score={acoustid_result.get('acoustid_score')})")
-
-        # Enrich with MusicBrainz release details if we have a release ID
-        mb_extra = {}
-        if acoustid_result.get("mb_release"):
-            mb_extra = enrich_from_musicbrainz(acoustid_result["mb_release"])
-
-        # Save to DB — don't pass raw_ints (full 140-int buffer = oversized);
-        # fingerprints are only learned via explicit Learn sessions
-        track = save_identified_track(
-            acoustid_result, mb_extra, [], duration
-        )
-        if not track:
-            self._on_unknown()
-            return
-
-        # Fetch artwork if we have a MusicBrainz release ID
-        if acoustid_result.get("mb_release"):
-            new_art = fetch_artwork(acoustid_result["mb_release"], track["album_id"])
-            if new_art:
-                update_album_artwork(track["album_id"], new_art, user=False)
-                track["artwork_path"] = new_art
-
-        self._last_track_id = track["track_id"]
-        log_play(track["track_id"], track["album_id"])
-        self._on_match(track)
+        # No local match found
+        self._on_unknown()
 
