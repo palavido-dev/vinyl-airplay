@@ -8,6 +8,7 @@ import asyncio
 import collections
 import json
 import math
+import shutil
 import struct
 import threading
 import concurrent.futures
@@ -34,9 +35,18 @@ import player as plr
 
 SAMPLE_RATE      = 44100
 CHANNELS         = 2    # processing/output channels (stereo)
-CAPTURE_CHANNELS = 4    # Scarlett 2i2 4th Gen presents as 4-ch to ALSA
+CAPTURE_CHANNELS_MAX = 4  # preferred: Scarlett 2i2 4th Gen presents as 4-ch
+
+def _capture_channels(device_index=None) -> int:
+    """Return the number of input channels to use for a given device.
+    Uses the lesser of CAPTURE_CHANNELS_MAX and the device's actual max."""
+    try:
+        info = sd.query_devices(device_index, kind='input')
+        return min(CAPTURE_CHANNELS_MAX, int(info['max_input_channels']))
+    except Exception:
+        return 2  # safe stereo fallback
 BITS          = 16
-BLOCK_SIZE    = 4096
+BLOCK_SIZE    = 8192   # larger blocks = fewer callbacks = less overflow on Pi
 READ_SIZE     = 8192
 MAX_CHUNKS    = 500
 
@@ -51,7 +61,9 @@ def load_settings() -> dict:
         s = json.loads(SETTINGS_FILE.read_text())
         return s
     return {"saved_devices": [], "volume": 80, "audio_device_index": None,
-            "bass": 0, "treble": 0, "discogs_token": "", "hidden_devices": [], "auto_stream_enabled": False, "auto_stream_device": None, "device_names": {}}
+            "bass": 0, "treble": 0, "discogs_token": "", "hidden_devices": [],
+            "auto_stream_enabled": False, "auto_stream_device": None,
+            "device_names": {}, "audio_storage_path": ""}
 
 
 def save_settings(s: dict):
@@ -304,9 +316,16 @@ class LocalOutputStream:
 
 # ── Audio Callback ────────────────────────────────────────────────────────────
 
+_last_overflow_log = 0.0
+
 def make_callback(streams, eq, fp_buffer):
-    def callback(indata, frames, time, status):
-        if status: print(f"[audio] {status}")
+    def callback(indata, frames, cb_time, status):
+        global _last_overflow_log
+        if status:
+            now = time.monotonic()
+            if now - _last_overflow_log > 30.0:
+                print(f"[audio] {status}")
+                _last_overflow_log = now
         # Scarlett 2i2 4th Gen captures 4 channels — use first 2 (L+R inputs)
         audio_in = np.ascontiguousarray(indata[:, :CHANNELS]) if indata.shape[1] > CHANNELS else indata
         # Feed fingerprint buffer BEFORE EQ/volume — raw signal gives best results
@@ -440,10 +459,10 @@ async def _auto_stream_watcher():
             audio_idx = state.settings.get("audio_device_index")
             try:
                 with sd.InputStream(device=audio_idx, samplerate=44100,
-                                    channels=CAPTURE_CHANNELS, dtype="float32",
+                                    channels=_capture_channels(audio_idx), dtype="float32",
                                     blocksize=POLL_FRAMES) as stream:
                     data, _ = stream.read(POLL_FRAMES)
-                rms = float(np.sqrt(np.mean(data[:, :2] ** 2)))
+                rms = float(np.sqrt(np.mean(data[:, :min(2, data.shape[1])] ** 2)))
             except Exception as e:
                 # Suppress noisy errors when something else has the device
                 if not (state.listen_task or state.is_streaming
@@ -660,7 +679,7 @@ async def _run_stream_inner(targets, audio_device_index, volume):
 
     try:
         with sd.InputStream(device=audio_device_index, samplerate=SAMPLE_RATE,
-                            channels=CAPTURE_CHANNELS, dtype="float32",
+                            channels=_capture_channels(audio_device_index), dtype="float32",
                             blocksize=BLOCK_SIZE, callback=callback):
             stop_task    = asyncio.create_task(state.stop_event.wait())
             if confs:
@@ -693,13 +712,16 @@ async def _run_stream_inner(targets, audio_device_index, volume):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    cat.init_db()
+    cat.init_db(state.settings)
     devices = sd.query_devices()
     state.audio_devices = [
-        {"index": i, "name": d["name"]}
+        {"index": i, "name": d["name"], "max_input_channels": d["max_input_channels"]}
         for i, d in enumerate(devices)
         if d["max_input_channels"] > 0
     ]
+    audio_idx = state.settings.get("audio_device_index")
+    ch = _capture_channels(audio_idx)
+    print(f"[audio] Input device={audio_idx}, capture_channels={ch}")
     if state.settings.get("auto_stream_enabled"):
         state.auto_stream_task = asyncio.create_task(_auto_stream_watcher())
         print("[auto-stream] Watcher started on boot")
@@ -989,14 +1011,30 @@ async def audio_devices():
 @app.get("/api/status")
 async def get_status():
     bass, treble, volume = state.eq.values
+    storage_dir = cat.get_audio_storage_dir(state.settings)
+    try:
+        usage = shutil.disk_usage(str(storage_dir))
+        storage_info = {
+            "path": str(storage_dir),
+            "free_gb": round(usage.free / (1024**3), 1),
+            "total_gb": round(usage.total / (1024**3), 1),
+        }
+    except Exception:
+        storage_info = {"path": str(storage_dir), "free_gb": 0, "total_gb": 0}
+    ar = state.album_recorder
+    rec_info = None
+    if ar and ar.is_active:
+        rec_info = {"album_id": ar.album_id, "side": ar.side}
     return {
-        "streaming":      state.is_streaming,
-        "active_devices": state.active_devices,
-        "settings":       state.settings,
-        "audio_devices":  state.audio_devices,
-        "eq":             {"bass": bass, "treble": treble, "volume": volume},
-        "now_playing":    state.now_playing,
-        "player":         state.player.get_status() if state.player else {"state": "stopped"},
+        "streaming":        state.is_streaming,
+        "active_devices":   state.active_devices,
+        "settings":         state.settings,
+        "audio_devices":    state.audio_devices,
+        "eq":               {"bass": bass, "treble": treble, "volume": volume},
+        "now_playing":      state.now_playing,
+        "player":           state.player.get_status() if state.player else {"state": "stopped"},
+        "storage":          storage_info,
+        "album_recording":  rec_info,
     }
 
 
@@ -1069,6 +1107,66 @@ async def update_settings(body: dict):
         save_settings(state.settings)
     save_settings(state.settings)
     return {"ok": True}
+
+
+@app.get("/api/browse-dirs")
+async def browse_dirs(path: str = "/"):
+    """List subdirectories of a given path for the folder picker."""
+    p = Path(path).resolve()
+    if not p.is_dir():
+        return {"ok": False, "error": "Not a directory", "path": str(p), "dirs": []}
+    dirs = []
+    try:
+        for entry in sorted(p.iterdir()):
+            if entry.is_dir() and not entry.name.startswith('.'):
+                try:
+                    # Check we can actually read it
+                    list(entry.iterdir())
+                    dirs.append(entry.name)
+                except PermissionError:
+                    pass
+    except PermissionError:
+        return {"ok": False, "error": "Permission denied", "path": str(p), "dirs": []}
+    return {"ok": True, "path": str(p), "dirs": dirs}
+
+
+@app.post("/api/settings/storage")
+async def change_storage_path(body: dict):
+    """Change the FLAC recording storage location, migrating existing files."""
+    new_path = (body.get("path") or "").strip()
+    if not new_path:
+        return {"ok": False, "error": "Path is required"}
+
+    # Create-only mode: just ensure the directory exists (for folder picker)
+    if body.get("create_only"):
+        try:
+            Path(new_path).mkdir(parents=True, exist_ok=True)
+            return {"ok": True, "message": "Directory created"}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
+    # Block if recording is active
+    if state.album_recorder and state.album_recorder.is_active:
+        return {"ok": False, "error": "Cannot change storage while recording is in progress"}
+
+    new_dir = Path(new_path).resolve()
+    old_dir = cat.get_audio_storage_dir(state.settings)
+
+    if new_dir == old_dir:
+        return {"ok": True, "migrated": 0, "message": "Already using this path"}
+
+    # Run migration (copy files, update DB, delete originals)
+    result = cat.migrate_audio_storage(old_dir, new_dir)
+
+    if result["ok"]:
+        state.settings["audio_storage_path"] = str(new_dir)
+        save_settings(state.settings)
+        msg = f"Storage moved to {new_dir}"
+        if result["migrated"] > 0:
+            msg += f" ({result['migrated']} files migrated)"
+        return {"ok": True, "migrated": result["migrated"], "message": msg}
+    else:
+        return {"ok": False, "error": result["error"]}
 
 
 # ── Catalog Routes ────────────────────────────────────────────────────────────
@@ -1355,7 +1453,9 @@ async def album_recording_start(body: dict):
     }
 
     # Create the album recorder
-    state.album_recorder = rec.AlbumRecorder(album_id, side, album_info)
+    audio_dir = cat.get_audio_storage_dir(state.settings)
+    state.album_recorder = rec.AlbumRecorder(album_id, side, album_info,
+                                             audio_dir=audio_dir)
 
     # Notify UI when audio is first detected
     _loop = asyncio.get_event_loop()
@@ -1497,7 +1597,9 @@ async def album_recording_flip(body: dict):
         "genre":  album.get("genre"),
     }
 
-    state.album_recorder = rec.AlbumRecorder(album_id, new_side, album_info)
+    audio_dir = cat.get_audio_storage_dir(state.settings)
+    state.album_recorder = rec.AlbumRecorder(album_id, new_side, album_info,
+                                             audio_dir=audio_dir)
 
     # Notify UI when audio is first detected on new side
     _loop2 = asyncio.get_event_loop()
@@ -2252,7 +2354,7 @@ async def _start_listen_mode():
         callback = make_callback({}, state.eq, state.fp_buffer)
         try:
             with sd.InputStream(device=audio_device_index, samplerate=SAMPLE_RATE,
-                                channels=CAPTURE_CHANNELS, dtype="float32",
+                                channels=_capture_channels(audio_device_index), dtype="float32",
                                 blocksize=BLOCK_SIZE, callback=callback):
                 print("[listen] Audio-only mode started")
                 await broadcast("status", {"streaming": False, "listening": True,

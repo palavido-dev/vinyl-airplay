@@ -38,9 +38,8 @@ SILENCE_FORGIVE_SECS = 0.3          # ignore above-threshold blips shorter than 
                                     # vinyl pops/crackles shouldn't reset the silence counter
 SILENCE_MIN_SECS  = 1.5             # silence must last this long to split track
                                     # reduced from 2.0 — some albums have short inter-track gaps
-SILENCE_EARLY_SECS = 6.0            # longer silence required when splitting early vs expected duration
-                                    # prevents quiet passages from causing false splits on dynamic albums
-EARLY_SPLIT_RATIO  = 0.75           # "early" means less than 75% of expected track duration elapsed
+EARLY_SPLIT_RATIO  = 0.75           # suppress silence splits until 75% of expected duration elapsed
+                                    # lets time-based fallback handle albums with long vinyl gaps
 END_OF_SIDE_SECS  = 20.0            # silence this long = end of side — auto-flush final track
                                     # _split_track trims to silence_start+pad so no long silence
                                     # is appended to the file
@@ -246,17 +245,19 @@ class RecordingBuffer:
                 # Genuine audio returned — finalize any pending silence
                 self._silence_log_countdown = 0  # reset so next gap logs immediately
                 self._end_of_side_fired = False  # reset if audio returns
-                # Determine minimum silence needed to trigger a split.
-                # If we have expected durations and we're well short of the
-                # expected track length, require longer silence to prevent
-                # quiet passages from causing false splits.
+                # Determine whether silence-based splitting is allowed.
+                # When we have expected durations and we're well short of the
+                # expected track length, suppress silence-based splits entirely
+                # and let the time-based fallback handle it instead. This
+                # prevents false splits from long inter-track gaps on vinyl.
+                allow_silence_split = True
                 min_silence = SILENCE_MIN_SECS
                 if (self._expected_durations
                         and self._duration_track_idx < len(self._expected_durations)):
                     expected = self._expected_durations[self._duration_track_idx]
                     if expected > 0 and self._track_elapsed_secs < expected * EARLY_SPLIT_RATIO:
-                        min_silence = SILENCE_EARLY_SECS
-                if self._silence_secs >= min_silence:
+                        allow_silence_split = False  # too early — let time-based fallback handle it
+                if allow_silence_split and self._silence_secs >= min_silence:
                     # Sustained silence ended — split track
                     self._split_track()
                 self._silence_secs       = 0.0
@@ -331,7 +332,7 @@ def _pcm_to_wav(pcm: bytes) -> bytes:
 
 # ── FLAC Encoding ─────────────────────────────────────────────────────────────
 
-ALBUM_AUDIO_DIR = Path(__file__).parent / "album_audio"
+DEFAULT_AUDIO_DIR = Path(__file__).parent / "album_audio"
 
 
 def encode_flac(pcm: bytes, output_path: Path, metadata: dict = {}) -> bool:
@@ -407,11 +408,13 @@ class AlbumRecorder:
         path, duration = recorder.finish()
     """
 
-    def __init__(self, album_id: int, side: str, album_info: dict):
+    def __init__(self, album_id: int, side: str, album_info: dict,
+                 audio_dir: Path = None):
         self._lock = threading.Lock()
         self.album_id = album_id
         self.side = side
         self.album_info = album_info  # {artist, title, year, genre, ...}
+        self._audio_dir = (audio_dir or DEFAULT_AUDIO_DIR).resolve()
 
         self._chunks: list[bytes] = []
         self._total_bytes = 0
@@ -425,7 +428,7 @@ class AlbumRecorder:
         self._audio_started = False
         self.on_audio_detected = None  # callback when first audio arrives
 
-        ALBUM_AUDIO_DIR.mkdir(exist_ok=True)
+        self._audio_dir.mkdir(parents=True, exist_ok=True)
         print(f"[album-rec] Started: {album_info.get('artist')} - "
               f"{album_info.get('title')} Side {side}")
 
@@ -605,13 +608,13 @@ class AlbumRecorder:
             self.album_info.get("title", "Unknown Album"),
             self.side,
         )
-        output_path = ALBUM_AUDIO_DIR / filename
+        output_path = self._audio_dir / filename
 
         # Avoid overwriting
         counter = 1
         base = output_path.stem
         while output_path.exists():
-            output_path = ALBUM_AUDIO_DIR / f"{base} ({counter}).flac"
+            output_path = self._audio_dir / f"{base} ({counter}).flac"
             counter += 1
 
         metadata = {
