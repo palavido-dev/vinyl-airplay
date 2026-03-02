@@ -683,21 +683,7 @@
       <div style="font-size:0.75rem;color:var(--muted);margin-bottom:0.5rem">Free: <span id="storage-free">—</span> GB of <span id="storage-total">—</span> GB</div>
       <div style="display:flex;gap:0.4rem;align-items:center"><input type="text" class="form-input" id="new-storage-path" placeholder="/mnt/ssd/vinyl-audio" style="flex:1;font-size:0.85rem"><button class="btn" onclick="openDirPicker()">📂 Browse</button><button class="btn btn-accent" onclick="changeStoragePath()">Move</button></div>
       <div id="storage-status" style="display:none;font-size:0.75rem;margin-top:0.3rem"></div>
-      <div id="dir-picker-overlay" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);z-index:200;display:none;align-items:center;justify-content:center">
-        <div style="background:var(--surface);border-radius:12px;padding:1rem;width:90%;max-width:400px;max-height:70vh;display:flex;flex-direction:column">
-          <div style="font-weight:600;margin-bottom:0.4rem">Select Folder</div>
-          <div id="dir-picker-path" style="font-size:0.75rem;color:var(--muted);word-break:break-all;margin-bottom:0.5rem">/</div>
-          <div id="dir-picker-list" style="flex:1;overflow-y:auto;min-height:150px;max-height:45vh;border:1px solid var(--border);border-radius:8px;margin-bottom:0.5rem"></div>
-          <div style="display:flex;gap:0.4rem;align-items:center">
-            <input type="text" class="form-input" id="dir-picker-new" placeholder="New folder name" style="flex:1;font-size:0.82rem">
-            <button class="btn" onclick="createDirInPicker()" style="font-size:0.78rem">+ Create</button>
-          </div>
-          <div style="display:flex;gap:0.4rem;margin-top:0.5rem">
-            <button class="btn btn-accent" onclick="selectDir()" style="flex:1">Select This Folder</button>
-            <button class="btn btn-ghost" onclick="closeDirPicker()">Cancel</button>
-          </div>
-        </div>
-      </div>
+      <!-- dir picker moved outside settings overlay -->
     </div>
     <button class="btn btn-ghost" onclick="hideSettings()" style="width:100%;margin-top:0.5rem">Close</button>
   </div>
@@ -1169,9 +1155,11 @@ async function changeStoragePath(){const p=document.getElementById('new-storage-
 var _dirPickerPath='/';
 function openDirPicker(){
   const cur=document.getElementById('storage-path').textContent;
-  _dirPickerPath=(cur&&cur!=='—')?cur:'/';
+  // Start one level up from current path so user can see sibling dirs
+  var start='/';
+  if(cur&&cur!=='—'){var parts=cur.replace(/\/$/,'').split('/');parts.pop();start=parts.join('/')||'/'}
   document.getElementById('dir-picker-overlay').style.display='flex';
-  loadDirPicker(_dirPickerPath);
+  loadDirPicker(start);
 }
 function closeDirPicker(){document.getElementById('dir-picker-overlay').style.display='none'}
 async function loadDirPicker(path){
@@ -1547,5 +1535,21 @@ _ssLog('screensaver initialized, interval=' + _ssIntervalId);
   buildKeyboard();
 })();
 </script>
+<!-- Directory Picker Overlay (must be outside settings modal for z-index) -->
+<div id="dir-picker-overlay" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);z-index:200;align-items:center;justify-content:center">
+  <div style="background:var(--surface);border-radius:12px;padding:1rem;width:90%;max-width:400px;max-height:70vh;display:flex;flex-direction:column">
+    <div style="font-weight:600;margin-bottom:0.4rem">Select Folder</div>
+    <div id="dir-picker-path" style="font-size:0.75rem;color:var(--muted);word-break:break-all;margin-bottom:0.5rem">/</div>
+    <div id="dir-picker-list" style="flex:1;overflow-y:auto;min-height:150px;max-height:45vh;border:1px solid var(--border);border-radius:8px;margin-bottom:0.5rem"></div>
+    <div style="display:flex;gap:0.4rem;align-items:center">
+      <input type="text" class="form-input" id="dir-picker-new" placeholder="New folder name" style="flex:1;font-size:0.82rem">
+      <button class="btn" onclick="createDirInPicker()" style="font-size:0.78rem">+ Create</button>
+    </div>
+    <div style="display:flex;gap:0.4rem;margin-top:0.5rem">
+      <button class="btn btn-accent" onclick="selectDir()" style="flex:1">Select This Folder</button>
+      <button class="btn btn-ghost" onclick="closeDirPicker()">Cancel</button>
+    </div>
+  </div>
+</div>
 </body>
 </html>
