@@ -182,7 +182,7 @@ class AppState:
         self.player: Optional[plr.Player] = None
         self.player_task: Optional[asyncio.Task] = None
         self.airplay_metadata: Optional[MediaMetadata] = None
-        self.bluetooth_manager = BluetoothManager()
+        self.bluetooth_manager = None  # initialized after BluetoothManager is defined
         self.available_bt_devices: list = []
 
 
@@ -503,6 +503,10 @@ class BluetoothManager:
             })
 
         return devices
+
+
+# Initialize BluetoothManager now that the class is defined
+state.bluetooth_manager = BluetoothManager()
 
 
 # ── Audio Callback ────────────────────────────────────────────────────────────
