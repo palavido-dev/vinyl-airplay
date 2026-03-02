@@ -41,13 +41,20 @@ class PlaylistEntry:
     """One side of an album (one FLAC file)."""
 
     def __init__(self, audio_path: str, side: str, duration_secs: float,
-                 tracks: list[dict]):
+                 tracks: list[dict], album_id: int = None,
+                 album_title: str = None, album_artist: str = None,
+                 artwork_path: str = None):
         self.audio_path    = audio_path
         self.side          = side
         self.duration_secs = duration_secs
         # tracks: list of {id, title, artist, start_secs, end_secs, track_number}
         # sorted by start_secs
         self.tracks = sorted(tracks, key=lambda t: t.get("start_secs") or 0)
+        # Optional per-entry album info (used for multi-album queues)
+        self.album_id      = album_id
+        self.album_title   = album_title
+        self.album_artist  = album_artist
+        self.artwork_path  = artwork_path
 
 
 # ── Player ───────────────────────────────────────────────────────────────────
@@ -388,16 +395,22 @@ class Player:
 
             self._current_track_idx = new_idx
             track = entry.tracks[new_idx]
+            # Per-entry album metadata (multi-album queue) overrides global
+            a_id    = entry.album_id or self.album_id
+            a_title = entry.album_title or self.album_info.get("title", "")
+            a_artist= entry.album_artist or self.album_info.get("artist", "")
+            a_art   = entry.artwork_path or self.album_info.get("artwork_path")
+            a_uart  = self.album_info.get("user_artwork_path") if not entry.artwork_path else entry.artwork_path
             info = {
                 "track_id":     track["id"],
                 "track_title":  track["title"],
-                "track_artist": track.get("artist") or self.album_info.get("artist", ""),
-                "album_id":     self.album_id,
-                "album_title":  self.album_info.get("title", ""),
-                "album_artist": self.album_info.get("artist", ""),
+                "track_artist": track.get("artist") or a_artist,
+                "album_id":     a_id,
+                "album_title":  a_title,
+                "album_artist": a_artist,
                 "year":         self.album_info.get("year"),
-                "artwork_path":      self.album_info.get("artwork_path"),
-                "user_artwork_path": self.album_info.get("user_artwork_path"),
+                "artwork_path":      a_art,
+                "user_artwork_path": a_uart,
                 "side":         entry.side,
             }
             print(f"[player] Now playing: {track['title']} "
