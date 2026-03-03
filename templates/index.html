@@ -653,6 +653,140 @@
   .bt-status.paired { background: #FFF3E0; color: var(--amber-dk); }
   .bt-status.available { background: #ECEFF1; color: #546E7A; }
   .output-picker-actions { display: flex; justify-content: flex-end; gap: 0.5rem; }
+
+  /* ── Tablet Responsive (768px) ── */
+  @media (max-width: 768px) {
+    .album-grid { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 0.6rem; }
+    .np-hero { display: none !important; }
+    .main-content { padding: 0.6rem; }
+  }
+
+  /* ── Mobile Responsive (<600px) ── */
+  @media (max-width: 600px) {
+    .frame { margin: 4px; border: 2px solid var(--walnut-lt); border-radius: 8px; }
+
+    /* Header: Stack search bar below brand/buttons */
+    .app-header {
+      flex-direction: column; align-items: stretch; gap: 0.5rem;
+      padding: 0.4rem 0.6rem;
+    }
+    .brand { font-size: 0.9rem; }
+    .search-bar { order: 2; flex: 1; width: 100%; }
+
+    /* Header buttons row */
+    .app-header > .header-btn { min-height: 44px; }
+
+    /* Album Grid: Smaller columns, 3 fit on mobile */
+    .album-grid {
+      grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+      gap: 0.5rem;
+    }
+    .album-card .album-meta { padding: 0.35rem 0.4rem; }
+    .album-card .album-meta .title { font-size: 0.72rem; }
+    .album-card .album-meta .artist { font-size: 0.65rem; }
+    .album-info-btn, .album-favorite-btn, .album-queue-btn {
+      width: 24px; height: 24px; font-size: 0.65rem;
+    }
+    .album-favorite-btn { right: 32px; }
+    .album-queue-btn { bottom: 3px; }
+
+    .main-content { padding: 0.5rem; flex-direction: column; }
+    .album-grid-wrap { width: 100% !important; flex: 1 !important; }
+    .np-hero { display: none !important; }
+
+    /* Status Bar */
+    .status-bar { font-size: 0.65rem; padding: 0.15rem 0.6rem; }
+
+    /* Now Playing Footer: Stack vertically, hide EQ, larger touch targets */
+    .np-bar {
+      padding: 0.4rem 0.6rem; gap: 0.5rem;
+      flex-wrap: wrap;
+    }
+
+    .np-row { gap: 0.5rem; flex-wrap: wrap; width: 100%; }
+    .np-art, .np-art-placeholder { width: 44px; height: 44px; }
+    .np-title { font-size: 0.8rem; }
+    .np-artist-album { font-size: 0.7rem; }
+
+    /* Progress bar on its own row */
+    .np-progress-row {
+      order: -1; width: 100%;
+      margin-bottom: 0.5rem;
+    }
+    .np-time { font-size: 0.6rem; min-width: 28px; }
+    .np-progress-bar { height: 6px; }
+
+    /* Transport buttons: larger for touch */
+    .np-transport { order: 3; width: 100%; }
+    .np-btn { width: 44px; height: 44px; font-size: 1rem; }
+    .np-btn.primary { width: 50px; height: 50px; font-size: 1.2rem; }
+
+    /* Text and artwork column */
+    .np-text { order: 2; flex: 1; min-width: 0; }
+
+    /* Hide EQ sliders on mobile */
+    .eq-row { display: none; }
+
+    /* Queue Panel: Full width bottom sheet */
+    .queue-panel {
+      position: fixed; bottom: -100%; left: 0; right: 0;
+      width: 100%; height: auto; max-height: 70vh;
+      border-left: none; border-top: 2px solid var(--amber-dk);
+      border-radius: 12px 12px 0 0;
+      transition: bottom 0.3s ease-out;
+      z-index: 90;
+    }
+    .queue-panel.open { bottom: 0; }
+
+    /* Sort Panel: Full width bottom sheet */
+    .sort-panel {
+      position: fixed; bottom: -100%; left: 0; right: 0;
+      width: 100%; max-width: 100%; max-height: 70vh;
+      border-radius: 12px 12px 0 0; border-left: none; border-top: 2px solid var(--shelf);
+      margin-top: 0; z-index: 150;
+      transition: bottom 0.3s ease-out;
+      overflow-y: auto;
+    }
+    .sort-panel.open { bottom: 0; }
+    .sort-panel-backdrop { z-index: 149; }
+
+    /* Hide on-screen keyboard on mobile */
+    .osk-overlay { display: none !important; }
+
+    /* Modals: Full screen */
+    .modal-overlay { padding: 0; }
+    .modal {
+      max-width: 100%; width: 100%; margin-top: 0;
+      border-radius: 12px 12px 0 0;
+      max-height: 85vh; overflow-y: auto;
+    }
+    .modal-header { gap: 0.6rem; margin-bottom: 0.6rem; }
+    .modal-art { width: 70px; height: 70px; }
+    .modal-title { font-size: 0.95rem; }
+    .track-list { max-height: 200px; }
+    .btn { min-height: 44px; font-size: 0.85rem; padding: 0.5rem 0.8rem; }
+
+    /* Output Picker: Full screen on mobile */
+    .output-picker {
+      width: 95%; max-width: 100%;
+      border-radius: 12px;
+    }
+    .output-device-grid {
+      grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+      gap: 0.5rem;
+    }
+    .output-device-card { min-height: 90px; padding: 0.6rem; }
+    .output-device-icon { font-size: 1.8rem; }
+    .output-device-name { font-size: 0.8rem; }
+
+    /* Form elements */
+    .form-input { min-height: 44px; font-size: 0.85rem; }
+    .form-cols { grid-template-columns: 1fr; }
+
+    /* Text messaging */
+    #error-msg { font-size: 0.75rem; padding: 0.4rem 0.8rem; }
+    #toast-msg { font-size: 0.75rem; padding: 0.4rem 0.8rem; bottom: 4rem; }
+  }
 </style>
 </head>
 <body>
