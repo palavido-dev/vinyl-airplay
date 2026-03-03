@@ -11,3 +11,4 @@ settings.json
 *.tmp
 .venv/
 node_modules/
+*.plugin
