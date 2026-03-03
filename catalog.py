@@ -127,6 +127,14 @@ CREATE TABLE IF NOT EXISTS playlists (
     updated_at  TEXT DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS smart_playlists (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    name        TEXT NOT NULL,
+    rules       TEXT NOT NULL,   -- JSON array of rule objects
+    created_at  TEXT DEFAULT (datetime('now')),
+    updated_at  TEXT DEFAULT (datetime('now'))
+);
+
 CREATE INDEX IF NOT EXISTS idx_plays_album  ON plays(album_id);
 CREATE INDEX IF NOT EXISTS idx_plays_track  ON plays(track_id);
 CREATE INDEX IF NOT EXISTS idx_tracks_album ON tracks(album_id);
@@ -1216,6 +1224,7 @@ def log_play(track_id: int, album_id: int):
 # ── Catalog Queries ───────────────────────────────────────────────────────────
 
 def get_all_albums() -> list[dict]:
+    _add_deleted_at_column()
     db = get_db()
     try:
         rows = db.execute("""
@@ -1232,6 +1241,7 @@ def get_all_albums() -> list[dict]:
             FROM albums a
             LEFT JOIN tracks t ON t.album_id = a.id
             LEFT JOIN plays  p ON p.album_id = a.id
+            WHERE a.deleted_at IS NULL
             GROUP BY a.id
             ORDER BY a.artist, a.title
         """).fetchall()
@@ -2298,3 +2308,454 @@ def get_export_manifest(settings: dict = None) -> dict:
     finally:
         db.close()
 
+
+# ── Smart Playlists ──────────────────────────────────────────────────────────
+
+def get_smart_playlists() -> list[dict]:
+    """Fetch all smart playlists with resolved album counts."""
+    db = get_db()
+    try:
+        rows = db.execute("""
+            SELECT id, name, rules, created_at, updated_at
+            FROM smart_playlists
+            ORDER BY created_at DESC
+        """).fetchall()
+        result = []
+        for row in rows:
+            sp = dict(row)
+            try:
+                rules = json.loads(sp["rules"])
+                count = len(_resolve_smart_playlist_albums(rules))
+                sp["album_count"] = count
+            except Exception:
+                sp["album_count"] = 0
+            result.append(sp)
+        return result
+    finally:
+        db.close()
+
+
+def create_smart_playlist(name: str, rules: list) -> int:
+    """Create a new smart playlist. Returns the playlist ID."""
+    db = get_db()
+    try:
+        cursor = db.execute("""
+            INSERT INTO smart_playlists (name, rules)
+            VALUES (?, ?)
+        """, (name, json.dumps(rules)))
+        db.commit()
+        return cursor.lastrowid
+    finally:
+        db.close()
+
+
+def update_smart_playlist(playlist_id: int, name: str = None, rules: list = None):
+    """Update a smart playlist's name and/or rules."""
+    db = get_db()
+    try:
+        if name is not None:
+            db.execute("""
+                UPDATE smart_playlists
+                SET name = ?, updated_at = datetime('now')
+                WHERE id = ?
+            """, (name, playlist_id))
+        if rules is not None:
+            db.execute("""
+                UPDATE smart_playlists
+                SET rules = ?, updated_at = datetime('now')
+                WHERE id = ?
+            """, (json.dumps(rules), playlist_id))
+        db.commit()
+    finally:
+        db.close()
+
+
+def delete_smart_playlist(playlist_id: int):
+    """Delete a smart playlist."""
+    db = get_db()
+    try:
+        db.execute("DELETE FROM smart_playlists WHERE id = ?", (playlist_id,))
+        db.commit()
+    finally:
+        db.close()
+
+
+def _resolve_smart_playlist_albums(rules: list) -> list[dict]:
+    """
+    Resolve albums matching smart playlist rules.
+    Rules format: [{"field": "genre", "op": "eq", "value": "Jazz"}, ...]
+    """
+    all_albums = get_all_albums()
+    if not rules:
+        return all_albums
+
+    matching = []
+    for album in all_albums:
+        matches_all = True
+        for rule in rules:
+            field = rule.get("field", "")
+            op = rule.get("op", "eq")
+            value = rule.get("value")
+            album_val = album.get(field)
+
+            if op == "eq":
+                if album_val != value:
+                    matches_all = False
+                    break
+            elif op == "neq":
+                if album_val == value:
+                    matches_all = False
+                    break
+            elif op == "contains":
+                if not (album_val and str(value).lower() in str(album_val).lower()):
+                    matches_all = False
+                    break
+            elif op in ("gt", "gte", "lt", "lte"):
+                try:
+                    val = float(album_val) if album_val else None
+                    if val is None:
+                        matches_all = False
+                        break
+                    threshold = float(value)
+                    if op == "gt" and not (val > threshold):
+                        matches_all = False
+                        break
+                    elif op == "gte" and not (val >= threshold):
+                        matches_all = False
+                        break
+                    elif op == "lt" and not (val < threshold):
+                        matches_all = False
+                        break
+                    elif op == "lte" and not (val <= threshold):
+                        matches_all = False
+                        break
+                except (TypeError, ValueError):
+                    matches_all = False
+                    break
+
+        if matches_all:
+            matching.append(album)
+
+    return matching
+
+
+def get_smart_playlist_albums(playlist_id: int) -> list[dict]:
+    """Get albums for a specific smart playlist."""
+    db = get_db()
+    try:
+        row = db.execute(
+            "SELECT rules FROM smart_playlists WHERE id = ?",
+            (playlist_id,)
+        ).fetchone()
+        if not row:
+            return []
+        rules = json.loads(row["rules"])
+        return _resolve_smart_playlist_albums(rules)
+    except Exception:
+        return []
+    finally:
+        db.close()
+
+
+# ── Home Screen Shelf Functions ──────────────────────────────────────────────
+
+def get_unplayed_albums() -> list[dict]:
+    """Get albums with audio but 0 plays."""
+    all_albums = get_all_albums()
+    return [a for a in all_albums if a["audio_count"] > 0 and (a.get("play_count") or 0) == 0]
+
+
+def get_top_rated_albums(min_rating: int = 4) -> list[dict]:
+    """Get albums rated 4+ stars."""
+    all_albums = get_all_albums()
+    return [a for a in all_albums if (a.get("rating") or 0) >= min_rating]
+
+
+def get_albums_by_decade(decade: int) -> list[dict]:
+    """Get albums from a specific decade (e.g., 1970 for the 70s)."""
+    all_albums = get_all_albums()
+    decade_end = decade + 10
+    return [a for a in all_albums if a.get("year") and decade <= a["year"] < decade_end]
+
+
+def get_decades_with_albums() -> list[int]:
+    """Get list of decades that have albums, e.g., [1970, 1980, 1990]."""
+    all_albums = get_all_albums()
+    decades = set()
+    for album in all_albums:
+        if album.get("year"):
+            decade = (album["year"] // 10) * 10
+            decades.add(decade)
+    return sorted(list(decades))
+
+
+def get_genres_with_count(min_count: int = 3) -> list[tuple]:
+    """Get genres that have at least min_count albums. Returns [(genre, count), ...]."""
+    all_albums = get_all_albums()
+    genre_counts = {}
+    for album in all_albums:
+        genre = album.get("genre") or "Unknown"
+        genre_counts[genre] = genre_counts.get(genre, 0) + 1
+    return [(g, c) for g, c in genre_counts.items() if c >= min_count]
+
+
+# ── Feature 3: Enhanced Stats ──────────────────────────────────────────────
+
+
+def get_play_heatmap(months: int = 6) -> dict:
+    """Returns a dict of {date: play_count} for the last N months."""
+    db = get_db()
+    try:
+        from datetime import datetime, timedelta
+        cutoff_date = datetime.now() - timedelta(days=months * 30)
+        cutoff_str = cutoff_date.isoformat()
+
+        result = db.execute("""
+            SELECT DATE(played_at) as date, COUNT(*) as count
+            FROM plays
+            WHERE played_at >= ?
+            GROUP BY DATE(played_at)
+            ORDER BY date
+        """, (cutoff_str,)).fetchall()
+
+        heatmap = {}
+        for row in result:
+            heatmap[row["date"]] = row["count"]
+        return heatmap
+    finally:
+        db.close()
+
+
+def get_genre_stats() -> list:
+    """Returns list of {genre, count} for all genres."""
+    db = get_db()
+    try:
+        result = db.execute("""
+            SELECT genre, COUNT(*) as count
+            FROM albums
+            WHERE genre IS NOT NULL AND genre != '' AND deleted_at IS NULL
+            GROUP BY genre
+            ORDER BY count DESC
+        """).fetchall()
+        return [dict(r) for r in result]
+    finally:
+        db.close()
+
+
+def get_artist_stats(limit: int = 10) -> list:
+    """Returns top N artists by album count, with play count info."""
+    db = get_db()
+    try:
+        result = db.execute("""
+            SELECT
+                a.artist,
+                COUNT(DISTINCT a.id) as album_count,
+                COUNT(p.id) as play_count
+            FROM albums a
+            LEFT JOIN plays p ON p.album_id = a.id
+            WHERE a.artist IS NOT NULL AND a.artist != '' AND a.deleted_at IS NULL
+            GROUP BY a.artist
+            ORDER BY album_count DESC
+            LIMIT ?
+        """, (limit,)).fetchall()
+        return [dict(r) for r in result]
+    finally:
+        db.close()
+
+
+def get_decade_stats() -> list:
+    """Returns album count by decade."""
+    db = get_db()
+    try:
+        result = db.execute("""
+            SELECT
+                CASE
+                    WHEN year IS NULL THEN 'Unknown'
+                    WHEN year < 1960 THEN 'Before 1960'
+                    ELSE (CAST((year / 10) * 10 AS TEXT) || 's')
+                END as decade,
+                COUNT(*) as count
+            FROM albums
+            WHERE deleted_at IS NULL
+            GROUP BY decade
+            ORDER BY decade
+        """).fetchall()
+        return [dict(r) for r in result]
+    finally:
+        db.close()
+
+
+def get_on_this_day() -> list:
+    """Returns albums played on this month+day in prior years."""
+    db = get_db()
+    try:
+        from datetime import datetime
+        now = datetime.now()
+        month_day = f"%{now.month:02d}-{now.day:02d}"
+
+        result = db.execute("""
+            SELECT
+                DISTINCT a.id,
+                a.title,
+                a.artist,
+                a.artwork_path,
+                a.user_artwork_path,
+                strftime('%Y', p.played_at) as year,
+                p.played_at
+            FROM plays p
+            JOIN albums a ON p.album_id = a.id
+            WHERE strftime('%m-%d', p.played_at) = ? AND a.deleted_at IS NULL
+            ORDER BY p.played_at DESC
+        """, (month_day,)).fetchall()
+        return [dict(r) for r in result]
+    finally:
+        db.close()
+
+
+def get_weekly_trend(weeks: int = 12) -> list:
+    """Returns play count per week for the last N weeks."""
+    db = get_db()
+    try:
+        from datetime import datetime, timedelta
+        cutoff_date = datetime.now() - timedelta(weeks=weeks)
+        cutoff_str = cutoff_date.isoformat()
+
+        result = db.execute("""
+            SELECT
+                strftime('%Y-%W', played_at) as week_key,
+                DATE(played_at, '-' || (CAST(strftime('%w', played_at) AS INTEGER)) || ' days') as week_start,
+                COUNT(*) as count
+            FROM plays
+            WHERE played_at >= ?
+            GROUP BY week_key
+            ORDER BY week_start
+        """, (cutoff_str,)).fetchall()
+        return [dict(r) for r in result]
+    finally:
+        db.close()
+
+
+def update_album_metadata(album_id: int, data: dict) -> bool:
+    """Update album metadata fields. data keys: title, artist, year, genre, label."""
+    db = get_db()
+    try:
+        album = db.execute("SELECT * FROM albums WHERE id = ?", (album_id,)).fetchone()
+        if not album:
+            return False
+
+        update_fields = []
+        update_values = []
+        allowed_fields = ["title", "artist", "year", "genre", "label"]
+
+        for field in allowed_fields:
+            if field in data and data[field] is not None:
+                update_fields.append(f"{field} = ?")
+                update_values.append(data[field])
+
+        if not update_fields:
+            return True
+
+        update_values.append(album_id)
+        query = f"UPDATE albums SET {', '.join(update_fields)}, updated_at = datetime('now') WHERE id = ?"
+        db.execute(query, update_values)
+        db.commit()
+        return True
+    finally:
+        db.close()
+
+
+def find_duplicate_albums(similarity_threshold: float = 0.80) -> list:
+    """Find groups of albums with similar title+artist (80%+ match)."""
+    import difflib
+
+    db = get_db()
+    try:
+        all_albums = db.execute("""
+            SELECT id, title, artist FROM albums WHERE title IS NOT NULL AND artist IS NOT NULL AND deleted_at IS NULL
+        """).fetchall()
+
+        def normalize(s: str) -> str:
+            """Normalize string for comparison."""
+            s = s.lower().strip()
+            s = re.sub(r'\b(the|a|an)\b\s+', '', s)
+            s = re.sub(r'[^\w\s]', '', s)
+            s = re.sub(r'\s+', ' ', s)
+            return s
+
+        groups = []
+        matched_ids = set()
+
+        for i, album1 in enumerate(all_albums):
+            if album1["id"] in matched_ids:
+                continue
+
+            norm1_title = normalize(album1["title"])
+            norm1_artist = normalize(album1["artist"])
+            group = [dict(album1)]
+
+            for j in range(i + 1, len(all_albums)):
+                album2 = all_albums[j]
+                if album2["id"] in matched_ids:
+                    continue
+
+                norm2_title = normalize(album2["title"])
+                norm2_artist = normalize(album2["artist"])
+
+                title_sim = difflib.SequenceMatcher(None, norm1_title, norm2_title).ratio()
+                artist_sim = difflib.SequenceMatcher(None, norm1_artist, norm2_artist).ratio()
+
+                if title_sim >= similarity_threshold and artist_sim >= similarity_threshold:
+                    group.append(dict(album2))
+                    matched_ids.add(album2["id"])
+
+            if len(group) > 1:
+                groups.append(group)
+                matched_ids.add(album1["id"])
+
+        return groups
+    finally:
+        db.close()
+
+
+# ── Feature 6: Soft Delete Support ──────────────────────────────────────────
+
+
+def _add_deleted_at_column():
+    """Add deleted_at column to albums table if it doesn't exist."""
+    db = get_db()
+    try:
+        db.execute("""
+            ALTER TABLE albums ADD COLUMN deleted_at TEXT DEFAULT NULL
+        """)
+        db.commit()
+    except Exception:
+        pass
+    finally:
+        db.close()
+
+
+def soft_delete_album(album_id: int) -> bool:
+    """Soft-delete an album (set deleted_at timestamp)."""
+    _add_deleted_at_column()
+    db = get_db()
+    try:
+        db.execute("""
+            UPDATE albums SET deleted_at = datetime('now') WHERE id = ?
+        """, (album_id,))
+        db.commit()
+        return True
+    finally:
+        db.close()
+
+
+def restore_album(album_id: int) -> bool:
+    """Restore a soft-deleted album."""
+    db = get_db()
+    try:
+        db.execute("""
+            UPDATE albums SET deleted_at = NULL WHERE id = ?
+        """, (album_id,))
+        db.commit()
+        return True
+    finally:
+        db.close()
