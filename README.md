@@ -31,14 +31,15 @@ But it goes further than just streaming live vinyl. Every album you teach it get
 - **Lossless Streaming** - Streams CD-quality audio (16-bit/44.1kHz PCM) to AirPlay and Bluetooth speakers. Multi-room AirPlay support with independent volume control.
 - **Album Recording** - Records full album sides as FLAC files with automatic track boundary detection. Silence-based splitting with Discogs track duration fallback for tricky gaps. Color-coded input level meter shows recording levels in real time.
 - **Gapless Playback** - Seamless transitions between album sides with pre-buffered ffmpeg decoding. No gaps or clicks when Side A ends and Side B begins.
-- **Queue and Playlist** - Add albums to a playback queue from any album card or the detail modal. Queue panel slides out from the right to show what's coming up next.
-- **Track-Level Playback** - Tap any track in the album detail view to start playing from that point. Skip forward and back between tracks with transport controls.
+- **Queue and Playlist** - Add albums to a playback queue from any album card or the detail modal. Queue panel slides out from the right to show what's coming up next. Drag to reorder sides and remove individual items.
+- **Track-Level Playback** - Tap any track in the album detail view to start playing from that point. Skip forward and back between tracks with transport controls. Remaining time shown in the progress bar.
 - **Album Favorites** - Heart your favorite albums for quick access. Sort your collection by favorites to find them fast.
 - **Listening Stats** - Track your listening history with play counts, top albums, most-played tracks, and total listening hours. Stats are always one tap away.
 - **Discogs Integration** - Search Discogs to add albums to your catalog with track listings, artwork, and metadata. No API token required for casual use.
 - **Live EQ** - Real-time bass and treble shelf EQ applied before streaming.
 - **Touch-Friendly UI** - A warm, walnut-and-cream interface designed for a dedicated touchscreen. Fully responsive on phones and tablets too.
-- **Now Playing Screensaver** - After idle time, a full-screen now-playing display takes over with spinning album art, track progress, side indicator, and animated EQ visualization.
+- **Now Playing Screensaver** - After idle time, a full-screen now-playing display fades in with spinning album art, track progress, side indicator, and animated EQ visualization. Fades out smoothly when you interact with the screen.
+- **Album Notes** - Add personal notes to any album in your collection - pressing details, condition, where you picked it up. Click to edit right from the album detail modal.
 - **Track Boundary Editor** - Manually adjust where tracks start and end if the automatic silence detection got it wrong. Edit times directly in the album detail modal.
 - **Library Export** - Download your catalog database and a JSON manifest of your entire library for backup. Pair with rsync for automated FLAC backup scripts.
 - **Vinyl Preservation** - Record once, play forever. Keep your rare and favorite records safe while still enjoying them daily.
@@ -227,6 +228,11 @@ vinyl-airplay/
 - [x] **Enhanced screensaver** - Progress bar, side indicator, spinning art
 - [x] **Track boundary editor** - Manual adjustment of track start/end times
 - [x] **Library export** - Database and manifest download for backup
+- [x] **Queue management** - Drag-to-reorder and remove individual sides from the queue
+- [x] **Album notes** - Personal notes field for pressing info, condition, provenance
+- [x] **Remaining time display** - Now-playing bar and screensaver show time remaining
+- [x] **Screensaver transitions** - Smooth fade in/out instead of hard cut
+- [x] **Unrecorded album highlighting** - Visual distinction for albums not yet recorded
 - [ ] **WiFi setup portal** - Captive portal for headless first-time WiFi configuration
 - [ ] **One-line install script** - Automated installer for existing Pi setups
 - [ ] **Flashable Pi image** - Pre-built SD card image for zero-config setup

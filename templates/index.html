@@ -301,6 +301,9 @@
   .album-queue-btn:active { opacity: 1; background: rgba(212,162,78,0.3); }
   .album-badge { position: absolute; bottom: 5px; left: 5px; font-size: 0.6rem; font-weight: 600; padding: 0.12rem 0.4rem; border-radius: 3px; backdrop-filter: blur(4px); }
   .album-badge.unrecorded { background: rgba(122,102,82,0.8); color: #fff; }
+  .album-card.unrecorded .album-art-wrap img { filter: saturate(0.4) brightness(0.85); }
+  .album-card.unrecorded .album-art-placeholder { filter: saturate(0.4) brightness(0.85); }
+  .album-card.unrecorded .album-meta { opacity: 0.6; }
   .album-card .album-meta { padding: 0.45rem 0.55rem; }
   .album-card .album-meta .title { font-family: var(--display-font); font-size: 0.78rem; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--ink); }
   .album-card .album-meta .artist { font-size: 0.7rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 0.05rem; }
@@ -599,11 +602,14 @@
 
   /* ── Screensaver ── */
   .screensaver {
-    display: none; position: fixed; inset: 0; z-index: 900;
+    position: fixed; inset: 0; z-index: 900;
     background: #0a0604;
     cursor: none;
+    display: flex; align-items: center; justify-content: center;
+    opacity: 0; pointer-events: none;
+    transition: opacity 0.8s ease-in-out;
   }
-  .screensaver.active { display: flex; align-items: center; justify-content: center; }
+  .screensaver.active { opacity: 1; pointer-events: auto; }
   .screensaver.off { background: #000; }
   .ss-content {
     display: flex; align-items: center; gap: 2rem;
@@ -941,7 +947,7 @@
   <div class="np-progress-row" id="np-progress-row" style="display:none">
     <span class="np-time" id="np-time-cur">0:00</span>
     <div class="np-progress-bar" onclick="playerSeekClick(event)"><div class="np-progress-fill" id="np-progress-fill" style="width:0%"></div></div>
-    <span class="np-time" id="np-time-dur">0:00</span>
+    <span class="np-time" id="np-time-dur" title="Remaining">-0:00</span>
   </div>
   <div class="eq-row">
     <div class="eq-group"><span class="eq-label">Bass</span><input type="range" class="eq-slider" id="eq-bass" min="-12" max="12" value="0" step="1" oninput="sendEQ()"></div>
@@ -959,6 +965,17 @@
       <div class="modal-header">
         <img id="modal-art" class="modal-art" src="" alt="" onerror="this.style.display='none'">
         <div style="flex:1"><div style="display:flex;align-items:center;gap:0.4rem"><div class="modal-title" id="modal-title"></div><button id="modal-favorite-btn" class="modal-favorite-btn" onclick="toggleModalFavorite()" title="Favorite" style="font-size:0.9rem;background:none;border:none;cursor:pointer;color:rgba(0,0,0,0.3);padding:0;margin:0">&#x2661;</button></div><div class="modal-artist" id="modal-artist"></div><div class="modal-meta" id="modal-meta"></div></div>
+      </div>
+      <div id="modal-notes-section" style="margin-bottom:0.5rem">
+        <div id="modal-notes-display" style="display:none;font-size:0.75rem;color:var(--muted);padding:0.4rem 0.5rem;background:rgba(0,0,0,0.03);border-radius:4px;border:1px solid rgba(0,0,0,0.06);cursor:pointer;white-space:pre-wrap;line-height:1.4" onclick="editAlbumNotes()" title="Click to edit"></div>
+        <button id="modal-notes-add-btn" onclick="editAlbumNotes()" style="font-size:0.68rem;color:var(--muted);background:none;border:1px dashed rgba(0,0,0,0.15);border-radius:4px;padding:0.3rem 0.6rem;cursor:pointer;display:none">+ Add notes</button>
+        <div id="modal-notes-edit" style="display:none">
+          <textarea id="modal-notes-input" rows="3" style="width:100%;font-size:0.75rem;font-family:var(--body-font);border:1px solid var(--shelf);border-radius:4px;padding:0.4rem 0.5rem;resize:vertical;background:var(--cream);color:var(--ink);line-height:1.4" placeholder="Pressing info, condition, where you got it..."></textarea>
+          <div style="display:flex;gap:0.3rem;margin-top:0.3rem">
+            <button class="btn btn-small" onclick="saveAlbumNotes()">Save</button>
+            <button class="btn btn-ghost btn-small" onclick="cancelAlbumNotes()">Cancel</button>
+          </div>
+        </div>
       </div>
       <div class="track-list" id="modal-tracks"></div>
       <div id="modal-audio-section" style="display:none;margin-bottom:0.6rem">
@@ -1315,7 +1332,7 @@ function renderAlbumCard(a){
   var isFav=a.favorite?'is-favorite':'';
   var heart=a.favorite?'\u2665':'\u2661';
   var queueBtn=has?'<button class="album-queue-btn" onclick="event.stopPropagation();addToQueue('+a.id+')" title="Add to queue">+</button>':'';
-  return '<div class="album-card" onclick="onAlbumTap('+a.id+','+has+')"><div class="album-art-wrap">'+artH+'<button class="album-favorite-btn '+isFav+'" onclick="event.stopPropagation();toggleAlbumFavorite('+a.id+')" title="Favorite">'+heart+'</button><button class="album-info-btn" onclick="event.stopPropagation();openAlbumDetail('+a.id+')" title="Details">\u2139</button>'+queueBtn+badge+'</div><div class="album-meta"><div class="title">'+esc(a.title)+'</div><div class="artist">'+esc(a.artist)+'</div></div></div>';
+  return '<div class="album-card'+(has?'':' unrecorded')+'" onclick="onAlbumTap('+a.id+','+has+')"><div class="album-art-wrap">'+artH+'<button class="album-favorite-btn '+isFav+'" onclick="event.stopPropagation();toggleAlbumFavorite('+a.id+')" title="Favorite">'+heart+'</button><button class="album-info-btn" onclick="event.stopPropagation();openAlbumDetail('+a.id+')" title="Details">\u2139</button>'+queueBtn+badge+'</div><div class="album-meta"><div class="title">'+esc(a.title)+'</div><div class="artist">'+esc(a.artist)+'</div></div></div>';
 }
 
 function renderCatalog(albums){
@@ -1616,7 +1633,7 @@ function onPlayerStatus(d){
   updateVinylSpin(d.state);
   const pos=d.position_secs||0,dur=d.duration_secs||1;
   document.getElementById('np-progress-fill').style.width=Math.min(100,(pos/dur)*100)+'%';
-  document.getElementById('np-time-cur').textContent=fmtTime(pos);document.getElementById('np-time-dur').textContent=fmtTime(dur);
+  document.getElementById('np-time-cur').textContent=fmtTime(pos);var rem=Math.max(0,dur-pos);document.getElementById('np-time-dur').textContent='-'+fmtTime(rem);
   if(d.repeat_mode!==undefined)updateRepeatButton(d.repeat_mode);
 }
 
@@ -1660,6 +1677,12 @@ async function openAlbumDetail(id){
   // Update favorite button
   const favBtn=document.getElementById('modal-favorite-btn');
   if(favBtn){favBtn.textContent=a.favorite?'\u2665':'\u2661';favBtn.classList.toggle('is-favorite',!!a.favorite)}
+  // Notes
+  var notesDisplay=document.getElementById('modal-notes-display');
+  var notesAddBtn=document.getElementById('modal-notes-add-btn');
+  var notesEdit=document.getElementById('modal-notes-edit');
+  notesEdit.style.display='none';
+  if(a.notes&&a.notes.trim()){notesDisplay.textContent=a.notes;notesDisplay.style.display='block';notesAddBtn.style.display='none'}else{notesDisplay.style.display='none';notesAddBtn.style.display='inline-block'}
   td.tracks.sort((a,b)=>(a.side||'').localeCompare(b.side||'')||parseInt(a.track_number||0)-parseInt(b.track_number||0));
   window._modalTracks=td.tracks.slice();
   const ad=await fetch('/api/album-audio/'+id).then(r=>r.json());
@@ -1685,6 +1708,39 @@ async function toggleModalFavorite(){
       if(favBtn){favBtn.textContent=r.favorite?'\u2665':'\u2661';favBtn.classList.toggle('is-favorite',r.favorite)}
     }
   }catch(e){showError('Failed to toggle favorite')}
+}
+function editAlbumNotes(){
+  var display=document.getElementById('modal-notes-display');
+  var addBtn=document.getElementById('modal-notes-add-btn');
+  var edit=document.getElementById('modal-notes-edit');
+  var input=document.getElementById('modal-notes-input');
+  input.value=display.style.display!=='none'?display.textContent:'';
+  display.style.display='none';addBtn.style.display='none';edit.style.display='block';
+  input.focus();
+}
+function cancelAlbumNotes(){
+  var display=document.getElementById('modal-notes-display');
+  var addBtn=document.getElementById('modal-notes-add-btn');
+  var edit=document.getElementById('modal-notes-edit');
+  edit.style.display='none';
+  if(display.textContent&&display.textContent.trim()){display.style.display='block'}else{addBtn.style.display='inline-block'}
+}
+async function saveAlbumNotes(){
+  if(!currentAlbumId)return;
+  var notes=document.getElementById('modal-notes-input').value;
+  try{
+    var r=await fetch('/api/catalog/'+currentAlbumId+'/notes',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({notes:notes})}).then(function(r){return r.json()});
+    if(r.ok){
+      var display=document.getElementById('modal-notes-display');
+      var addBtn=document.getElementById('modal-notes-add-btn');
+      var edit=document.getElementById('modal-notes-edit');
+      edit.style.display='none';
+      if(notes.trim()){display.textContent=notes;display.style.display='block';addBtn.style.display='none'}else{display.style.display='none';addBtn.style.display='inline-block'}
+      var album=_catalogAlbums.find(function(a){return a.id===currentAlbumId});
+      if(album)album.notes=notes.trim()||null;
+      showToast('Notes saved');
+    }
+  }catch(e){showError('Failed to save notes')}
 }
 function playAlbumFromModal(){if(!currentAlbumId)return;if(_isStreaming||_playerActive){playAlbum(currentAlbumId);closeModal()}else{closeModal();_pendingAlbumId=currentAlbumId;showOutputPicker(currentAlbumId)}}
 
@@ -2131,7 +2187,7 @@ function ssOnPlayerStatus(d){
     var pos = d.position_secs || 0, dur = d.duration_secs || 1;
     document.getElementById('ss-progress-fill').style.width = Math.min(100, (pos/dur)*100) + '%';
     document.getElementById('ss-time-cur').textContent = fmtTime(pos);
-    document.getElementById('ss-time-dur').textContent = fmtTime(dur);
+    document.getElementById('ss-time-dur').textContent = '-' + fmtTime(Math.max(0, dur - pos));
   }
 }
 

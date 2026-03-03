@@ -1706,6 +1706,14 @@ async def toggle_album_favorite(album_id: int):
     return {"ok": True, "favorite": new_state}
 
 
+@app.put("/api/catalog/{album_id}/notes")
+async def update_album_notes(album_id: int, body: dict):
+    """Update the notes field for an album. body: { notes: string }"""
+    notes = body.get("notes", "")
+    cat.update_album_notes(album_id, notes)
+    return {"ok": True}
+
+
 # ── Library Export ────────────────────────────────────────────────────────
 
 @app.get("/api/export/catalog")

@@ -1479,6 +1479,17 @@ def toggle_favorite(album_id: int) -> bool:
         db.close()
 
 
+def update_album_notes(album_id: int, notes: str):
+    """Update the notes text for an album."""
+    db = get_db()
+    try:
+        db.execute("UPDATE albums SET notes = ?, updated_at = datetime('now') WHERE id = ?",
+                   (notes.strip() if notes else None, album_id))
+        db.commit()
+    finally:
+        db.close()
+
+
 # ── Album Audio (Full-Side Recordings) ───────────────────────────────────────
 
 def save_album_audio(album_id: int, side: str, file_path: str,
