@@ -1378,6 +1378,7 @@ function playGroup(groupKey){
   var field=_viewState.groupBy;
   if(!field)return;
   var albums=getFilteredAlbums().filter(function(a){
+    if(field==='favorites') return a.favorite&&a.audio_count>0;
     var val=(field==='genre'?(a.genre||'Unknown Genre'):(a.artist||'Unknown Artist'));
     return val===groupKey&&a.audio_count>0;
   });
