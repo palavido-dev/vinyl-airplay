@@ -154,6 +154,11 @@ def _migrate_db(db: sqlite3.Connection):
     if "end_secs" not in cols:
         db.execute("ALTER TABLE tracks ADD COLUMN end_secs REAL")
         print("[catalog] Migration: added tracks.end_secs")
+    # Check if albums table has favorite column
+    cols_albums = {row[1] for row in db.execute("PRAGMA table_info(albums)").fetchall()}
+    if "favorite" not in cols_albums:
+        db.execute("ALTER TABLE albums ADD COLUMN favorite INTEGER DEFAULT 0")
+        print("[catalog] Migration: added albums.favorite")
 
 
 # ── Fingerprint Buffer ────────────────────────────────────────────────────────
@@ -1373,6 +1378,23 @@ def delete_album(album_id: int):
     try:
         db.execute("DELETE FROM albums WHERE id = ?", (album_id,))
         db.commit()
+    finally:
+        db.close()
+
+
+def toggle_favorite(album_id: int) -> bool:
+    """Toggle favorite status. Returns new favorite state."""
+    db = get_db()
+    try:
+        # Get current state
+        row = db.execute("SELECT favorite FROM albums WHERE id = ?", (album_id,)).fetchone()
+        if not row:
+            return False
+        current = row[0]
+        new_state = 1 - current  # Toggle between 0 and 1
+        db.execute("UPDATE albums SET favorite = ? WHERE id = ?", (new_state, album_id))
+        db.commit()
+        return bool(new_state)
     finally:
         db.close()
 
