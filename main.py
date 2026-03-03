@@ -1725,6 +1725,9 @@ async def _auto_finalize_album_side():
             if b["track_id"] and b["end_secs"] is not None:
                 cat.update_track_timestamps(b["track_id"], b["start_secs"], b["end_secs"])
 
+        # Sanity-check boundaries against catalog durations and correct if needed
+        cat.correct_side_boundaries(album_id, side, duration)
+
         await broadcast("album_recording_side_saved", {
             "album_id": album_id,
             "side": side,
@@ -1908,6 +1911,9 @@ async def album_recording_flip(body: dict):
                 if b["track_id"] and b["end_secs"] is not None:
                     cat.update_track_timestamps(b["track_id"], b["start_secs"], b["end_secs"])
 
+            # Sanity-check boundaries against catalog durations and correct if needed
+            cat.correct_side_boundaries(album_id, ar.side, duration)
+
             await broadcast("album_recording_side_saved", {
                 "album_id": album_id,
                 "side": ar.side,
@@ -2036,6 +2042,9 @@ async def album_recording_stop():
     for b in boundaries:
         if b["track_id"] and b["end_secs"] is not None:
             cat.update_track_timestamps(b["track_id"], b["start_secs"], b["end_secs"])
+
+    # Sanity-check boundaries against catalog durations and correct if needed
+    cat.correct_side_boundaries(album_id, ar.side, duration)
 
     await broadcast("album_recording_status", {
         "recording": False,
