@@ -767,14 +767,15 @@
 
     /* Queue Panel: Full width bottom sheet */
     .queue-panel {
-      position: fixed; bottom: -100%; left: 0; right: 0;
-      width: 100%; height: auto; max-height: 70vh;
+      position: fixed; bottom: -100%; left: 0; right: 0 !important;
+      top: auto; width: 100%; height: auto; max-height: 60vh;
       border-left: none; border-top: 2px solid var(--amber-dk);
       border-radius: 12px 12px 0 0;
       transition: bottom 0.3s ease-out;
-      z-index: 90;
+      z-index: 200;
     }
     .queue-panel.open { bottom: 0; }
+    .queue-clear-btn { min-width: 44px; min-height: 44px; }
 
     /* Sort Panel: Full width bottom sheet */
     .sort-panel {
@@ -1167,11 +1168,13 @@
   </div>
 </div>
 
+<!-- Queue Backdrop (mobile) -->
+<div id="queue-backdrop" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:199" onclick="toggleQueue()"></div>
 <!-- Queue Panel -->
 <div class="queue-panel" id="queue-panel">
   <div class="queue-header">
     <div class="queue-title">Up Next</div>
-    <button class="queue-clear-btn" onclick="toggleQueue()" title="Close">✕</button>
+    <button class="queue-clear-btn" onclick="toggleQueue()" title="Close" style="touch-action:manipulation;-webkit-tap-highlight-color:transparent">✕</button>
   </div>
   <div class="queue-list" id="queue-list">
     <div class="queue-empty">Queue is empty</div>
@@ -1581,8 +1584,8 @@ function setRecordingIndicator(active){var w=document.getElementById('np-art-wra
 function playerSeekClick(e){const b=e.currentTarget,r=b.getBoundingClientRect(),pct=(e.clientX-r.left)/r.width,pts=document.getElementById('np-time-dur').textContent.split(':'),dur=parseInt(pts[0])*60+parseInt(pts[1]);fetch('/api/player/seek',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({position_secs:pct*dur})})}
 
 var _queuePanelOpen=false;
-function toggleQueue(){var p=document.getElementById('queue-panel');_queuePanelOpen=!_queuePanelOpen;p.classList.toggle('open',_queuePanelOpen);if(_queuePanelOpen){refreshQueueDisplay();document.addEventListener('click',closeQueueOnClickOutside,true)}else{document.removeEventListener('click',closeQueueOnClickOutside,true)}}
-function closeQueueOnClickOutside(e){var p=document.getElementById('queue-panel');if(!p.contains(e.target)&&e.target.id!=='np-repeat'&&!e.target.closest('[onclick*="toggleQueue"]')){_queuePanelOpen=false;p.classList.remove('open');document.removeEventListener('click',closeQueueOnClickOutside,true)}}
+function toggleQueue(){var p=document.getElementById('queue-panel');_queuePanelOpen=!_queuePanelOpen;p.classList.toggle('open',_queuePanelOpen);document.getElementById('queue-backdrop').style.display=_queuePanelOpen?'block':'none';if(_queuePanelOpen){refreshQueueDisplay();document.addEventListener('click',closeQueueOnClickOutside,true)}else{document.removeEventListener('click',closeQueueOnClickOutside,true)}}
+function closeQueueOnClickOutside(e){var p=document.getElementById('queue-panel');if(!p.contains(e.target)&&e.target.id!=='np-repeat'&&!e.target.closest('[onclick*="toggleQueue"]')){_queuePanelOpen=false;p.classList.remove('open');document.getElementById('queue-backdrop').style.display='none';document.removeEventListener('click',closeQueueOnClickOutside,true)}}
 async function refreshQueueDisplay(){if(!_queuePanelOpen)return;try{const r=await fetch('/api/player/queue').then(d=>d.json());if(!r.ok||!r.queue)return;const list=document.getElementById('queue-list');if(!r.queue.length){list.innerHTML='<div class="queue-empty">Queue is empty</div>';return}let html='';r.queue.forEach((item,idx)=>{const isCurrent=idx===r.current_index;let art='<div class="queue-art" style="display:flex;align-items:center;justify-content:center;font-size:1.5rem">💿</div>';if(item.artwork){const artFile=item.artwork.split('/').pop();art=`<img src="/artwork/${artFile}?t=${item.album_id}" class="queue-art" alt="">`}html+=`<div class="queue-item${isCurrent?' current':''}">${art}<div class="queue-info"><div class="queue-album-title">${esc(item.album_title)}</div><div class="queue-album-artist">${esc(item.album_artist)}</div><div class="queue-side">Side ${esc(item.side)}</div></div></div>`});list.innerHTML=html}catch(e){console.warn('Queue refresh error:',e)}}
 async function addToQueue(albumId){if(!_playerActive){showToast('Start playback first');return}try{const r=await fetch('/api/player/queue/add',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({album_id:albumId})}).then(d=>d.json());if(r.ok){showToast(r.message||'Added to queue');refreshQueueDisplay()}else showError(r.error||'Failed to add to queue')}catch(e){showError('Failed to add to queue')}}
 async function addToQueueFromModal(){if(!currentAlbumId)return;if(!_playerActive){showToast('Start playback first');closeModal();return}await addToQueue(currentAlbumId);closeModal()}
