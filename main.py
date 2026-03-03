@@ -2692,8 +2692,8 @@ async def _run_playback(album_id: int, targets: list[dict], volume: int,
     try:
         # Wait for either: player finishes, devices disconnect, or external stop
         while player.state != "stopped":
-            if threads_done.is_set() and not local_streams and not bt_streams:
-                # All AirPlay devices disconnected and no local/BT fallback
+            if threads_done.is_set() and not local_streams and not bt_streams and not browser_streams:
+                # All AirPlay devices disconnected and no local/BT/browser fallback
                 player.stop()
                 break
             await asyncio.sleep(0.5)
@@ -2865,7 +2865,7 @@ async def _run_playback_queue(album_id: int, album_info: dict,
 
     try:
         while player.state != "stopped":
-            if threads_done.is_set() and not local_streams and not bt_streams:
+            if threads_done.is_set() and not local_streams and not bt_streams and not browser_streams:
                 player.stop()
                 break
             await asyncio.sleep(0.5)
