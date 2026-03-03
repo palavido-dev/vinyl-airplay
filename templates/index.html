@@ -597,6 +597,11 @@
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     max-width: 50vw;
   }
+  .ss-side { font-size: 0.75rem; font-weight: 600; color: var(--amber-dk); letter-spacing: 0.06em; margin-bottom: 0.2rem; }
+  .ss-progress { display: flex; align-items: center; gap: 0.5rem; margin-top: 0.8rem; }
+  .ss-progress-bar { flex: 1; height: 3px; background: rgba(255,255,255,0.1); border-radius: 2px; max-width: 200px; }
+  .ss-progress-fill { height: 100%; background: var(--amber-dk); border-radius: 2px; transition: width 1s linear; }
+  .ss-progress-time { font-size: 0.7rem; color: rgba(245,235,216,0.4); font-family: monospace; }
   .ss-eq-viz {
     display: flex; align-items: flex-end; gap: 4px;
     margin-top: 1.2rem; height: 30px;
@@ -1141,8 +1146,14 @@
   <div class="ss-content" id="ss-content">
     <div class="ss-art-placeholder" id="ss-art"></div>
     <div class="ss-info">
+      <div class="ss-side" id="ss-side"></div>
       <div class="ss-track" id="ss-track"></div>
       <div class="ss-artist-album" id="ss-artist-album"></div>
+      <div class="ss-progress">
+        <span class="ss-progress-time" id="ss-time-cur">0:00</span>
+        <div class="ss-progress-bar"><div class="ss-progress-fill" id="ss-progress-fill" style="width:0%"></div></div>
+        <span class="ss-progress-time" id="ss-time-dur">0:00</span>
+      </div>
       <div class="ss-eq-viz" id="ss-eq-viz"></div>
     </div>
   </div>
@@ -1950,12 +1961,13 @@ function ssGoIdle(){
     ss.classList.remove('off');
     var art = document.getElementById('ss-art');
     if(_ssLastNP.artwork_url){
-      art.outerHTML = '<img class="ss-art" id="ss-art" src="' + _ssLastNP.artwork_url + '?t=' + Date.now() + '" alt="">';
+      art.outerHTML = '<img class="ss-art" id="ss-art" src="' + _ssLastNP.artwork_url + '?t=' + Date.now() + '" alt="" style="border-radius:50%;animation:ss-spin 8s linear infinite">';
     } else {
       art.outerHTML = '<div class="ss-art-placeholder" id="ss-art"></div>';
     }
     document.getElementById('ss-track').textContent = _ssLastNP.track_title || '';
-    document.getElementById('ss-artist-album').textContent = [_ssLastNP.track_artist||_ssLastNP.album_artist||'', _ssLastNP.album_title||''].filter(Boolean).join(' \u2014 ');
+    document.getElementById('ss-artist-album').textContent = [_ssLastNP.track_artist||_ssLastNP.album_artist||'', _ssLastNP.album_title||''].filter(Boolean).join(' - ');
+    document.getElementById('ss-side').textContent = _ssLastNP.side ? 'Side ' + _ssLastNP.side : '';
     var viz = document.getElementById('ss-eq-viz');
     viz.innerHTML = '';
     for(var i = 0; i < 12; i++){
@@ -1987,7 +1999,12 @@ function ssOnNowPlaying(d){
   else if(!_playerActive) _ssLastNP = null;
   if(_ssActive && _ssLastNP){
     document.getElementById('ss-track').textContent = _ssLastNP.track_title || '';
-    document.getElementById('ss-artist-album').textContent = [_ssLastNP.track_artist||_ssLastNP.album_artist||'', _ssLastNP.album_title||''].filter(Boolean).join(' \u2014 ');
+    document.getElementById('ss-artist-album').textContent = [_ssLastNP.track_artist||_ssLastNP.album_artist||'', _ssLastNP.album_title||''].filter(Boolean).join(' - ');
+    document.getElementById('ss-side').textContent = _ssLastNP.side ? 'Side ' + _ssLastNP.side : '';
+    var art = document.getElementById('ss-art');
+    if(_ssLastNP.artwork_url && art && !art.src){
+      art.outerHTML = '<img class="ss-art" id="ss-art" src="' + _ssLastNP.artwork_url + '?t=' + Date.now() + '" alt="" style="border-radius:50%;animation:ss-spin 8s linear infinite">';
+    }
   }
 }
 
@@ -1996,6 +2013,12 @@ function ssOnPlayerStatus(d){
     var ss = document.getElementById('screensaver');
     ss.classList.add('off');
     document.getElementById('ss-content').style.display = 'none';
+  }
+  if(_ssActive && d.position_secs !== undefined){
+    var pos = d.position_secs || 0, dur = d.duration_secs || 1;
+    document.getElementById('ss-progress-fill').style.width = Math.min(100, (pos/dur)*100) + '%';
+    document.getElementById('ss-time-cur').textContent = fmtTime(pos);
+    document.getElementById('ss-time-dur').textContent = fmtTime(dur);
   }
 }
 
