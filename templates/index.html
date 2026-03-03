@@ -185,6 +185,31 @@
   .pl-album-item .pl-album-artist { font-size: 0.68rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .pl-album-remove { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 0.75rem; padding: 0.2rem 0.4rem; border-radius: 3px; }
   .pl-album-remove:hover { color: var(--rust); background: rgba(255,255,255,0.05); }
+  .pl-tab {
+    flex: 1; padding: 0.5rem; font-size: 0.75rem; font-family: var(--body-font);
+    background: none; border: none; border-bottom: 2px solid transparent;
+    color: var(--muted); cursor: pointer; text-align: center; transition: color 0.15s, border-color 0.15s;
+  }
+  .pl-tab.active { color: var(--amber); border-bottom-color: var(--amber); }
+  .pl-tab:hover { color: var(--amber-lt); }
+  .pl-browse-item {
+    position: relative; cursor: pointer; border-radius: 5px; overflow: hidden;
+    aspect-ratio: 1; background: rgba(0,0,0,0.2);
+  }
+  .pl-browse-item img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .pl-browse-item .pl-browse-check {
+    position: absolute; top: 3px; right: 3px; width: 20px; height: 20px;
+    border-radius: 50%; background: var(--sage); color: #fff; font-size: 0.7rem;
+    display: none; align-items: center; justify-content: center; line-height: 1;
+  }
+  .pl-browse-item.in-playlist .pl-browse-check { display: flex; }
+  .pl-browse-item.in-playlist img { opacity: 0.5; }
+  .pl-browse-item .pl-browse-label {
+    position: absolute; bottom: 0; left: 0; right: 0; padding: 2px 4px;
+    background: linear-gradient(transparent, rgba(0,0,0,0.75));
+    font-size: 0.55rem; color: #fff; line-height: 1.2; white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis;
+  }
   .pl-item {
     display: flex; align-items: center; gap: 0.5rem; padding: 0.6rem 0.75rem;
     border-bottom: 1px solid rgba(255,255,255,0.04); cursor: pointer; transition: background 0.15s;
@@ -1307,17 +1332,24 @@
     <div style="color:var(--muted);padding:1rem;text-align:center;font-size:0.82rem">No playlists yet</div>
   </div>
   <div id="pl-view-detail" style="flex:1;overflow-y:auto;display:none;flex-direction:column">
-    <div style="padding:0.6rem 0.75rem;display:flex;align-items:center;gap:0.4rem;border-bottom:1px solid rgba(212,162,78,0.15);flex-shrink:0">
+    <div style="padding:0.5rem 0.75rem;display:flex;align-items:center;gap:0.4rem;border-bottom:1px solid rgba(212,162,78,0.15);flex-shrink:0">
       <button class="pl-item-btn" onclick="plBackToList()" style="font-size:0.9rem" title="Back">&#8592;</button>
       <span id="pl-detail-name" style="flex:1;font-family:var(--display-font);color:var(--amber);font-size:0.9rem"></span>
+      <span id="pl-detail-count" style="font-size:0.68rem;color:var(--muted)"></span>
       <button class="btn btn-ghost" style="font-size:0.7rem;padding:0.25rem 0.5rem" onclick="plPlayCurrent()">&#9654; Play</button>
     </div>
-    <div id="pl-detail-albums" style="overflow-y:auto;flex:1"></div>
-    <div id="pl-add-section" style="flex-shrink:0;border-top:1px solid rgba(212,162,78,0.15)">
-      <div style="padding:0.5rem 0.6rem;display:flex;align-items:center;gap:0.4rem">
-        <input type="search" id="pl-add-search" placeholder="Search to add albums..." oninput="plSearchAlbums(this.value)" style="flex:1;padding:0.35rem 0.5rem;font-size:0.78rem;border:1px solid rgba(212,162,78,0.25);border-radius:5px;background:rgba(0,0,0,0.15);color:var(--amber);font-family:var(--body-font);outline:none">
+    <div style="display:flex;border-bottom:1px solid rgba(212,162,78,0.15);flex-shrink:0">
+      <button id="pl-tab-contents" class="pl-tab active" onclick="plSwitchTab('contents')">In Playlist</button>
+      <button id="pl-tab-add" class="pl-tab" onclick="plSwitchTab('add')">Add Albums</button>
+    </div>
+    <div id="pl-tab-contents-view" style="flex:1;overflow-y:auto">
+      <div id="pl-detail-albums"></div>
+    </div>
+    <div id="pl-tab-add-view" style="flex:1;overflow-y:auto;display:none;flex-direction:column">
+      <div style="padding:0.5rem 0.6rem;flex-shrink:0;position:sticky;top:0;background:var(--walnut);z-index:1">
+        <input type="search" id="pl-add-search" placeholder="Filter albums..." oninput="plFilterBrowse(this.value)" style="width:100%;padding:0.35rem 0.5rem;font-size:0.78rem;border:1px solid rgba(212,162,78,0.25);border-radius:5px;background:rgba(0,0,0,0.15);color:var(--amber);font-family:var(--body-font);outline:none">
       </div>
-      <div id="pl-add-results" style="max-height:200px;overflow-y:auto"></div>
+      <div id="pl-browse-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(70px,1fr));gap:0.35rem;padding:0.5rem 0.6rem"></div>
     </div>
   </div>
   <div style="flex-shrink:0;padding:0.6rem 0.75rem;border-top:1px solid rgba(212,162,78,0.15);background:rgba(0,0,0,0.2)">
@@ -1868,14 +1900,13 @@ async function plShowDetail(playlistId){
   _plCurrentId=playlistId;
   document.getElementById('pl-view-list').style.display='none';
   document.getElementById('pl-view-detail').style.display='flex';
-  document.getElementById('pl-view-detail').style.flexDirection='column';
-  // Keep search text but refresh results
-  var keepSearch=document.getElementById('pl-add-search').value;
   var r=await fetch('/api/playlists').then(d=>d.json());
   var pl=r.playlists.find(function(p){return p.id===playlistId});
   if(!pl){plBackToList();return}
   _plCurrentAlbumIds=pl.album_ids.slice();
   document.getElementById('pl-detail-name').textContent=pl.name;
+  document.getElementById('pl-detail-count').textContent=pl.album_ids.length+' album'+(pl.album_ids.length!==1?'s':'');
+  // Build contents list
   var albumsById={};
   _catalogAlbums.forEach(function(a){albumsById[a.id]=a});
   var html='';
@@ -1890,15 +1921,17 @@ async function plShowDetail(playlistId){
       +'<button class="pl-album-remove" onclick="plRemoveAlbum('+playlistId+','+aid+')" title="Remove">\u2715</button>'
       +'</div>';
   });
-  if(!html)html='<div style="color:var(--muted);padding:0.8rem;text-align:center;font-size:0.78rem;color:var(--muted)">Search below to add albums</div>';
+  if(!html)html='<div style="color:var(--muted);padding:0.8rem;text-align:center;font-size:0.78rem">Tap "Add Albums" to browse your collection</div>';
   document.getElementById('pl-detail-albums').innerHTML=html;
-  // Refresh search results if search was active
-  if(keepSearch)_plDoSearch(keepSearch);
+  // If playlist is empty, auto-switch to Add tab
+  if(!pl.album_ids.length){plSwitchTab('add')}
+  else{plSwitchTab('contents')}
 }
 function plBackToList(){
   document.getElementById('pl-add-search').value='';
-  document.getElementById('pl-add-results').innerHTML='';
+  document.getElementById('pl-browse-grid').innerHTML='';
   _plCurrentAlbumIds=[];
+  _plActiveTab='contents';
   plShowList();
 }
 async function plPlayCurrent(){
@@ -1920,7 +1953,9 @@ async function plDeleteFromList(id){
 }
 async function plRemoveAlbum(playlistId,albumId){
   await fetch('/api/playlists/'+playlistId+'/remove',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({album_id:albumId})});
-  plShowDetail(playlistId);
+  _plCurrentAlbumIds=_plCurrentAlbumIds.filter(function(id){return id!==albumId});
+  document.getElementById('pl-detail-count').textContent=_plCurrentAlbumIds.length+' album'+(_plCurrentAlbumIds.length!==1?'s':'');
+  _plRefreshContents();
 }
 async function plCreateNew(){
   var name=prompt('Playlist name:');
@@ -1932,47 +1967,88 @@ async function plCreateNew(){
 
 // --- Album picker inside playlist detail ---
 var _plCurrentAlbumIds=[];  // track what's already in the playlist for checkmarks
-var _plSearchDebounce=null;
-function plSearchAlbums(q){
-  clearTimeout(_plSearchDebounce);
-  _plSearchDebounce=setTimeout(function(){_plDoSearch(q)},150);
+var _plActiveTab='contents';
+function plSwitchTab(tab){
+  _plActiveTab=tab;
+  document.getElementById('pl-tab-contents').classList.toggle('active',tab==='contents');
+  document.getElementById('pl-tab-add').classList.toggle('active',tab==='add');
+  document.getElementById('pl-tab-contents-view').style.display=tab==='contents'?'block':'none';
+  var addView=document.getElementById('pl-tab-add-view');
+  addView.style.display=tab==='add'?'flex':'none';
+  if(tab==='add')plRenderBrowseGrid();
 }
-function _plDoSearch(q){
-  var results=document.getElementById('pl-add-results');
-  q=(q||'').toLowerCase().trim();
-  if(!q){results.innerHTML='';return}
-  // Filter from cached catalog
-  var matches=_catalogAlbums.filter(function(a){
-    return (a.title||'').toLowerCase().indexOf(q)!==-1
-      || (a.artist||'').toLowerCase().indexOf(q)!==-1
-      || (a.genre||'').toLowerCase().indexOf(q)!==-1;
-  }).slice(0,20);
-  if(!matches.length){results.innerHTML='<div style="color:var(--muted);padding:0.5rem 0.6rem;font-size:0.75rem">No matches</div>';return}
+function plRenderBrowseGrid(){
+  var grid=document.getElementById('pl-browse-grid');
+  var q=(document.getElementById('pl-add-search').value||'').toLowerCase().trim();
+  var albums=_catalogAlbums.slice();
+  // Sort by artist then title
+  albums.sort(function(a,b){return (a.artist||'').localeCompare(b.artist||'')||( a.title||'').localeCompare(b.title||'')});
+  if(q){
+    albums=albums.filter(function(a){
+      return (a.title||'').toLowerCase().indexOf(q)!==-1
+        || (a.artist||'').toLowerCase().indexOf(q)!==-1
+        || (a.genre||'').toLowerCase().indexOf(q)!==-1;
+    });
+  }
   var html='';
-  matches.forEach(function(a){
+  albums.forEach(function(a){
     var art=a.user_artwork_path||a.artwork_path||'';
     var imgSrc=art?'/api/catalog/'+a.id+'/artwork':'';
     var inList=_plCurrentAlbumIds.indexOf(a.id)!==-1;
-    html+='<div class="pl-album-item" style="cursor:pointer;'+(inList?'opacity:0.5;':'')
-      +'" onclick="plQuickAdd('+a.id+')">'
-      +(imgSrc?'<img src="'+imgSrc+'" alt="" onerror="this.style.display=\'none\'">':'')
-      +'<div class="pl-album-info"><div class="pl-album-title">'+esc(a.title)+'</div><div class="pl-album-artist">'+esc(a.artist)+'</div></div>'
-      +'<span style="font-size:0.85rem;color:'+(inList?'var(--sage)':'var(--amber)')+'">'+( inList?'&#10003;':'+')+'</span>'
+    html+='<div class="pl-browse-item'+(inList?' in-playlist':'')+'" onclick="plToggleAlbum('+a.id+')" title="'+esc(a.artist)+' - '+esc(a.title)+'">'
+      +(imgSrc?'<img src="'+imgSrc+'" alt="" loading="lazy">':'<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:0.6rem;color:var(--muted);padding:0.2rem;text-align:center">'+esc(a.title)+'</div>')
+      +'<div class="pl-browse-check">&#10003;</div>'
+      +'<div class="pl-browse-label">'+esc(a.title)+'</div>'
       +'</div>';
   });
-  results.innerHTML=html;
+  if(!html)html='<div style="grid-column:1/-1;color:var(--muted);padding:1rem;text-align:center;font-size:0.78rem">No albums found</div>';
+  grid.innerHTML=html;
 }
-async function plQuickAdd(albumId){
+var _plFilterDebounce=null;
+function plFilterBrowse(q){
+  clearTimeout(_plFilterDebounce);
+  _plFilterDebounce=setTimeout(plRenderBrowseGrid,150);
+}
+async function plToggleAlbum(albumId){
   if(!_plCurrentId)return;
-  if(_plCurrentAlbumIds.indexOf(albumId)!==-1){showToast('Already in playlist');return}
-  var r=await fetch('/api/playlists/'+_plCurrentId+'/add',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({album_id:albumId})}).then(d=>d.json());
-  if(r.ok){
-    _plCurrentAlbumIds.push(albumId);
-    // Refresh both the album list and the search results
-    plShowDetail(_plCurrentId);
-    var searchVal=document.getElementById('pl-add-search').value;
-    if(searchVal)_plDoSearch(searchVal);
+  var inList=_plCurrentAlbumIds.indexOf(albumId)!==-1;
+  if(inList){
+    // Remove
+    await fetch('/api/playlists/'+_plCurrentId+'/remove',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({album_id:albumId})});
+    _plCurrentAlbumIds=_plCurrentAlbumIds.filter(function(id){return id!==albumId});
+  }else{
+    // Add
+    var r=await fetch('/api/playlists/'+_plCurrentId+'/add',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({album_id:albumId})}).then(d=>d.json());
+    if(r.ok)_plCurrentAlbumIds.push(albumId);
   }
+  // Update count
+  document.getElementById('pl-detail-count').textContent=_plCurrentAlbumIds.length+' album'+(_plCurrentAlbumIds.length!==1?'s':'');
+  // Update just the clicked item in the grid without re-rendering everything
+  plRenderBrowseGrid();
+  // Also refresh the contents tab in the background
+  _plRefreshContents();
+}
+async function _plRefreshContents(){
+  var r=await fetch('/api/playlists').then(d=>d.json());
+  var pl=r.playlists.find(function(p){return p.id===_plCurrentId});
+  if(!pl)return;
+  _plCurrentAlbumIds=pl.album_ids.slice();
+  var albumsById={};
+  _catalogAlbums.forEach(function(a){albumsById[a.id]=a});
+  var html='';
+  pl.album_ids.forEach(function(aid){
+    var a=albumsById[aid];
+    if(!a)return;
+    var art=a.user_artwork_path||a.artwork_path||'';
+    var imgSrc=art?'/api/catalog/'+a.id+'/artwork':'';
+    html+='<div class="pl-album-item">'
+      +(imgSrc?'<img src="'+imgSrc+'" alt="" onerror="this.style.display=\'none\'">':'')
+      +'<div class="pl-album-info"><div class="pl-album-title">'+esc(a.title)+'</div><div class="pl-album-artist">'+esc(a.artist)+'</div></div>'
+      +'<button class="pl-album-remove" onclick="plRemoveAlbum('+_plCurrentId+','+aid+')" title="Remove">\u2715</button>'
+      +'</div>';
+  });
+  if(!html)html='<div style="color:var(--muted);padding:0.8rem;text-align:center;font-size:0.78rem">No albums yet</div>';
+  document.getElementById('pl-detail-albums').innerHTML=html;
 }
 
 // --- Add to Playlist from Modal ---
