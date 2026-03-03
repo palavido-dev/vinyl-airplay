@@ -13,6 +13,7 @@ Flow:
 
 import json
 import os
+import re
 import sqlite3
 import subprocess
 import tempfile
@@ -737,16 +738,34 @@ def _fetch_musicbrainz_durations(artist: str, title: str) -> Optional[list[dict]
     Only used as a fallback when Discogs doesn't have duration info.
     """
     try:
-        # Search for the release
-        query = urllib.parse.quote(f'artist:"{artist}" AND release:"{title}"')
-        url = f"https://musicbrainz.org/ws/2/release/?query={query}&fmt=json&limit=5"
-        req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            data = json.loads(resp.read())
+        # Search for the release — try exact title first, then normalized
+        titles_to_try = [title]
+        # Normalize: remove extra spaces around slashes/punctuation, strip whitespace
+        normalized = re.sub(r'\s*/\s*', '/', title).strip()
+        if normalized != title:
+            titles_to_try.append(normalized)
+        # Also try without slashes entirely (as separate words)
+        no_slash = re.sub(r'\s*/\s*', ' ', title).strip()
+        no_slash = re.sub(r'\s+', ' ', no_slash)
+        if no_slash not in titles_to_try:
+            titles_to_try.append(no_slash)
 
-        releases = data.get("releases", [])
+        releases = []
+        for try_title in titles_to_try:
+            query = urllib.parse.quote(f'artist:"{artist}" AND release:"{try_title}"')
+            url = f"https://musicbrainz.org/ws/2/release/?query={query}&fmt=json&limit=5"
+            req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                data = json.loads(resp.read())
+            releases = data.get("releases", [])
+            if releases:
+                break
+            import time
+            time.sleep(1.1)  # rate limit between retries
+
         if not releases:
-            print(f"[catalog] MusicBrainz: no releases found for '{artist}' - '{title}'")
+            print(f"[catalog] MusicBrainz: no releases found for '{artist}' - '{title}' "
+                  f"(tried: {titles_to_try})")
             return None
 
         # Prefer CD or Digital Media releases (most likely to have accurate durations)
