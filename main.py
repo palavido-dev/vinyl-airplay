@@ -1417,6 +1417,12 @@ async def update_settings(body: dict):
     if "discogs_token" in body:
         state.settings["discogs_token"] = str(body["discogs_token"])
         save_settings(state.settings)
+    if "crossfade_secs" in body:
+        cf = max(0, min(2.0, float(body["crossfade_secs"])))
+        state.settings["crossfade_secs"] = cf
+        if state.player:
+            state.player.set_crossfade(cf)
+        save_settings(state.settings)
     save_settings(state.settings)
     return {"ok": True}
 
@@ -1704,6 +1710,40 @@ async def delete_album_route(album_id: int):
 async def toggle_album_favorite(album_id: int):
     new_state = cat.toggle_favorite(album_id)
     return {"ok": True, "favorite": new_state}
+
+
+@app.get("/api/playlists")
+async def get_playlists():
+    """List all saved playlists."""
+    return {"ok": True, "playlists": cat.get_playlists()}
+
+
+@app.post("/api/playlists")
+async def save_playlist(body: dict):
+    """Save a playlist. body: { name: str, album_ids: list[int] }"""
+    name = body.get("name", "").strip()
+    album_ids = body.get("album_ids", [])
+    if not name:
+        return {"ok": False, "error": "Playlist name required"}
+    if not album_ids:
+        return {"ok": False, "error": "No albums in playlist"}
+    pid = cat.save_playlist(name, album_ids)
+    return {"ok": True, "id": pid}
+
+
+@app.delete("/api/playlists/{playlist_id}")
+async def delete_playlist(playlist_id: int):
+    """Delete a playlist."""
+    cat.delete_playlist(playlist_id)
+    return {"ok": True}
+
+
+@app.put("/api/catalog/{album_id}/rating")
+async def update_album_rating(album_id: int, body: dict):
+    """Set star rating (0-5) for an album. body: { rating: int }"""
+    rating = int(body.get("rating", 0))
+    cat.update_album_rating(album_id, rating)
+    return {"ok": True, "rating": rating}
 
 
 @app.put("/api/catalog/{album_id}/notes")
@@ -2444,6 +2484,7 @@ async def _run_playback(album_id: int, targets: list[dict], volume: int,
         on_finished     = on_finished,
     )
     state.player = player
+    player.set_crossfade(state.settings.get("crossfade_secs", 0))
 
     player.play(album_id, album_info, playlist, start_track_id=start_track_id)
 
@@ -2613,6 +2654,7 @@ async def _run_playback_queue(album_id: int, album_info: dict,
         on_finished=on_finished,
     )
     state.player = player
+    player.set_crossfade(state.settings.get("crossfade_secs", 0))
     player.play(album_id, album_info, playlist)
 
     try:

@@ -30,14 +30,16 @@ But it goes further than just streaming live vinyl. Every album you teach it get
 - **Automatic Record Recognition** - Drop the needle and the system identifies what's playing within seconds using Chromaprint audio fingerprinting against a local database. No cloud service required.
 - **Lossless Streaming** - Streams CD-quality audio (16-bit/44.1kHz PCM) to AirPlay and Bluetooth speakers. Multi-room AirPlay support with independent volume control.
 - **Album Recording** - Records full album sides as FLAC files with automatic track boundary detection. Silence-based splitting with Discogs track duration fallback for tricky gaps. Color-coded input level meter shows recording levels in real time.
-- **Gapless Playback** - Seamless transitions between album sides with pre-buffered ffmpeg decoding. No gaps or clicks when Side A ends and Side B begins.
-- **Queue and Playlist** - Add albums to a playback queue from any album card or the detail modal. Queue panel slides out from the right to show what's coming up next. Drag to reorder sides and remove individual items.
+- **Gapless Playback and Crossfade** - Seamless transitions between album sides with pre-buffered ffmpeg decoding. Optional equal-power crossfade (up to 2 seconds) blends smoothly between sides instead of a hard cut. Configure from settings or leave at zero for pure gapless.
+- **Queue and Playlists** - Add albums to a playback queue from any album card or the detail modal. Queue panel slides out from the right to show what's coming up next. Drag to reorder sides, remove individual items, and save the current queue as a named playlist to reload later.
 - **Track-Level Playback** - Tap any track in the album detail view to start playing from that point. Skip forward and back between tracks with transport controls. Remaining time shown in the progress bar.
-- **Album Favorites** - Heart your favorite albums for quick access. Sort your collection by favorites to find them fast.
+- **Album Favorites and Star Ratings** - Heart your favorite albums and rate them 1-5 stars. Sort your collection by favorites or rating to find the best of your collection fast.
+- **Library Shuffle** - Shuffle your entire recorded collection with one tap. All albums are shuffled and queued for continuous playback.
 - **Listening Stats** - Track your listening history with play counts, top albums, most-played tracks, and total listening hours. Stats are always one tap away.
 - **Discogs Integration** - Search Discogs to add albums to your catalog with track listings, artwork, and metadata. No API token required for casual use.
 - **Live EQ** - Real-time bass and treble shelf EQ applied before streaming.
-- **Touch-Friendly UI** - A warm, walnut-and-cream interface designed for a dedicated touchscreen. Fully responsive on phones and tablets too.
+- **Touch-Friendly UI** - A warm, walnut-and-cream interface designed for a dedicated touchscreen. Fully responsive on phones and tablets too. Keyboard shortcuts for kiosk mode (space for play/pause, arrows for skip, Q for queue, Escape to close panels).
+- **Full-Text Search** - Search your collection by artist, title, genre, label, year, or personal notes. Results filter instantly as you type.
 - **Now Playing Screensaver** - After idle time, a full-screen now-playing display fades in with spinning album art, track progress, side indicator, and animated EQ visualization. Fades out smoothly when you interact with the screen.
 - **Album Notes** - Add personal notes to any album in your collection - pressing details, condition, where you picked it up. Click to edit right from the album detail modal.
 - **Track Boundary Editor** - Manually adjust where tracks start and end if the automatic silence detection got it wrong. Edit times directly in the album detail modal.
@@ -233,6 +235,13 @@ vinyl-airplay/
 - [x] **Remaining time display** - Now-playing bar and screensaver show time remaining
 - [x] **Screensaver transitions** - Smooth fade in/out instead of hard cut
 - [x] **Unrecorded album highlighting** - Visual distinction for albums not yet recorded
+- [x] **Crossfade** - Equal-power crossfade between album sides, configurable 0-2 seconds
+- [x] **Persistent playlists** - Save and load named playlists from the queue panel
+- [x] **Full-text search** - Search by artist, title, genre, label, year, and notes
+- [x] **Star ratings** - 1-5 star ratings with sort-by-rating option
+- [x] **Library shuffle** - Shuffle all recorded albums into a single queue
+- [x] **Keyboard shortcuts** - Space, arrows, Q, S, Escape for kiosk and desktop
+- [x] **Side count indicator** - "Side 2 of 4" display in now-playing bar
 - [ ] **WiFi setup portal** - Captive portal for headless first-time WiFi configuration
 - [ ] **One-line install script** - Automated installer for existing Pi setups
 - [ ] **Flashable Pi image** - Pre-built SD card image for zero-config setup
