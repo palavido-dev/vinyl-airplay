@@ -434,7 +434,7 @@
   .album-card.selected .album-card-checkbox { background: var(--amber); border-color: var(--amber); color: var(--ink); }
   .album-card.selected .album-card-checkbox::after { content: '✓'; font-size: 0.9rem; font-weight: bold; }
 
-  /* Home View Shelves */
+  /* Shelves View */
   .home-view { overflow-y: auto; flex: 1; }
   .shelf { margin-bottom: 1.5rem; }
   .shelf-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.6rem; padding: 0 0.5rem; }
@@ -1410,8 +1410,8 @@
   <span class="brand"><span class="brand-icon"></span>The Listening Room<span class="album-count" id="album-count"></span></span>
   <input type="search" class="search-bar" id="catalog-search" placeholder="Search your collection…" oninput="filterCatalog(this.value)">
   <div class="view-toggle" id="view-toggle">
-    <button class="view-toggle-btn active" id="view-home" onclick="switchView('home')" title="Home">Home</button>
-    <button class="view-toggle-btn" id="view-library" onclick="switchView('library')" title="Library">Library</button>
+    <button class="view-toggle-btn" id="view-shelves" onclick="switchView('shelves')" title="Shelves">Shelves</button>
+    <button class="view-toggle-btn active" id="view-library" onclick="switchView('library')" title="Library">Library</button>
   </div>
   <button class="header-btn" id="btn-sort" onclick="toggleSortPanel()" title="Sort &amp; group">&#8645;</button>
   <button class="header-btn" id="btn-select" onclick="toggleMultiSelect()" title="Select" style="display:none">☑</button>
@@ -2048,21 +2048,21 @@ function showNPFooter(){const f=document.getElementById('np-footer');f.classList
 function hideNPFooter(){const f=document.getElementById('np-footer');f.classList.add('hidden');f.style.display='none';_playerSource=null;document.getElementById('np-hero').classList.remove('visible');document.getElementById('main-content').classList.remove('has-hero')}
 
 async function loadCatalog(){
-  try{const d=await fetch('/api/catalog').then(r=>r.json());_catalogAlbums=d.albums||[];renderCatalog(_catalogAlbums);renderRecentlyPlayed(_catalogAlbums);updateAlbumCount();if(_viewState.view==='home')renderHomeView()}
+  try{const d=await fetch('/api/catalog').then(r=>r.json());_catalogAlbums=d.albums||[];renderCatalog(_catalogAlbums);renderRecentlyPlayed(_catalogAlbums);updateAlbumCount();if(_viewState.view==='shelves')renderHomeView()}
   catch(e){showError('Failed to load catalog')}
 }
 
 // ── View Switching ──
 async function switchView(view){
   _viewState.view=view;
-  document.getElementById('view-home').classList.toggle('active',view==='home');
+  document.getElementById('view-shelves').classList.toggle('active',view==='shelves');
   document.getElementById('view-library').classList.toggle('active',view==='library');
-  document.getElementById('home-view').style.display=view==='home'?'':'none';
+  document.getElementById('home-view').style.display=view==='shelves'?'':'none';
   document.getElementById('library-view').style.display=view==='library'?'':'none';
   document.getElementById('btn-sort').style.display=view==='library'?'':'none';
   document.getElementById('btn-select').style.display=view==='library'?'':'none';
-  document.getElementById('catalog-search').placeholder=view==='home'?'Search shelves...':'Search your collection...';
-  if(view==='home'){await renderHomeView()}
+  document.getElementById('catalog-search').placeholder=view==='shelves'?'Search shelves...':'Search your collection...';
+  if(view==='shelves'){await renderHomeView()}
 }
 
 async function renderHomeView(){
@@ -3549,7 +3549,7 @@ async function init(){
   if(d.album_recording){_recAlbumId=d.album_recording.album_id;_recSide=d.album_recording.side;if(!_recStartTime)_recStartTime=Date.now()}
   initSwipeGestures();
   await loadCatalog();
-  switchView('home');
+  switchView('library');
 }
 init();
 
