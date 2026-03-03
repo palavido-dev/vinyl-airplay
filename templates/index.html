@@ -703,16 +703,16 @@
   @media (max-width: 600px) {
     .frame { margin: 4px; border: 2px solid var(--walnut-lt); border-radius: 8px; }
 
-    /* Header: Stack search bar below brand/buttons */
+    /* Header: Wrap so search drops to second row */
     .app-header {
-      flex-direction: column; align-items: stretch; gap: 0.5rem;
+      flex-wrap: wrap; gap: 0.4rem;
       padding: 0.4rem 0.6rem;
     }
-    .brand { font-size: 0.9rem; }
-    .search-bar { order: 2; flex: 1; width: 100%; }
+    .brand { font-size: 0.9rem; flex-shrink: 0; }
+    .search-bar { order: 2; flex-basis: 100%; width: 100%; }
 
-    /* Header buttons row */
-    .app-header > .header-btn { min-height: 44px; }
+    /* Header buttons: inline row, touch-friendly */
+    .app-header > .header-btn { min-height: 44px; min-width: 44px; }
 
     /* Album Grid: Smaller columns, 3 fit on mobile */
     .album-grid {
