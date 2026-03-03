@@ -95,6 +95,7 @@ class Player:
         self._stop_event   = threading.Event()
         self._feed_thread: Optional[threading.Thread] = None
         self._ffmpeg: Optional[subprocess.Popen] = None
+        self._next_ffmpeg: Optional[subprocess.Popen] = None  # pre-started for gapless
 
         self._pause_event.set()  # start unpaused
 
@@ -344,6 +345,42 @@ class Player:
             except Exception:
                 pass
             self._ffmpeg = None
+        self._kill_next_ffmpeg()
+
+    def _kill_next_ffmpeg(self):
+        if self._next_ffmpeg:
+            try:
+                self._next_ffmpeg.kill()
+                self._next_ffmpeg.wait(timeout=2)
+            except Exception:
+                pass
+            self._next_ffmpeg = None
+
+    def _prestart_next_side(self):
+        """Pre-start ffmpeg for the next side so transitions are gapless.
+        The process blocks on its stdout pipe until we read from it."""
+        self._kill_next_ffmpeg()
+        next_idx = self._side_idx + 1
+        if next_idx >= len(self.playlist):
+            return
+        next_entry = self.playlist[next_idx]
+        if not Path(next_entry.audio_path).exists():
+            return
+        cmd = [
+            "ffmpeg", "-hide_banner", "-loglevel", "error",
+            "-i", next_entry.audio_path,
+            "-f", "s16le", "-acodec", "pcm_s16le",
+            "-ar", str(SAMPLE_RATE), "-ac", str(CHANNELS),
+            "pipe:1",
+        ]
+        try:
+            self._next_ffmpeg = subprocess.Popen(
+                cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            )
+            print(f"[player] Pre-started ffmpeg for Side {next_entry.side} (gapless)")
+        except Exception as e:
+            print(f"[player] Failed to pre-start next side: {e}")
+            self._next_ffmpeg = None
 
     # ── Internal: Track Boundary Detection ───────────────────────────────────
 
@@ -448,11 +485,17 @@ class Player:
                 self._position = 0.0
                 continue
 
-            if not self._start_ffmpeg(entry.audio_path, self._position):
+            # If we already have ffmpeg running (from gapless pre-start), use it
+            if self._ffmpeg and self._ffmpeg.poll() is None:
+                pass  # Already running from gapless swap
+            elif not self._start_ffmpeg(entry.audio_path, self._position):
                 print(f"[player] Failed to start ffmpeg for {entry.audio_path}")
                 self._side_idx += 1
                 self._position = 0.0
                 continue
+
+            # Pre-start ffmpeg for the next side (gapless transition)
+            self._prestart_next_side()
 
             # Fire initial track boundary check
             self._check_track_boundary()
@@ -494,7 +537,14 @@ class Player:
                         pos_start = target
                         bytes_fed = 0
                         t_start = time.monotonic()
-                        self._kill_ffmpeg()
+                        # Kill only current ffmpeg, keep pre-started next side
+                        if self._ffmpeg:
+                            try:
+                                self._ffmpeg.kill()
+                                self._ffmpeg.wait(timeout=2)
+                            except Exception:
+                                pass
+                            self._ffmpeg = None
                         if not self._start_ffmpeg(entry.audio_path, target):
                             break
                         self._check_track_boundary()
@@ -543,14 +593,30 @@ class Player:
                 if sleep_needed > 0.001:
                     time.sleep(sleep_needed)
 
-            self._kill_ffmpeg()
+            # Don't kill ffmpeg yet if we have a pre-started next side
+            # (we only kill it if stopping or changing sides)
+            has_prestarted = self._next_ffmpeg is not None
+
+            if not has_prestarted:
+                self._kill_ffmpeg()
 
             # If we're stopped or side-changed, don't auto-advance
             if self._stop_event.is_set():
+                self._kill_ffmpeg()
                 break
             with self._lock:
                 if self._side_change_requested:
+                    self._kill_ffmpeg()
                     continue
+
+            # Clean up current ffmpeg (the pre-started one is separate)
+            if self._ffmpeg:
+                try:
+                    self._ffmpeg.kill()
+                    self._ffmpeg.wait(timeout=2)
+                except Exception:
+                    pass
+                self._ffmpeg = None
 
             # Auto-advance to next side
             self._side_idx += 1
@@ -558,9 +624,16 @@ class Player:
             self._current_track_idx = -1
 
             if self._side_idx < len(self.playlist):
-                print(f"[player] Auto-advancing to Side {self.playlist[self._side_idx].side}")
+                # Swap pre-started ffmpeg into active slot for gapless transition
+                if has_prestarted:
+                    self._ffmpeg = self._next_ffmpeg
+                    self._next_ffmpeg = None
+                    print(f"[player] Gapless advance to Side {self.playlist[self._side_idx].side}")
+                else:
+                    print(f"[player] Auto-advancing to Side {self.playlist[self._side_idx].side}")
                 self._on_status_change(self.get_status())
             elif self._repeat_mode == "album" and self.playlist:
+                self._kill_next_ffmpeg()
                 self._restart_playback = True
             # Loop continues with next side
 
