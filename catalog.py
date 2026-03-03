@@ -1360,6 +1360,86 @@ def get_recent_plays(limit: int = 20) -> list[dict]:
         db.close()
 
 
+def get_listening_stats() -> dict:
+    """Get aggregate listening statistics."""
+    db = get_db()
+    try:
+        # Total plays
+        total_plays = db.execute("SELECT COUNT(*) FROM plays").fetchone()[0] or 0
+
+        # Total albums and tracks
+        total_albums = db.execute("SELECT COUNT(*) FROM albums").fetchone()[0] or 0
+        total_tracks = db.execute("SELECT COUNT(*) FROM tracks").fetchone()[0] or 0
+
+        # Total listening hours (sum of track durations from plays)
+        listening_secs = db.execute("""
+            SELECT COALESCE(SUM(COALESCE(t.duration_secs, 0)), 0)
+            FROM plays p
+            JOIN tracks t ON p.track_id = t.id
+        """).fetchone()[0] or 0
+        total_listening_hours = listening_secs / 3600.0
+
+        # Top 5 albums
+        top_albums = db.execute("""
+            SELECT COUNT(p.id) as play_count,
+                   a.title,
+                   a.artist,
+                   a.artwork_path,
+                   a.user_artwork_path,
+                   a.id
+            FROM plays p
+            JOIN albums a ON p.album_id = a.id
+            GROUP BY a.id
+            ORDER BY play_count DESC
+            LIMIT 5
+        """).fetchall()
+        top_albums_list = [dict(r) for r in top_albums]
+
+        # Top 5 tracks
+        top_tracks = db.execute("""
+            SELECT COUNT(p.id) as play_count,
+                   t.title,
+                   t.artist,
+                   a.title as album_title
+            FROM plays p
+            JOIN tracks t ON p.track_id = t.id
+            JOIN albums a ON p.album_id = a.id
+            GROUP BY t.id
+            ORDER BY play_count DESC
+            LIMIT 5
+        """).fetchall()
+        top_tracks_list = [dict(r) for r in top_tracks]
+
+        # Recent 10 plays
+        recent_plays = db.execute("""
+            SELECT p.played_at,
+                   t.title as track_title,
+                   a.title as album_title,
+                   a.artist,
+                   a.artwork_path,
+                   a.user_artwork_path,
+                   a.id as album_id
+            FROM plays p
+            JOIN tracks t ON p.track_id = t.id
+            JOIN albums a ON p.album_id = a.id
+            ORDER BY p.played_at DESC
+            LIMIT 10
+        """).fetchall()
+        recent_plays_list = [dict(r) for r in recent_plays]
+
+        return {
+            "total_plays": total_plays,
+            "total_albums": total_albums,
+            "total_tracks": total_tracks,
+            "total_listening_hours": round(total_listening_hours, 2),
+            "top_albums": top_albums_list,
+            "top_tracks": top_tracks_list,
+            "recent_plays": recent_plays_list
+        }
+    finally:
+        db.close()
+
+
 def update_album_artwork(album_id: int, path: str, user: bool = True):
     db = get_db()
     try:

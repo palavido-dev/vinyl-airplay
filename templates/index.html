@@ -438,6 +438,31 @@
   }
   .settings-section { margin-bottom: 1.2rem; }
   .settings-section h3 { font-family: var(--display-font); font-size: 0.78rem; font-weight: 700; color: var(--leather); letter-spacing: 0.02em; margin-bottom: 0.5rem; }
+
+  /* ── Stats Modal ── */
+  .stats-summary { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1rem; margin-bottom: 1.5rem; }
+  .stat-card { background: var(--paper); border: 1px solid rgba(0,0,0,0.08); border-radius: 8px; padding: 1rem; text-align: center; }
+  .stat-label { font-size: 0.75rem; font-weight: 600; color: var(--muted); letter-spacing: 0.04em; margin-bottom: 0.4rem; }
+  .stat-value { font-family: var(--display-font); font-size: 2rem; font-weight: 700; color: var(--leather); }
+  .stats-section { margin-bottom: 1.5rem; }
+  .stats-section h3 { font-family: var(--display-font); font-size: 0.78rem; font-weight: 700; color: var(--leather); letter-spacing: 0.02em; margin-bottom: 0.6rem; }
+  .stats-list { display: flex; flex-direction: column; gap: 0.5rem; }
+  .stats-album-item { display: flex; align-items: center; gap: 0.6rem; padding: 0.5rem; background: var(--paper); border-radius: 6px; border: 1px solid rgba(0,0,0,0.06); }
+  .stats-album-art { width: 50px; height: 50px; border-radius: 4px; object-fit: cover; flex-shrink: 0; border: 1px solid rgba(0,0,0,0.1); }
+  .stats-album-info { flex: 1; min-width: 0; }
+  .stats-album-title { font-size: 0.85rem; font-weight: 600; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .stats-album-artist { font-size: 0.75rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .stats-play-count { font-size: 0.8rem; font-weight: 600; color: var(--amber-dk); min-width: 40px; text-align: right; }
+  .stats-track-item { display: flex; align-items: center; justify-content: space-between; padding: 0.5rem; background: var(--paper); border-radius: 6px; border: 1px solid rgba(0,0,0,0.06); }
+  .stats-track-info { flex: 1; min-width: 0; }
+  .stats-track-title { font-size: 0.85rem; font-weight: 600; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .stats-track-artist { font-size: 0.75rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .stats-recent-item { display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem; background: var(--paper); border-radius: 6px; border: 1px solid rgba(0,0,0,0.06); }
+  .stats-recent-art { width: 40px; height: 40px; border-radius: 4px; object-fit: cover; flex-shrink: 0; border: 1px solid rgba(0,0,0,0.1); }
+  .stats-recent-info { flex: 1; min-width: 0; }
+  .stats-recent-track { font-size: 0.82rem; font-weight: 600; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .stats-recent-album { font-size: 0.75rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .stats-recent-time { font-size: 0.7rem; color: var(--muted); min-width: 50px; text-align: right; flex-shrink: 0; }
   .device-item { display: flex; align-items: center; gap: 0.6rem; padding: 0.5rem 0; border-bottom: 1px solid rgba(0,0,0,0.06); font-size: 0.82rem; }
   .device-item:last-child { border-bottom: none; }
   .device-item input[type=checkbox] { accent-color: var(--amber-dk); width: 18px; height: 18px; }
@@ -797,6 +822,7 @@
   <span class="brand"><span class="brand-icon"></span>The Listening Room</span>
   <input type="search" class="search-bar" id="catalog-search" placeholder="Search your collection…" oninput="filterCatalog(this.value)">
   <button class="header-btn" id="btn-sort" onclick="toggleSortPanel()" title="Sort &amp; group">&#8645;</button>
+  <button class="header-btn" onclick="showStats()" title="Stats &amp; history">📊</button>
   <button class="header-btn" onclick="shufflePlay()" title="Shuffle play">🔀</button>
   <button class="header-btn" onclick="showAddForm()" title="Add record" style="font-size:1.5rem;font-weight:700;line-height:1">+</button>
   <button class="header-btn" onclick="showSettings()" title="Settings">⚙</button>
@@ -1029,6 +1055,55 @@
     <button class="btn btn-ghost" onclick="hideSettings()" style="width:100%;margin-top:0.5rem">Close</button>
   </div>
 </div>
+
+<!-- Stats Modal -->
+<div class="modal-overlay" id="stats-modal" onclick="if(event.target===this)hideStats()">
+  <div class="modal" style="max-width:680px">
+    <button class="modal-x" onclick="hideStats()" title="Close">✕</button>
+    <h2 style="font-family:var(--display-font);font-size:1rem;margin-bottom:1rem">Listening Statistics</h2>
+
+    <!-- Summary Stats Grid -->
+    <div class="stats-summary">
+      <div class="stat-card">
+        <div class="stat-label">Total Plays</div>
+        <div class="stat-value" id="stat-plays">0</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Albums</div>
+        <div class="stat-value" id="stat-albums">0</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Tracks</div>
+        <div class="stat-value" id="stat-tracks">0</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Listening Hours</div>
+        <div class="stat-value" id="stat-hours">0</div>
+      </div>
+    </div>
+
+    <!-- Most Played Albums -->
+    <div class="stats-section">
+      <h3>Most Played Albums</h3>
+      <div class="stats-list" id="top-albums-list"></div>
+    </div>
+
+    <!-- Most Played Tracks -->
+    <div class="stats-section">
+      <h3>Most Played Tracks</h3>
+      <div class="stats-list" id="top-tracks-list"></div>
+    </div>
+
+    <!-- Recent Plays -->
+    <div class="stats-section">
+      <h3>Recent Plays</h3>
+      <div class="stats-list" id="recent-plays-list"></div>
+    </div>
+
+    <button class="btn btn-ghost" onclick="hideStats()" style="width:100%;margin-top:1rem">Close</button>
+  </div>
+</div>
+
 <!-- Output Picker -->
 <div class="output-picker-overlay" id="output-picker-overlay" onclick="if(event.target===this)closeOutputPicker()">
   <div class="output-picker">
@@ -1666,6 +1741,12 @@ async function submitManual(){const t=document.getElementById('m-album-title').v
 
 function showSettings(){document.getElementById('settings-modal').classList.add('open');loadBluetoothPaired()}
 function hideSettings(){document.getElementById('settings-modal').classList.remove('open')}
+function showStats(){document.getElementById('stats-modal').classList.add('open');loadStats()}
+function hideStats(){document.getElementById('stats-modal').classList.remove('open')}
+async function loadStats(){try{const r=await fetch('/api/catalog/stats').then(resp=>resp.json());document.getElementById('stat-plays').textContent=r.total_plays||0;document.getElementById('stat-albums').textContent=r.total_albums||0;document.getElementById('stat-tracks').textContent=r.total_tracks||0;document.getElementById('stat-hours').textContent=(r.total_listening_hours||0).toFixed(1);renderTopAlbums(r.top_albums||[]);renderTopTracks(r.top_tracks||[]);renderRecentPlays(r.recent_plays||[])}catch(e){showError('Failed to load stats')}}
+function renderTopAlbums(albums){const c=document.getElementById('top-albums-list');if(!albums.length){c.innerHTML='<div style="color:var(--muted);font-size:0.82rem">No plays yet</div>';return}c.innerHTML=albums.map(a=>{const art=a.user_artwork_path||a.artwork_path;const artHtml=art?`<img src="/artwork/${art.split('/').pop()}" class="stats-album-art" alt="">`:'<div class="stats-album-art" style="background:var(--paper-dk);display:flex;align-items:center;justify-content:center;font-size:1.2rem">💿</div>';return`<div class="stats-album-item"><div class="stats-album-art" style="background:var(--paper-dk);width:50px;height:50px;border-radius:4px;display:flex;align-items:center;justify-content:center;overflow:hidden;border:1px solid rgba(0,0,0,0.1)">${artHtml}</div><div class="stats-album-info"><div class="stats-album-title">${esc(a.title)}</div><div class="stats-album-artist">${esc(a.artist)}</div></div><div class="stats-play-count">${a.play_count} plays</div></div>`}).join('')}
+function renderTopTracks(tracks){const c=document.getElementById('top-tracks-list');if(!tracks.length){c.innerHTML='<div style="color:var(--muted);font-size:0.82rem">No plays yet</div>';return}c.innerHTML=tracks.map(t=>`<div class="stats-track-item"><div class="stats-track-info"><div class="stats-track-title">${esc(t.title)}</div><div class="stats-track-artist">${esc(t.artist||t.album_title)}</div></div><div class="stats-play-count">${t.play_count}</div></div>`).join('')}
+function renderRecentPlays(plays){const c=document.getElementById('recent-plays-list');if(!plays.length){c.innerHTML='<div style="color:var(--muted);font-size:0.82rem">No plays yet</div>';return}c.innerHTML=plays.map(p=>{const art=p.user_artwork_path||p.artwork_path;const artHtml=art?`<img src="/artwork/${art.split('/').pop()}" class="stats-recent-art" alt="">`:'<div style="background:var(--paper-dk);width:40px;height:40px;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:0.9rem;border:1px solid rgba(0,0,0,0.1)">💿</div>';const d=new Date(p.played_at);const h=d.getHours().toString().padStart(2,'0');const m=d.getMinutes().toString().padStart(2,'0');const timeStr=h+':'+m;return`<div class="stats-recent-item"><div class="stats-recent-art" style="background:var(--paper-dk);width:40px;height:40px;border-radius:4px;display:flex;align-items:center;justify-content:center;overflow:hidden;border:1px solid rgba(0,0,0,0.1);font-size:0.9rem">${artHtml}</div><div class="stats-recent-info"><div class="stats-recent-track">${esc(p.track_title)}</div><div class="stats-recent-album">${esc(p.album_title)}</div></div><div class="stats-recent-time">${timeStr}</div></div>`}).join('')}
 async function scanDevices(){try{const d=await fetch('/api/scan').then(r=>r.json());renderSettingsDevices(d.devices);renderHiddenDevices(d.devices)}catch(e){showError('Scan failed')}}
 function renderSettingsDevices(devs){const l=document.getElementById('settings-device-list');const v=(devs||[]).filter(d=>!d.hidden);if(!v.length){l.innerHTML='<div style="color:var(--muted);font-size:0.82rem">No devices found</div>';return}l.innerHTML=v.map(d=>{const np=d.needs_pairing&&d.paired===false;return `<label class="device-item" style="opacity:${np?'0.6':'1'}"><input type="checkbox" class="dev-check" value='${JSON.stringify({id:d.id,name:d.name}).replace(/'/g,"&apos;")}'><span style="flex:1">${esc(d.name)}</span>${np?`<button class="btn btn-ghost" onclick="pairDevice('${d.id}')">Pair</button>`:''}</label>`}).join('')}
 function getSelectedDevices(){return[...document.querySelectorAll('.dev-check:checked')].map(c=>JSON.parse(c.value))}

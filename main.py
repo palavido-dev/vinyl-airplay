@@ -1514,6 +1514,11 @@ async def get_history():
     return {"plays": cat.get_recent_plays()}
 
 
+@app.get("/api/catalog/stats")
+async def get_stats():
+    return cat.get_listening_stats()
+
+
 @app.get("/api/catalog/{album_id}/tracks")
 async def get_tracks(album_id: int):
     return {"tracks": cat.get_album_tracks(album_id)}
