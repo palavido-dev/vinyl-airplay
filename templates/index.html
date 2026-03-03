@@ -1914,7 +1914,7 @@ async function plShowDetail(playlistId){
     var a=albumsById[aid];
     if(!a)return;
     var art=a.user_artwork_path||a.artwork_path||'';
-    var imgSrc=art?'/api/catalog/'+a.id+'/artwork':'';
+    var imgSrc=art?'/artwork/'+art.split('/').pop():'';
     html+='<div class="pl-album-item">'
       +(imgSrc?'<img src="'+imgSrc+'" alt="" onerror="this.style.display=\'none\'">':'')
       +'<div class="pl-album-info"><div class="pl-album-title">'+esc(a.title)+'</div><div class="pl-album-artist">'+esc(a.artist)+'</div></div>'
@@ -1993,7 +1993,7 @@ function plRenderBrowseGrid(){
   var html='';
   albums.forEach(function(a){
     var art=a.user_artwork_path||a.artwork_path||'';
-    var imgSrc=art?'/api/catalog/'+a.id+'/artwork':'';
+    var imgSrc=art?'/artwork/'+art.split('/').pop():'';
     var inList=_plCurrentAlbumIds.indexOf(a.id)!==-1;
     html+='<div class="pl-browse-item'+(inList?' in-playlist':'')+'" onclick="plToggleAlbum('+a.id+')" title="'+esc(a.artist)+' - '+esc(a.title)+'">'
       +(imgSrc?'<img src="'+imgSrc+'" alt="" loading="lazy">':'<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:0.6rem;color:var(--muted);padding:0.2rem;text-align:center">'+esc(a.title)+'</div>')
@@ -2040,7 +2040,7 @@ async function _plRefreshContents(){
     var a=albumsById[aid];
     if(!a)return;
     var art=a.user_artwork_path||a.artwork_path||'';
-    var imgSrc=art?'/api/catalog/'+a.id+'/artwork':'';
+    var imgSrc=art?'/artwork/'+art.split('/').pop():'';
     html+='<div class="pl-album-item">'
       +(imgSrc?'<img src="'+imgSrc+'" alt="" onerror="this.style.display=\'none\'">':'')
       +'<div class="pl-album-info"><div class="pl-album-title">'+esc(a.title)+'</div><div class="pl-album-artist">'+esc(a.artist)+'</div></div>'
