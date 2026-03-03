@@ -1317,29 +1317,40 @@ async def stream_audio(stream_id: str):
         return {"error": "Stream not found"}, 404
 
     async def generate():
-        # Send WAV header first
-        yield wav_header()
-        empty_polls = 0
-        max_empty = 500  # 5 seconds of empty polls before giving up
-        # Stream chunks from buffer
-        while True:
-            if stream._deque:
-                chunk = stream._deque.popleft()
-                empty_polls = 0
-                yield chunk
-            elif stream.is_stopped():
-                # Drain remaining
-                while stream._deque:
-                    yield stream._deque.popleft()
-                break
-            else:
-                empty_polls += 1
-                if empty_polls > max_empty:
-                    print(f"[browser-stream] Timeout waiting for data on {stream_id}")
+        chunks_sent = 0
+        try:
+            # Send WAV header first
+            yield wav_header()
+            print(f"[browser-stream] Sent WAV header for {stream_id}")
+            empty_polls = 0
+            max_empty = 500  # 5 seconds of empty polls before giving up
+            # Stream chunks from buffer
+            while True:
+                if stream._deque:
+                    chunk = stream._deque.popleft()
+                    empty_polls = 0
+                    chunks_sent += 1
+                    yield chunk
+                elif stream.is_stopped():
+                    # Drain remaining
+                    while stream._deque:
+                        yield stream._deque.popleft()
+                        chunks_sent += 1
+                    print(f"[browser-stream] Stream {stream_id} stopped by player after {chunks_sent} chunks")
                     break
-                await asyncio.sleep(0.01)
-        _browser_streams.pop(stream_id, None)
-        print(f"[browser-stream] Closed stream {stream_id}")
+                else:
+                    empty_polls += 1
+                    if empty_polls > max_empty:
+                        print(f"[browser-stream] Timeout waiting for data on {stream_id} after {chunks_sent} chunks")
+                        break
+                    await asyncio.sleep(0.01)
+        except GeneratorExit:
+            print(f"[browser-stream] Client disconnected from {stream_id} after {chunks_sent} chunks")
+        except Exception as e:
+            print(f"[browser-stream] Error in stream {stream_id}: {e}")
+        finally:
+            _browser_streams.pop(stream_id, None)
+            print(f"[browser-stream] Closed stream {stream_id}")
 
     return StreamingResponse(generate(), media_type="audio/wav")
 
