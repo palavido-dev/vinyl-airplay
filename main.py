@@ -1684,6 +1684,13 @@ async def delete_album_route(album_id: int):
     cat.delete_album(album_id)
     return {"ok": True}
 
+
+@app.post("/api/catalog/{album_id}/favorite")
+async def toggle_album_favorite(album_id: int):
+    new_state = cat.toggle_favorite(album_id)
+    return {"ok": True, "favorite": new_state}
+
+
 @app.get("/api/now-playing")
 async def now_playing():
     if not state.now_playing:
