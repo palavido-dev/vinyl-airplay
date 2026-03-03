@@ -2975,6 +2975,102 @@ async def player_queue_clear():
     return {"ok": True}
 
 
+@app.post("/api/player/queue/remove")
+async def player_queue_remove(body: dict):
+    """Remove a single side from the queue by index. body: { index: int }"""
+    if not state.player:
+        return {"ok": False, "error": "No playback active"}
+
+    idx = body.get("index")
+    if idx is None or not isinstance(idx, int):
+        return {"ok": False, "error": "index required (integer)"}
+
+    pl = state.player.playlist
+    cur = state.player._side_idx
+
+    if idx < 0 or idx >= len(pl):
+        return {"ok": False, "error": "Index out of range"}
+
+    # Don't allow removing the currently playing side
+    if idx == cur:
+        return {"ok": False, "error": "Cannot remove the currently playing side"}
+
+    pl.pop(idx)
+
+    # Adjust current index if we removed something before it
+    if idx < cur:
+        state.player._side_idx -= 1
+
+    # Kill pre-started next ffmpeg since playlist changed
+    state.player._kill_next_ffmpeg()
+    state.player._prestart_next_side()
+
+    # Broadcast updated queue
+    queue_info = []
+    for i, entry in enumerate(state.player.playlist):
+        queue_info.append({
+            "index": i,
+            "album_id": entry.album_id,
+            "album_title": entry.album_title or "",
+            "album_artist": entry.album_artist or "",
+            "side": entry.side,
+            "artwork": entry.artwork_path or "",
+        })
+    await broadcast("queue_updated", {"queue": queue_info})
+    return {"ok": True}
+
+
+@app.post("/api/player/queue/reorder")
+async def player_queue_reorder(body: dict):
+    """Move a queue item from one index to another. body: { from: int, to: int }"""
+    if not state.player:
+        return {"ok": False, "error": "No playback active"}
+
+    from_idx = body.get("from")
+    to_idx = body.get("to")
+    if from_idx is None or to_idx is None:
+        return {"ok": False, "error": "from and to required (integers)"}
+
+    pl = state.player.playlist
+    cur = state.player._side_idx
+
+    if from_idx < 0 or from_idx >= len(pl) or to_idx < 0 or to_idx >= len(pl):
+        return {"ok": False, "error": "Index out of range"}
+
+    if from_idx == to_idx:
+        return {"ok": True}
+
+    # Move the entry
+    entry = pl.pop(from_idx)
+    pl.insert(to_idx, entry)
+
+    # Recalculate current index - track where the playing side ended up
+    if from_idx == cur:
+        state.player._side_idx = to_idx
+    elif from_idx < cur and to_idx >= cur:
+        state.player._side_idx -= 1
+    elif from_idx > cur and to_idx <= cur:
+        state.player._side_idx += 1
+
+    # Refresh gapless pre-start
+    state.player._kill_next_ffmpeg()
+    state.player._prestart_next_side()
+
+    # Broadcast updated queue
+    queue_info = []
+    for i, entry in enumerate(state.player.playlist):
+        queue_info.append({
+            "index": i,
+            "album_id": entry.album_id,
+            "album_title": entry.album_title or "",
+            "album_artist": entry.album_artist or "",
+            "side": entry.side,
+            "artwork": entry.artwork_path or "",
+        })
+    await broadcast("queue_updated", {"queue": queue_info})
+    return {"ok": True}
+
+
 # ── Learn Session ─────────────────────────────────────────────────────────────
 
 class LearnSession:
