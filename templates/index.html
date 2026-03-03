@@ -708,7 +708,7 @@
       flex-wrap: wrap; gap: 0.4rem;
       padding: 0.4rem 0.6rem;
     }
-    .brand { font-size: 0.9rem; flex-shrink: 0; }
+    .brand { display: none; }
     .search-bar { order: 2; flex-basis: 100%; width: 100%; }
 
     /* Header buttons: inline row, touch-friendly */
@@ -858,6 +858,7 @@
       <div class="sort-panel-options">
         <button class="sort-option" id="grp-genre" onclick="toggleGroupBy('genre')">Genre</button>
         <button class="sort-option" id="grp-artist" onclick="toggleGroupBy('artist')">Artist</button>
+        <button class="sort-option" id="grp-favorites" onclick="toggleGroupBy('favorites')">Favorites</button>
       </div>
     </div>
   </div>
@@ -1279,7 +1280,7 @@ function renderCatalog(albums){
   if(_viewState.groupBy){
     var groups={},order=[];
     sorted.forEach(function(a){
-      var key=(_viewState.groupBy==='genre'?(a.genre||'Unknown Genre'):(a.artist||'Unknown Artist'));
+      var key=(_viewState.groupBy==='genre'?(a.genre||'Unknown Genre'):_viewState.groupBy==='favorites'?(a.favorite?'Favorites':'Everything Else'):(a.artist||'Unknown Artist'));
       if(!groups[key]){groups[key]=[];order.push(key)}
       groups[key].push(a);
     });
@@ -1332,6 +1333,7 @@ function toggleGroupBy(field){
   if(_viewState.groupBy===field){_viewState.groupBy=null}else{_viewState.groupBy=field}
   document.getElementById('grp-genre').classList.toggle('active',_viewState.groupBy==='genre');
   document.getElementById('grp-artist').classList.toggle('active',_viewState.groupBy==='artist');
+  document.getElementById('grp-favorites').classList.toggle('active',_viewState.groupBy==='favorites');
   updateFilterIndicator();
   var q=(document.getElementById('catalog-search').value||'').trim();
   filterCatalog(q);
