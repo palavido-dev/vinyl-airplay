@@ -612,6 +612,25 @@
       transform: translateY(20px);
     }
   }
+
+  /* Queue FAB */
+  .queue-fab {
+    position: fixed; bottom: 1.2rem; right: 1.2rem; z-index: 45;
+    width: 50px; height: 50px; border-radius: 50%;
+    background: var(--walnut); border: 2px solid var(--amber);
+    color: var(--amber); cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+    transition: transform 0.15s, box-shadow 0.15s;
+  }
+  .queue-fab:active { transform: scale(0.93); }
+  .queue-fab-badge {
+    position: absolute; top: -4px; right: -4px;
+    background: var(--rust); color: #fff;
+    font-size: 0.65rem; font-weight: 700;
+    min-width: 18px; height: 18px; line-height: 18px;
+    border-radius: 9px; text-align: center; padding: 0 4px;
+  }
   .toast-msg.removing {
     animation: slideOutToast 0.3s ease-out forwards;
   }
@@ -1516,6 +1535,10 @@
 
 <!-- Toast Container -->
 <div id="toast-container"></div>
+<button class="queue-fab" id="queue-fab" onclick="toggleQueue()" style="display:none" title="View queue">
+  <span style="font-size:1.2rem">&#9776;</span>
+  <span class="queue-fab-badge" id="queue-fab-badge">0</span>
+</button>
 
 <!-- Full-Screen Now-Playing -->
 <div class="now-playing-fullscreen" id="np-fullscreen">
@@ -1967,15 +1990,7 @@
   <div class="queue-list" id="queue-list">
     <div class="queue-empty">Queue is empty</div>
   </div>
-  <div style="flex-shrink:0;padding:0.6rem 0.75rem;border-top:1px solid rgba(212,162,78,0.15);background:rgba(0,0,0,0.2)">
-    <div style="display:flex;gap:0.4rem;margin-bottom:0.4rem">
-      <button class="btn btn-ghost" style="flex:1;text-align:center;font-size:0.72rem" onclick="saveQueueAsPlaylist()">Save as Playlist</button>
-      <button class="btn btn-ghost" style="flex:1;text-align:center;font-size:0.72rem" onclick="togglePlaylistPicker()">Load Playlist</button>
-    </div>
-    <div id="playlist-picker" style="display:none;margin-bottom:0.4rem">
-      <div id="playlist-list" style="max-height:120px;overflow-y:auto;font-size:0.75rem"></div>
-    </div>
-    <button class="btn btn-ghost" style="width:100%;text-align:center" onclick="clearQueuePrompt()">Clear Queue</button>
+  <div id="queue-actions" style="flex-shrink:0;padding:0.6rem 0.75rem;border-top:1px solid rgba(212,162,78,0.15);background:rgba(0,0,0,0.2);display:flex;gap:0.4rem;flex-wrap:wrap;justify-content:center">
   </div>
 </div>
 
@@ -1992,7 +2007,7 @@
   <div class="osk-row" id="osk-row-bottom"></div>
 </div>
 <script>
-let ws,currentAlbumId=null,_catalogAlbums=[],_playerActive=false,_playerSource=null,_isStreaming=false,_lastUsedDevice=null,_pendingAlbumId=null,_pendingTrackId=null,_currentDevices=null,_playerAlbumId=null,_learnLog=[],_learnLevelInterval=null,_audioPlayer=null,_audioPlayingId=null,_reorderMode=false,_boundaryEditMode=false,_pendingRelease=null,_recTimerInterval=null,_browserAudioCtx=null,_browserStreamReader=null,_browserStreamActive=false,_homeShelvesData={},_multiSelectMode=false,_selectedAlbums=new Set(),_smartPlaylists=[];
+let ws,currentAlbumId=null,_catalogAlbums=[],_playerActive=false,_playerSource=null,_isStreaming=false,_lastUsedDevice=null,_pendingAlbumId=null,_pendingTrackId=null,_currentDevices=null,_playerAlbumId=null,_learnLog=[],_learnLevelInterval=null,_audioPlayer=null,_audioPlayingId=null,_reorderMode=false,_boundaryEditMode=false,_pendingRelease=null,_recTimerInterval=null,_browserAudioCtx=null,_browserStreamReader=null,_browserStreamActive=false,_homeShelvesData={},_multiSelectMode=false,_selectedAlbums=new Set(),_smartPlaylists=[],_pendingQueue=[];
 var _viewState={sortMode:'artist',groupBy:null,view:'library'};
 
 function esc(s){if(!s)return'';const d=document.createElement('div');d.textContent=s;return d.innerHTML}
@@ -2186,9 +2201,11 @@ async function playSelectedAlbums(){
 
 async function queueSelectedAlbums(){
   if(_selectedAlbums.size===0){showError('No albums selected');return}
-  const albums=Array.from(_selectedAlbums).map(id=>_catalogAlbums.find(a=>a.id===id)).filter(Boolean);
-  for(const a of albums){await addToQueue(a.id)}
-  showToast(_selectedAlbums.size+' album'+((_selectedAlbums.size!==1)?'s':'')+' queued');
+  var ids=Array.from(_selectedAlbums);
+  for(var i=0;i<ids.length;i++){await addToQueue(ids[i])}
+  var n=ids.length;
+  showToast(n+' album'+(n!==1?'s':'')+' added to queue');
+  cancelMultiSelect();
 }
 
 async function favoriteSelectedAlbums(){
@@ -2620,8 +2637,8 @@ function renderNowPlaying(d){
 var _lastPositionSave=0;
 function onPlayerStatus(d){
   if(typeof ssOnPlayerStatus==='function')ssOnPlayerStatus(d);
-  if(d.state==='stopped'){_playerActive=false;_playerAlbumId=null;document.getElementById('np-transport').style.display='none';document.getElementById('np-progress-row').style.display='none';updateRepeatButton('off');if(_playerSource==='player')hideNPFooter();return}
-  _playerActive=true;_playerSource='player';showNPFooter();
+  if(d.state==='stopped'){_playerActive=false;_playerAlbumId=null;document.getElementById('np-transport').style.display='none';document.getElementById('np-progress-row').style.display='none';updateRepeatButton('off');if(_playerSource==='player')hideNPFooter();updateQueueFab();return}
+  _playerActive=true;_playerSource='player';showNPFooter();updateQueueFab();
   document.getElementById('np-transport').style.display='flex';document.getElementById('np-progress-row').style.display='flex';
   document.getElementById('np-play-pause').textContent=d.state==='paused'?'\u25B6':'\u23F8';
   updateVinylSpin(d.state);
@@ -2669,12 +2686,90 @@ function playerSeekClick(e){const b=e.currentTarget,r=b.getBoundingClientRect(),
 var _queuePanelOpen=false;
 function toggleQueue(){var p=document.getElementById('queue-panel');_queuePanelOpen=!_queuePanelOpen;p.classList.toggle('open',_queuePanelOpen);document.getElementById('queue-backdrop').style.display=_queuePanelOpen?'block':'none';if(_queuePanelOpen){refreshQueueDisplay();document.addEventListener('click',closeQueueOnClickOutside,true)}else{document.removeEventListener('click',closeQueueOnClickOutside,true)}}
 function closeQueueOnClickOutside(e){var p=document.getElementById('queue-panel');if(!p.contains(e.target)&&e.target.id!=='np-repeat'&&!e.target.closest('[onclick*="toggleQueue"]')){_queuePanelOpen=false;p.classList.remove('open');document.getElementById('queue-backdrop').style.display='none';document.removeEventListener('click',closeQueueOnClickOutside,true)}}
-async function refreshQueueDisplay(){if(!_queuePanelOpen)return;try{const r=await fetch('/api/player/queue').then(d=>d.json());if(!r.ok||!r.queue)return;const list=document.getElementById('queue-list');if(!r.queue.length){list.innerHTML='<div class="queue-empty">Queue is empty</div>';return}let html='';r.queue.forEach((item,idx)=>{const isCurrent=idx===r.current_index;let art='<div class="queue-art" style="display:flex;align-items:center;justify-content:center;font-size:1.5rem">\uD83D\uDCBF</div>';if(item.artwork){const artFile=item.artwork.split('/').pop();art=`<img src="/artwork/${artFile}?t=${item.album_id}" class="queue-art" alt="">`}const removeBtn=isCurrent?'':'<button class="queue-remove-btn" onclick="event.stopPropagation();removeFromQueue('+idx+')" title="Remove">\u2715</button>';const dragHandle=isCurrent?'<div style="width:20px"></div>':'<div class="queue-drag-handle" data-idx="'+idx+'">\u2261</div>';html+=`<div class="queue-item${isCurrent?' current':''}" data-queue-idx="${idx}">${dragHandle}${art}<div class="queue-info"><div class="queue-album-title">${esc(item.album_title)}</div><div class="queue-album-artist">${esc(item.album_artist)}</div><div class="queue-side">Side ${esc(item.side)}</div></div>${removeBtn}</div>`});list.innerHTML=html;initQueueDrag()}catch(e){console.warn('Queue refresh error:',e)}}
+async function refreshQueueDisplay(){
+  if(!_queuePanelOpen)return;
+  var list=document.getElementById('queue-list');
+  var actions=document.getElementById('queue-actions');
+  // If player is active, show live queue
+  if(_playerActive){
+    if(actions)actions.innerHTML='<button class="btn btn-ghost" onclick="saveQueueAsPlaylist()" style="font-size:0.72rem">Save as Playlist</button><button class="btn btn-ghost" onclick="clearQueuePrompt()" style="font-size:0.72rem;color:var(--rust)">Clear</button>';
+    try{const r=await fetch('/api/player/queue').then(d=>d.json());if(!r.ok||!r.queue)return;if(!r.queue.length){list.innerHTML='<div class="queue-empty">Queue is empty</div>';return}let html='';r.queue.forEach((item,idx)=>{const isCurrent=idx===r.current_index;let art='<div class="queue-art" style="display:flex;align-items:center;justify-content:center;font-size:1.5rem">\uD83D\uDCBF</div>';if(item.artwork){const artFile=item.artwork.split('/').pop();art=`<img src="/artwork/${artFile}?t=${item.album_id}" class="queue-art" alt="">`}const removeBtn=isCurrent?'':'<button class="queue-remove-btn" onclick="event.stopPropagation();removeFromQueue('+idx+')" title="Remove">\u2715</button>';const dragHandle=isCurrent?'<div style="width:20px"></div>':'<div class="queue-drag-handle" data-idx="'+idx+'" style="cursor:grab;font-size:1.1rem;color:var(--muted);padding:0 0.15rem">\u2261</div>';html+=`<div class="queue-item${isCurrent?' current':''}" data-queue-idx="${idx}">${dragHandle}${art}<div class="queue-info"><div class="queue-album-title">${esc(item.album_title)}</div><div class="queue-album-artist">${esc(item.album_artist)}</div><div class="queue-side">Side ${esc(item.side)}</div></div>${removeBtn}</div>`});list.innerHTML=html;initQueueDrag()}catch(e){console.warn('Queue refresh error:',e)}
+    return;
+  }
+  // Otherwise show pending queue
+  if(!_pendingQueue.length){
+    list.innerHTML='<div class="queue-empty">Queue is empty. Select albums and add them here.</div>';
+    if(actions)actions.innerHTML='';
+    return;
+  }
+  if(actions)actions.innerHTML='<button class="btn btn-accent" onclick="playPendingQueue()" style="font-size:0.75rem">Play Queue</button><button class="btn btn-ghost" onclick="clearPendingQueue()" style="font-size:0.72rem;color:var(--rust)">Clear</button>';
+  var html='';
+  _pendingQueue.forEach(function(item,idx){
+    var artSrc=item.artwork?'/artwork/'+item.artwork.split('/').pop()+'?t='+item.id:'';
+    var art=artSrc?'<img src="'+artSrc+'" class="queue-art" alt="">':'<div class="queue-art" style="display:flex;align-items:center;justify-content:center;font-size:1.5rem">\uD83D\uDCBF</div>';
+    html+='<div class="queue-item"><div style="width:20px"></div>'+art+'<div class="queue-info"><div class="queue-album-title">'+esc(item.title)+'</div><div class="queue-album-artist">'+esc(item.artist)+'</div></div><button class="queue-remove-btn" onclick="event.stopPropagation();removeFromPendingQueue('+idx+')" title="Remove">\u2715</button></div>';
+  });
+  list.innerHTML=html;
+}
 async function removeFromQueue(idx){try{const r=await fetch('/api/player/queue/remove',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({index:idx})}).then(d=>d.json());if(r.ok){refreshQueueDisplay()}else{showToast(r.error||'Cannot remove')}}catch(e){showToast('Failed to remove')}}
 async function reorderQueue(fromIdx,toIdx){try{const r=await fetch('/api/player/queue/reorder',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({from:fromIdx,to:toIdx})}).then(d=>d.json());if(r.ok){refreshQueueDisplay()}else{showToast(r.error||'Cannot reorder')}}catch(e){showToast('Failed to reorder')}}
 function initQueueDrag(){const list=document.getElementById('queue-list');let dragIdx=null;let dragEl=null;let startY=0;let items=[];function getItemAtY(y){for(const it of items){const r=it.el.getBoundingClientRect();if(y>=r.top&&y<=r.bottom)return it}return null}list.querySelectorAll('.queue-drag-handle').forEach(handle=>{handle.addEventListener('pointerdown',function(e){e.preventDefault();dragIdx=parseInt(this.dataset.idx);dragEl=this.closest('.queue-item');dragEl.classList.add('dragging');startY=e.clientY;items=[];list.querySelectorAll('.queue-item').forEach(el=>{const i=parseInt(el.dataset.queueIdx);items.push({el:el,idx:i})});document.addEventListener('pointermove',onMove);document.addEventListener('pointerup',onUp)})});function onMove(e){e.preventDefault();items.forEach(it=>it.el.classList.remove('drag-over'));const target=getItemAtY(e.clientY);if(target&&target.idx!==dragIdx){target.el.classList.add('drag-over')}}function onUp(e){document.removeEventListener('pointermove',onMove);document.removeEventListener('pointerup',onUp);if(dragEl)dragEl.classList.remove('dragging');items.forEach(it=>it.el.classList.remove('drag-over'));const target=getItemAtY(e.clientY);if(target&&target.idx!==dragIdx&&dragIdx!==null){reorderQueue(dragIdx,target.idx)}dragIdx=null;dragEl=null}}
-async function addToQueue(albumId){if(!_playerActive){showToast('Start playback first');return}try{const r=await fetch('/api/player/queue/add',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({album_id:albumId})}).then(d=>d.json());if(r.ok){showToast(r.message||'Added to queue');refreshQueueDisplay()}else showError(r.error||'Failed to add to queue')}catch(e){showError('Failed to add to queue')}}
-async function addToQueueFromModal(){if(!currentAlbumId)return;if(!_playerActive){showToast('Start playback first');closeModal();return}await addToQueue(currentAlbumId);closeModal()}
+async function addToQueue(albumId){
+  if(_playerActive){
+    try{const r=await fetch('/api/player/queue/add',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({album_id:albumId})}).then(d=>d.json());if(r.ok){showToast(r.message||'Added to queue');refreshQueueDisplay()}else showError(r.error||'Failed to add to queue')}catch(e){showError('Failed to add to queue')}
+  }else{
+    addToPendingQueue(albumId);
+  }
+}
+async function addToQueueFromModal(){if(!currentAlbumId)return;await addToQueue(currentAlbumId);closeModal()}
+function addToPendingQueue(albumId){
+  var a=_catalogAlbums.find(function(x){return x.id===albumId});
+  if(!a)return;
+  if(_pendingQueue.some(function(q){return q.id===albumId}))return;
+  _pendingQueue.push({id:a.id,title:a.title,artist:a.artist,artwork:a.user_artwork_path||a.artwork_path});
+  showToast('Added "'+a.title+'" to queue');
+  updateQueueFab();
+}
+function removeFromPendingQueue(idx){
+  _pendingQueue.splice(idx,1);
+  updateQueueFab();
+  refreshQueueDisplay();
+}
+function clearPendingQueue(){
+  _pendingQueue=[];
+  updateQueueFab();
+  refreshQueueDisplay();
+}
+function playPendingQueue(){
+  if(!_pendingQueue.length){showToast('Queue is empty');return}
+  var ids=_pendingQueue.map(function(q){return q.id});
+  _pendingQueue=[];
+  updateQueueFab();
+  toggleQueue();
+  if(_isStreaming||_playerActive){
+    playMultipleAlbums(ids);
+  }else{
+    _pendingAlbumIds=ids;
+    _pendingAlbumId=ids[0];
+    showOutputPicker(ids[0]);
+  }
+}
+function updateQueueFab(){
+  var fab=document.getElementById('queue-fab');
+  var badge=document.getElementById('queue-fab-badge');
+  var count=_pendingQueue.length;
+  // Show FAB when there are pending items and player isn't active
+  // Also show when player is active (as a quick way to open queue)
+  if(count>0&&!_playerActive){
+    fab.style.display='flex';
+    badge.textContent=count;
+  }else if(_playerActive){
+    // Hide when player is active (queue accessible from now-playing bar)
+    fab.style.display='none';
+  }else{
+    fab.style.display='none';
+  }
+}
 async function clearQueuePrompt(){if(!confirm('Clear queue? Playback will stop after the current album.'))return;clearQueue()}
 async function clearQueue(){try{const r=await fetch('/api/player/queue/clear',{method:'POST'}).then(d=>d.json());if(r.ok){showToast('Queue cleared');refreshQueueDisplay()}else showError(r.error||'Failed to clear queue')}catch(e){showError('Failed to clear queue')}}
 
