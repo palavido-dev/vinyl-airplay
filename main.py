@@ -1606,6 +1606,63 @@ async def get_catalog():
     return {"albums": cat.get_all_albums()}
 
 
+@app.get("/api/catalog/shelves")
+async def get_shelves():
+    albums = cat.get_all_albums()
+
+    # Recently played
+    recently_played = sorted([a for a in albums if a.get('last_played')],
+                            key=lambda x: x.get('last_played', ''), reverse=True)[:10]
+
+    # Recently added
+    recently_added = sorted([a for a in albums if a.get('created_at')],
+                           key=lambda x: x.get('created_at', ''), reverse=True)[:10]
+
+    # Most played (by play count)
+    most_played = sorted([a for a in albums if a.get('play_count', 0) > 0],
+                        key=lambda x: x.get('play_count', 0), reverse=True)[:10]
+
+    # Unplayed
+    unplayed = [a for a in albums if a.get('play_count', 0) == 0][:10]
+
+    # Favorites
+    favorites = [a for a in albums if a.get('favorite')][:10]
+
+    # Top rated
+    top_rated = sorted([a for a in albums if a.get('rating', 0) > 0],
+                      key=lambda x: x.get('rating', 0), reverse=True)[:10]
+
+    # By decade
+    decades = {}
+    for album in albums:
+        year = album.get('year')
+        if year:
+            decade = (int(year) // 10) * 10
+            decade_label = f"{decade}s"
+            if decade_label not in decades:
+                decades[decade_label] = []
+            decades[decade_label].append(album)
+
+    # By genre
+    genres = {}
+    for album in albums:
+        genre = album.get('genre', 'Unknown')
+        if genre not in genres:
+            genres[genre] = []
+        genres[genre].append(album)
+
+    return {
+        "recently_played": recently_played,
+        "recently_added": recently_added,
+        "most_played": most_played,
+        "unplayed": unplayed,
+        "favorites": favorites,
+        "top_rated": top_rated,
+        "decades": decades,
+        "genres": genres
+    }
+
+
 @app.get("/api/catalog/history")
 async def get_history():
     return {"plays": cat.get_recent_plays()}
