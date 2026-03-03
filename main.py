@@ -1722,10 +1722,14 @@ async def get_playlists():
 async def save_playlist(body: dict):
     """Save a playlist. body: { name: str, album_ids: list[int] }"""
     name = body.get("name", "").strip()
+    entries = body.get("entries")  # side-level: [{a:int, s:str}, ...]
     album_ids = body.get("album_ids", [])
     if not name:
         return {"ok": False, "error": "Playlist name required"}
-    pid = cat.save_playlist(name, album_ids)
+    if entries is not None:
+        pid = cat.save_playlist_entries(name, entries)
+    else:
+        pid = cat.save_playlist(name, album_ids)
     return {"ok": True, "id": pid}
 
 
@@ -1752,10 +1756,14 @@ async def reorder_playlist(playlist_id: int, body: dict):
 
 @app.post("/api/playlists/{playlist_id}/remove")
 async def remove_from_playlist(playlist_id: int, body: dict):
-    """Remove an album from a playlist. body: { album_id: int }"""
+    """Remove from playlist. body: { album_id: int } or { entry_idx: int }"""
+    entry_idx = body.get("entry_idx")
+    if entry_idx is not None:
+        ok = cat.remove_playlist_entry(playlist_id, int(entry_idx))
+        return {"ok": ok}
     album_id = body.get("album_id")
     if not album_id:
-        return {"ok": False, "error": "album_id required"}
+        return {"ok": False, "error": "album_id or entry_idx required"}
     ok = cat.remove_album_from_playlist(playlist_id, int(album_id))
     return {"ok": ok}
 
@@ -2759,15 +2767,59 @@ async def player_play(body: dict):
     return {"ok": True}
 
 
+def _build_side_entry(aid: int, side: str, album_info: dict) -> plr.PlaylistEntry | None:
+    """Build a PlaylistEntry for one specific side of an album."""
+    audio_files = cat.get_album_audio(aid)
+    af = next((f for f in audio_files if f["side"] == side), None)
+    if not af:
+        return None
+    all_tracks = cat.get_album_tracks(aid)
+    side_tracks = [
+        {
+            "id":           t["id"],
+            "title":        t["title"],
+            "artist":       t.get("artist") or album_info["artist"],
+            "track_number": t["track_number"],
+            "start_secs":   t.get("start_secs"),
+            "end_secs":     t.get("end_secs"),
+        }
+        for t in all_tracks
+        if t["side"] == side
+    ]
+    if side_tracks:
+        first_start = min(
+            (t["start_secs"] for t in side_tracks if t["start_secs"] is not None),
+            default=0,
+        )
+        if first_start > 5.0:
+            for t in side_tracks:
+                if t["start_secs"] is not None:
+                    t["start_secs"] -= first_start
+                if t["end_secs"] is not None:
+                    t["end_secs"] -= first_start
+    return plr.PlaylistEntry(
+        audio_path=af["file_path"],
+        side=side,
+        duration_secs=af.get("duration_secs"),
+        tracks=side_tracks,
+        album_id=aid,
+        album_title=album_info["title"],
+        album_artist=album_info["artist"],
+        artwork_path=album_info.get("user_artwork_path") or album_info.get("artwork_path"),
+    )
+
+
 @app.post("/api/player/play-queue")
 async def player_play_queue(body: dict):
     """
-    Queue multiple albums for sequential playback.
-    body: { album_ids: [int], devices?: [{id, name}], volume?: int }
+    Queue multiple albums/sides for sequential playback.
+    body: { album_ids: [int], entries?: [{a:int,s:str}], devices?: [{id, name}], volume?: int }
+    If 'entries' is provided, uses side-level ordering. Otherwise falls back to album_ids.
     """
+    entries = body.get("entries")
     album_ids = body.get("album_ids", [])
-    if not album_ids:
-        return {"ok": False, "error": "album_ids required"}
+    if not entries and not album_ids:
+        return {"ok": False, "error": "album_ids or entries required"}
 
     targets = body.get("devices") or state.settings.get("saved_devices", [])
     if not targets:
@@ -2775,52 +2827,36 @@ async def player_play_queue(body: dict):
 
     volume = body.get("volume", state.settings.get("volume", 80))
 
-    # Build combined playlist from all albums
+    # Cache album info lookups
+    albums = cat.get_all_albums()
+    albums_by_id = {a["id"]: a for a in albums}
+
     combined_playlist = []
-    for aid in album_ids:
-        audio_files = cat.get_album_audio(aid)
-        if not audio_files:
-            continue
-        albums = cat.get_all_albums()
-        album_info = next((a for a in albums if a["id"] == aid), None)
-        if not album_info:
-            continue
-        all_tracks = cat.get_album_tracks(aid)
-        for af in audio_files:
-            side = af["side"]
-            side_tracks = [
-                {
-                    "id":           t["id"],
-                    "title":        t["title"],
-                    "artist":       t.get("artist") or album_info["artist"],
-                    "track_number": t["track_number"],
-                    "start_secs":   t.get("start_secs"),
-                    "end_secs":     t.get("end_secs"),
-                }
-                for t in all_tracks
-                if t["side"] == side
-            ]
-            if side_tracks:
-                first_start = min(
-                    (t["start_secs"] for t in side_tracks if t["start_secs"] is not None),
-                    default=0,
-                )
-                if first_start > 5.0:
-                    for t in side_tracks:
-                        if t["start_secs"] is not None:
-                            t["start_secs"] -= first_start
-                        if t["end_secs"] is not None:
-                            t["end_secs"] -= first_start
-            combined_playlist.append(plr.PlaylistEntry(
-                audio_path=af["file_path"],
-                side=side,
-                duration_secs=af.get("duration_secs"),
-                tracks=side_tracks,
-                album_id=aid,
-                album_title=album_info["title"],
-                album_artist=album_info["artist"],
-                artwork_path=album_info.get("user_artwork_path") or album_info.get("artwork_path"),
-            ))
+
+    if entries:
+        # Side-level entries: [{a: album_id, s: side}, ...]
+        for entry in entries:
+            aid = entry.get("a")
+            side = entry.get("s")
+            if not aid or not side:
+                continue
+            album_info = albums_by_id.get(aid)
+            if not album_info:
+                continue
+            pe = _build_side_entry(aid, side, album_info)
+            if pe:
+                combined_playlist.append(pe)
+    else:
+        # Legacy: album_ids -- expand all sides per album
+        for aid in album_ids:
+            album_info = albums_by_id.get(aid)
+            if not album_info:
+                continue
+            audio_files = cat.get_album_audio(aid)
+            for af in audio_files:
+                pe = _build_side_entry(aid, af["side"], album_info)
+                if pe:
+                    combined_playlist.append(pe)
 
     if not combined_playlist:
         return {"ok": False, "error": "No recorded audio found for any of the selected albums"}
