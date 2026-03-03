@@ -1706,6 +1706,35 @@ async def toggle_album_favorite(album_id: int):
     return {"ok": True, "favorite": new_state}
 
 
+# ── Library Export ────────────────────────────────────────────────────────
+
+@app.get("/api/export/catalog")
+async def export_catalog():
+    """Download the SQLite catalog database file."""
+    db_path = cat.DB_PATH
+    if not db_path.exists():
+        return {"ok": False, "error": "Catalog database not found"}
+    return FileResponse(
+        db_path,
+        media_type="application/octet-stream",
+        filename=f"vinyl-catalog-{Path.cwd().name}.db"
+    )
+
+
+@app.get("/api/export/manifest")
+async def export_manifest():
+    """Download a JSON manifest listing all albums, tracks, and audio file paths."""
+    manifest = cat.get_export_manifest(state.settings)
+    return {
+        "ok": True,
+        "audio_directory": manifest["audio_directory"],
+        "albums": manifest["albums"],
+        "total_flac_files": manifest["total_flac_files"],
+        "total_size_bytes": manifest["total_size_bytes"],
+        "catalog_db_path": manifest["catalog_db_path"],
+    }
+
+
 @app.get("/api/now-playing")
 async def now_playing():
     if not state.now_playing:

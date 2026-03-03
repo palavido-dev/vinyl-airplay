@@ -1076,6 +1076,14 @@
       <div id="storage-status" style="display:none;font-size:0.75rem;margin-top:0.3rem"></div>
       <!-- dir picker moved outside settings overlay -->
     </div>
+    <div class="settings-section"><h3>Export Library</h3>
+      <p style="font-size:0.75rem;color:var(--muted);margin-bottom:0.5rem;line-height:1.4">Download your catalog and metadata for backup. Use the manifest JSON with rsync or scp to backup your FLAC files.</p>
+      <div style="display:flex;gap:0.4rem;flex-direction:column">
+        <button class="btn" onclick="downloadCatalog()" style="text-align:left">📥 Download Catalog Database</button>
+        <button class="btn" onclick="downloadManifest()" style="text-align:left">📋 Download Manifest JSON</button>
+      </div>
+      <div id="export-status" style="display:none;font-size:0.75rem;margin-top:0.3rem"></div>
+    </div>
     <button class="btn btn-ghost" onclick="hideSettings()" style="width:100%;margin-top:0.5rem">Close</button>
   </div>
 </div>
@@ -1836,6 +1844,56 @@ async function createDirInPicker(){
     await fetch('/api/settings/storage',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:newPath,create_only:true})});
     loadDirPicker(newPath);document.getElementById('dir-picker-new').value='';
   }catch(e){showError('Could not create folder')}
+}
+async function downloadCatalog(){
+  const st=document.getElementById('export-status');
+  try{
+    const r=await fetch('/api/export/catalog');
+    if(!r.ok){st.style.display='block';st.style.color='var(--rust)';st.textContent='Download failed';return}
+    const blob=await r.blob();
+    const url=window.URL.createObjectURL(blob);
+    const a=document.createElement('a');
+    a.href=url;
+    a.download='vinyl-catalog.db';
+    document.body.appendChild(a);
+    a.click();
+    window.URL.revokeObjectURL(url);
+    document.body.removeChild(a);
+    st.style.display='block';
+    st.style.color='var(--sage)';
+    st.textContent='Catalog downloaded';
+    setTimeout(()=>{st.style.display='none'},2000);
+  }catch(e){
+    st.style.display='block';
+    st.style.color='var(--rust)';
+    st.textContent='Error: '+e.message;
+  }
+}
+async function downloadManifest(){
+  const st=document.getElementById('export-status');
+  try{
+    st.style.display='block';
+    st.style.color='var(--muted)';
+    st.textContent='Generating manifest…';
+    const r=await fetch('/api/export/manifest').then(r=>r.json());
+    if(!r.ok){st.style.color='var(--rust)';st.textContent=r.error||'Failed';return}
+    const blob=new Blob([JSON.stringify(r,null,2)],{type:'application/json'});
+    const url=window.URL.createObjectURL(blob);
+    const a=document.createElement('a');
+    a.href=url;
+    a.download='vinyl-manifest.json';
+    document.body.appendChild(a);
+    a.click();
+    window.URL.revokeObjectURL(url);
+    document.body.removeChild(a);
+    st.style.color='var(--sage)';
+    st.textContent='Manifest downloaded ('+r.total_flac_files+' files, '+Math.round(r.total_size_bytes/1024/1024/1024*10)/10+' GB)';
+    setTimeout(()=>{st.style.display='none'},3000);
+  }catch(e){
+    st.style.display='block';
+    st.style.color='var(--rust)';
+    st.textContent='Error: '+e.message;
+  }
 }
 async function loadAudioDevices(){try{const d=await fetch('/api/audio-devices').then(r=>r.json());document.getElementById('audio-select').innerHTML=d.devices.map(d=>`<option value="${d.index}">${esc(d.name)}</option>`).join('')}catch(e){}}
 

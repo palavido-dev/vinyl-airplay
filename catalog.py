@@ -1937,3 +1937,74 @@ class Recogniser:
         # No local match found
         self._on_unknown()
 
+
+# ── Export Library ────────────────────────────────────────────────────────
+
+def get_export_manifest(settings: dict = None) -> dict:
+    """
+    Generate a manifest of all albums, tracks, and audio files for backup.
+    Returns dict with albums list, total file count, and total size in bytes.
+    Includes audio directory path so backup scripts know where files are located.
+    """
+    audio_dir = get_audio_storage_dir(settings)
+    db = get_db()
+    try:
+        albums_list = []
+        total_flac_files = 0
+        total_size_bytes = 0
+
+        # Get all albums with their audio files
+        albums = db.execute("""
+            SELECT id, title, artist, year, genre
+            FROM albums
+            ORDER BY artist, title
+        """).fetchall()
+
+        for album in albums:
+            album_dict = dict(album)
+            album_dict["tracks"] = []
+
+            # Get tracks for this album
+            tracks = db.execute("""
+                SELECT id, title, track_number, side, duration_secs
+                FROM tracks
+                WHERE album_id = ?
+                ORDER BY side, track_number
+            """, (album["id"],)).fetchall()
+
+            album_dict["tracks"] = [dict(t) for t in tracks]
+
+            # Get audio files for this album
+            audio_files = db.execute("""
+                SELECT id, file_path, side, duration_secs, file_size
+                FROM album_audio
+                WHERE album_id = ?
+                ORDER BY side
+            """, (album["id"],)).fetchall()
+
+            album_dict["audio_files"] = []
+            for audio in audio_files:
+                audio_dict = dict(audio)
+                # Verify file exists and get actual size if different
+                full_path = audio_dir / audio["file_path"]
+                if full_path.exists():
+                    actual_size = full_path.stat().st_size
+                    audio_dict["file_size"] = actual_size
+                    total_size_bytes += actual_size
+                    total_flac_files += 1
+                audio_dict["relative_path"] = audio["file_path"]
+                album_dict["audio_files"].append(audio_dict)
+
+            albums_list.append(album_dict)
+
+        return {
+            "audio_directory": str(audio_dir),
+            "albums": albums_list,
+            "total_flac_files": total_flac_files,
+            "total_size_bytes": total_size_bytes,
+            "catalog_db_path": str(DB_PATH),
+            "export_timestamp": str(Path.cwd()),
+        }
+    finally:
+        db.close()
+
