@@ -1261,6 +1261,97 @@ def update_track_timestamps(track_id: int, start_secs: float, end_secs: float):
         db.close()
 
 
+def correct_side_boundaries(album_id: int, side: str, recording_duration: float):
+    """
+    Sanity-check silence-detected track boundaries against known durations
+    from MusicBrainz/Discogs. If any track deviates by more than 50% from
+    its catalog duration, recalculate all boundaries proportionally using
+    the catalog durations.
+
+    This fixes the common case where silence detection misses a track
+    transition (crossfades, short gaps) and produces wildly wrong boundaries.
+
+    Returns True if boundaries were corrected, False if they looked OK.
+    """
+    db = get_db()
+    try:
+        rows = db.execute(
+            "SELECT id, track_number, title, duration_secs, start_secs, end_secs "
+            "FROM tracks WHERE album_id = ? AND side = ? "
+            "ORDER BY track_number",
+            (album_id, side)
+        ).fetchall()
+
+        if not rows or len(rows) < 2:
+            return False  # single-track sides don't need correction
+
+        # Check if we have catalog durations to compare against
+        catalog_durs = [r["duration_secs"] or 0 for r in rows]
+        if not any(d > 0 for d in catalog_durs):
+            print(f"[catalog] No reference durations for album {album_id} side {side}, "
+                  f"skipping boundary correction")
+            return False
+
+        # Check each track: is detected duration within 50% of catalog?
+        needs_correction = False
+        for r in rows:
+            cat_dur = r["duration_secs"] or 0
+            if cat_dur <= 0:
+                continue
+            start = r["start_secs"] if r["start_secs"] is not None else 0
+            end = r["end_secs"] if r["end_secs"] is not None else 0
+            detected_dur = end - start
+            if detected_dur <= 0:
+                needs_correction = True
+                break
+            ratio = detected_dur / cat_dur
+            if ratio < 0.5 or ratio > 1.5:
+                print(f"[catalog] Track '{r['title']}' boundary suspect: "
+                      f"detected={detected_dur:.1f}s vs catalog={cat_dur}s "
+                      f"(ratio={ratio:.2f})")
+                needs_correction = True
+                break
+
+        if not needs_correction:
+            return False
+
+        # Recalculate using catalog durations proportionally
+        cat_total = sum(catalog_durs)
+        if cat_total <= 0:
+            return False
+
+        ratio = recording_duration / cat_total
+        print(f"[catalog] Correcting side {side} boundaries: "
+              f"catalog_total={cat_total}s, recording={recording_duration:.1f}s, "
+              f"ratio={ratio:.3f}")
+
+        cumulative = 0.0
+        for i, r in enumerate(rows):
+            start = cumulative
+            scaled = (r["duration_secs"] or 0) * ratio
+            cumulative += scaled
+            # Snap last track to exact recording duration
+            end = recording_duration if i == len(rows) - 1 else cumulative
+
+            db.execute(
+                "UPDATE tracks SET start_secs = ?, end_secs = ? WHERE id = ?",
+                (start, end, r["id"])
+            )
+            print(f"[catalog]   {r['title']}: {start:.1f}s - {end:.1f}s "
+                  f"({end - start:.1f}s, catalog: {r['duration_secs']}s)")
+
+        db.commit()
+        print(f"[catalog] Corrected {len(rows)} track boundaries for "
+              f"album {album_id} side {side}")
+        return True
+
+    except Exception as e:
+        print(f"[catalog] correct_side_boundaries failed: {e}")
+        return False
+    finally:
+        db.close()
+
+
 def reset_side_track_timestamps(album_id: int, side: str):
     """Clear start_secs/end_secs for all tracks on a side before re-recording."""
     db = get_db()
