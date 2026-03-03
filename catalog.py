@@ -1490,16 +1490,59 @@ def toggle_favorite(album_id: int) -> bool:
         db.close()
 
 
+def _expand_album_to_sides(album_id: int, db) -> list[dict]:
+    """Expand an album ID into side-level entries using its recorded audio."""
+    rows = db.execute(
+        "SELECT side FROM album_audio WHERE album_id = ? ORDER BY side",
+        (album_id,)
+    ).fetchall()
+    if rows:
+        return [{"a": album_id, "s": r[0]} for r in rows]
+    # No audio -- still add a placeholder entry so the album shows up
+    return [{"a": album_id, "s": "A"}]
+
+
+def _migrate_playlist_entries(raw: list) -> list[dict]:
+    """Convert old-format [int, ...] album_ids to new [{a, s}, ...] entries."""
+    if not raw:
+        return []
+    if isinstance(raw[0], int):
+        # Old format: just album IDs -- expand in-memory (DB updated on next save)
+        return raw  # return as-is, caller will expand via API
+    return raw
+
+
 def get_playlists() -> list[dict]:
-    """Return all saved playlists."""
+    """Return all saved playlists with side-level entries."""
+    import json
     db = get_db()
     try:
         rows = db.execute("SELECT * FROM playlists ORDER BY updated_at DESC").fetchall()
-        import json
         result = []
         for r in rows:
             d = dict(r)
-            d["album_ids"] = json.loads(d["album_ids"])
+            raw = json.loads(d["album_ids"])
+            if raw and isinstance(raw[0], int):
+                # Migrate old format to side-level entries
+                entries = []
+                for aid in raw:
+                    entries.extend(_expand_album_to_sides(aid, db))
+                d["entries"] = entries
+                # Persist the migration
+                db.execute("UPDATE playlists SET album_ids = ? WHERE id = ?",
+                           (json.dumps(entries), d["id"]))
+                db.commit()
+            else:
+                d["entries"] = raw
+            # Also provide unique album_ids for the browse grid checkmarks
+            seen = set()
+            album_ids = []
+            for e in d["entries"]:
+                aid = e["a"] if isinstance(e, dict) else e
+                if aid not in seen:
+                    seen.add(aid)
+                    album_ids.append(aid)
+            d["album_ids"] = album_ids
             result.append(d)
         return result
     finally:
@@ -1507,21 +1550,47 @@ def get_playlists() -> list[dict]:
 
 
 def save_playlist(name: str, album_ids: list[int]) -> int:
-    """Create or update a playlist. Returns the playlist ID."""
+    """Create a new empty playlist (or update by name). Returns the playlist ID."""
     import json
     db = get_db()
     try:
-        ids_json = json.dumps(album_ids)
-        # Check if playlist with this name exists
+        entries_json = json.dumps([])  # Start empty; albums added via add endpoint
+        if album_ids:
+            # If album_ids provided, expand to side entries
+            entries = []
+            for aid in album_ids:
+                entries.extend(_expand_album_to_sides(aid, db))
+            entries_json = json.dumps(entries)
         existing = db.execute("SELECT id FROM playlists WHERE name = ?", (name,)).fetchone()
         if existing:
             db.execute("UPDATE playlists SET album_ids = ?, updated_at = datetime('now') WHERE id = ?",
-                       (ids_json, existing[0]))
+                       (entries_json, existing[0]))
             db.commit()
             return existing[0]
         else:
             cur = db.execute("INSERT INTO playlists (name, album_ids) VALUES (?, ?)",
-                             (name, ids_json))
+                             (name, entries_json))
+            db.commit()
+            return cur.lastrowid
+    finally:
+        db.close()
+
+
+def save_playlist_entries(name: str, entries: list[dict]) -> int:
+    """Create or update a playlist with raw side-level entries. Returns the playlist ID."""
+    import json
+    db = get_db()
+    try:
+        entries_json = json.dumps(entries)
+        existing = db.execute("SELECT id FROM playlists WHERE name = ?", (name,)).fetchone()
+        if existing:
+            db.execute("UPDATE playlists SET album_ids = ?, updated_at = datetime('now') WHERE id = ?",
+                       (entries_json, existing[0]))
+            db.commit()
+            return existing[0]
+        else:
+            cur = db.execute("INSERT INTO playlists (name, album_ids) VALUES (?, ?)",
+                             (name, entries_json))
             db.commit()
             return cur.lastrowid
     finally:
@@ -1529,18 +1598,22 @@ def save_playlist(name: str, album_ids: list[int]) -> int:
 
 
 def add_album_to_playlist(playlist_id: int, album_id: int) -> bool:
-    """Append an album to a playlist (skips if already present). Returns True on success."""
+    """Append all sides of an album to a playlist. Returns True on success."""
     import json
     db = get_db()
     try:
         row = db.execute("SELECT album_ids FROM playlists WHERE id = ?", (playlist_id,)).fetchone()
         if not row:
             return False
-        ids = json.loads(row[0])
-        if album_id not in ids:
-            ids.append(album_id)
+        entries = json.loads(row[0])
+        # Check if any side of this album already exists
+        existing_aids = set(e["a"] for e in entries if isinstance(e, dict))
+        if album_id in existing_aids:
+            return True  # Already present
+        new_sides = _expand_album_to_sides(album_id, db)
+        entries.extend(new_sides)
         db.execute("UPDATE playlists SET album_ids = ?, updated_at = datetime('now') WHERE id = ?",
-                   (json.dumps(ids), playlist_id))
+                   (json.dumps(entries), playlist_id))
         db.commit()
         return True
     finally:
@@ -1548,20 +1621,40 @@ def add_album_to_playlist(playlist_id: int, album_id: int) -> bool:
 
 
 def reorder_playlist(playlist_id: int, from_idx: int, to_idx: int) -> bool:
-    """Move an album within a playlist from one position to another. Returns True on success."""
+    """Move an entry within a playlist from one position to another. Returns True on success."""
     import json
     db = get_db()
     try:
         row = db.execute("SELECT album_ids FROM playlists WHERE id = ?", (playlist_id,)).fetchone()
         if not row:
             return False
-        ids = json.loads(row[0])
-        if from_idx < 0 or from_idx >= len(ids) or to_idx < 0 or to_idx >= len(ids):
+        entries = json.loads(row[0])
+        if from_idx < 0 or from_idx >= len(entries) or to_idx < 0 or to_idx >= len(entries):
             return False
-        item = ids.pop(from_idx)
-        ids.insert(to_idx, item)
+        item = entries.pop(from_idx)
+        entries.insert(to_idx, item)
         db.execute("UPDATE playlists SET album_ids = ?, updated_at = datetime('now') WHERE id = ?",
-                   (json.dumps(ids), playlist_id))
+                   (json.dumps(entries), playlist_id))
+        db.commit()
+        return True
+    finally:
+        db.close()
+
+
+def remove_playlist_entry(playlist_id: int, entry_idx: int) -> bool:
+    """Remove a specific side entry by index from a playlist. Returns True on success."""
+    import json
+    db = get_db()
+    try:
+        row = db.execute("SELECT album_ids FROM playlists WHERE id = ?", (playlist_id,)).fetchone()
+        if not row:
+            return False
+        entries = json.loads(row[0])
+        if entry_idx < 0 or entry_idx >= len(entries):
+            return False
+        entries.pop(entry_idx)
+        db.execute("UPDATE playlists SET album_ids = ?, updated_at = datetime('now') WHERE id = ?",
+                   (json.dumps(entries), playlist_id))
         db.commit()
         return True
     finally:
@@ -1569,17 +1662,17 @@ def reorder_playlist(playlist_id: int, from_idx: int, to_idx: int) -> bool:
 
 
 def remove_album_from_playlist(playlist_id: int, album_id: int) -> bool:
-    """Remove an album from a playlist. Returns True on success."""
+    """Remove all sides of an album from a playlist. Returns True on success."""
     import json
     db = get_db()
     try:
         row = db.execute("SELECT album_ids FROM playlists WHERE id = ?", (playlist_id,)).fetchone()
         if not row:
             return False
-        ids = json.loads(row[0])
-        ids = [i for i in ids if i != album_id]
+        entries = json.loads(row[0])
+        entries = [e for e in entries if not (isinstance(e, dict) and e["a"] == album_id)]
         db.execute("UPDATE playlists SET album_ids = ?, updated_at = datetime('now') WHERE id = ?",
-                   (json.dumps(ids), playlist_id))
+                   (json.dumps(entries), playlist_id))
         db.commit()
         return True
     finally:

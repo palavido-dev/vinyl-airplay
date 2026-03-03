@@ -1592,9 +1592,12 @@ function playGroup(groupKey){
     showOutputPicker(ids[0]);
   }
 }
-async function playMultipleAlbums(ids,devices){
-  showToast('Queueing '+ids.length+' album'+(ids.length!==1?'s':'')+'\u2026');
-  var body={album_ids:ids};
+async function playMultipleAlbums(ids,devices,entries){
+  var label=entries?entries.length+' side'+(entries.length!==1?'s':''):ids.length+' album'+(ids.length!==1?'s':'');
+  showToast('Queueing '+label+'\u2026');
+  var body={};
+  if(entries)body.entries=entries;
+  else body.album_ids=ids;
   if(devices)body.devices=devices;
   else if(_currentDevices)body.devices=_currentDevices;
   var r=await fetch('/api/player/play-queue',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(function(r){return r.json()});
@@ -1699,7 +1702,8 @@ async function pickOutput(idx){
   if(dev.type==='bluetooth'){target.address=dev.address||dev.id.replace('bt:','')}
   _currentDevices=[target];
   fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({saved_devices:[target]})});
-  if(aids&&aids.length>1){_pendingAlbumIds=null;playMultipleAlbums(aids,[target])}
+  if(_pendingPlaylistEntries){var ent=_pendingPlaylistEntries;_pendingPlaylistEntries=null;playMultipleAlbums(null,[target],ent)}
+  else if(aids&&aids.length>1){_pendingAlbumIds=null;playMultipleAlbums(aids,[target])}
   else if(aid){var resume=_resumeInfo;_resumeInfo=null;if(trackId){if(!resume)resume={};resume.track_id=trackId;_pendingTrackId=null}playAlbumTo(aid,[target],resume)}
 }
 async function playAlbumTo(id,devices,resume){
@@ -1710,7 +1714,7 @@ async function playAlbumTo(id,devices,resume){
   var r=await fetch('/api/player/play',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(function(r){return r.json()});
   if(!r.ok)showError(r.error||'Playback failed');
 }
-function closeOutputPicker(){document.getElementById('output-picker-overlay').classList.remove('open');_pendingAlbumId=null;_pendingAlbumIds=null;_pendingTrackId=null;_pickerAlbumId=null}
+function closeOutputPicker(){document.getElementById('output-picker-overlay').classList.remove('open');_pendingAlbumId=null;_pendingAlbumIds=null;_pendingTrackId=null;_pickerAlbumId=null;_pendingPlaylistEntries=null}
 async function rescanOutputDevices(){
   var grid=document.getElementById('output-device-grid');
   grid.innerHTML='<div style="color:var(--muted);font-size:0.82rem">Scanning\u2026</div>';
@@ -1815,10 +1819,9 @@ async function saveQueueAsPlaylist(){
   if(!r.ok||!r.queue||!r.queue.length){showToast('Queue is empty');return}
   var name=prompt('Playlist name:');
   if(!name||!name.trim())return;
-  // Extract unique album IDs in order
-  var ids=[],seen={};
-  r.queue.forEach(function(item){if(!seen[item.album_id]){seen[item.album_id]=true;ids.push(item.album_id)}});
-  var res=await fetch('/api/playlists',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:name.trim(),album_ids:ids})}).then(d=>d.json());
+  // Save as side-level entries preserving queue order
+  var entries=r.queue.map(function(item){return {a:item.album_id,s:item.side}});
+  var res=await fetch('/api/playlists',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:name.trim(),entries:entries})}).then(d=>d.json());
   if(res.ok)showToast('Playlist "'+name.trim()+'" saved');
   else showToast(res.error||'Failed to save');
 }
@@ -1831,24 +1834,34 @@ async function togglePlaylistPicker(){
   if(!r.ok||!r.playlists||!r.playlists.length){list.innerHTML='<div style="color:var(--muted);padding:0.3rem">No saved playlists</div>';return}
   var html='';
   r.playlists.forEach(function(p){
+    var entries=p.entries||[];
     html+='<div style="display:flex;align-items:center;gap:0.4rem;padding:0.3rem 0;border-bottom:1px solid rgba(255,255,255,0.05)">'
-      +'<span style="flex:1;color:var(--amber);cursor:pointer" onclick="loadPlaylist('+p.id+','+JSON.stringify(p.album_ids).replace(/"/g,'&quot;')+')">'+esc(p.name)+'</span>'
-      +'<span style="color:var(--muted);font-size:0.65rem">'+p.album_ids.length+' album'+(p.album_ids.length!==1?'s':'')+'</span>'
+      +'<span style="flex:1;color:var(--amber);cursor:pointer" onclick="loadPlaylist('+p.id+',null,'+JSON.stringify(entries).replace(/"/g,'&quot;')+')">'+esc(p.name)+'</span>'
+      +'<span style="color:var(--muted);font-size:0.65rem">'+entries.length+' side'+(entries.length!==1?'s':'')+'</span>'
       +'<button style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:0.7rem" onclick="deletePlaylist('+p.id+')" title="Delete">\u2715</button>'
       +'</div>';
   });
   list.innerHTML=html;
 }
-async function loadPlaylist(id,albumIds){
+async function loadPlaylist(id,albumIds,entries){
+  if(entries&&entries.length){
+    document.getElementById('playlist-picker').style.display='none';
+    if(_isStreaming||_playerActive){
+      playMultipleAlbums(null,null,entries);
+    }else{
+      _pendingPlaylistEntries=entries;_pendingAlbumId=entries[0].a;showOutputPicker(entries[0].a);
+    }
+    return;
+  }
   if(!albumIds||!albumIds.length){showToast('Empty playlist');return}
   document.getElementById('playlist-picker').style.display='none';
   if(_isStreaming||_playerActive){
-    showToast('Loading playlist ('+albumIds.length+' albums)...');
     playMultipleAlbums(albumIds);
   }else{
     _pendingAlbumIds=albumIds;_pendingAlbumId=albumIds[0];showOutputPicker(albumIds[0]);
   }
 }
+var _pendingPlaylistEntries=null;
 async function deletePlaylist(id){
   if(!confirm('Delete this playlist?'))return;
   await fetch('/api/playlists/'+id,{method:'DELETE'});
@@ -1886,16 +1899,21 @@ async function plShowList(){
   }
   var html='';
   r.playlists.forEach(function(p){
+    var entries=p.entries||[];
+    var sideCount=entries.length;
+    var albumCount=p.album_ids.length;
+    var countLabel=albumCount+' album'+(albumCount!==1?'s':'')+', '+sideCount+' side'+(sideCount!==1?'s':'');
     html+='<div class="pl-item" onclick="plShowDetail('+p.id+')">'
       +'<span class="pl-item-name">'+esc(p.name)+'</span>'
-      +'<span class="pl-item-count">'+p.album_ids.length+' album'+(p.album_ids.length!==1?'s':'')+'</span>'
+      +'<span class="pl-item-count">'+countLabel+'</span>'
       +'<div class="pl-item-actions">'
-      +'<button class="pl-item-btn" onclick="event.stopPropagation();plPlayDirect('+p.id+','+JSON.stringify(p.album_ids).replace(/"/g,'&quot;')+')" title="Play">&#9654;</button>'
+      +'<button class="pl-item-btn" onclick="event.stopPropagation();plPlayDirect('+p.id+',null,'+JSON.stringify(entries).replace(/"/g,'&quot;')+')" title="Play">&#9654;</button>'
       +'<button class="pl-item-btn" onclick="event.stopPropagation();plDeleteFromList('+p.id+')" title="Delete" style="color:var(--rust)">\u2715</button>'
       +'</div></div>';
   });
   el.innerHTML=html;
 }
+var _plCurrentEntries=[]; // side-level entries [{a, s}, ...]
 async function plShowDetail(playlistId){
   _plCurrentId=playlistId;
   document.getElementById('pl-view-list').style.display='none';
@@ -1904,13 +1922,22 @@ async function plShowDetail(playlistId){
   var pl=r.playlists.find(function(p){return p.id===playlistId});
   if(!pl){plBackToList();return}
   _plCurrentAlbumIds=pl.album_ids.slice();
+  _plCurrentEntries=pl.entries||[];
   document.getElementById('pl-detail-name').textContent=pl.name;
-  document.getElementById('pl-detail-count').textContent=pl.album_ids.length+' album'+(pl.album_ids.length!==1?'s':'');
-  // Build contents list
+  var sideCount=_plCurrentEntries.length;
+  document.getElementById('pl-detail-count').textContent=sideCount+' side'+(sideCount!==1?'s':'');
+  _plRenderContents(pl);
+  // If playlist is empty, auto-switch to Add tab
+  if(!_plCurrentEntries.length){plSwitchTab('add')}
+  else{plSwitchTab('contents')}
+}
+function _plRenderContents(pl){
+  var entries=pl?pl.entries:_plCurrentEntries;
   var albumsById={};
   _catalogAlbums.forEach(function(a){albumsById[a.id]=a});
   var html='';
-  pl.album_ids.forEach(function(aid,idx){
+  entries.forEach(function(entry,idx){
+    var aid=entry.a,side=entry.s;
     var a=albumsById[aid];
     if(!a)return;
     var art=a.user_artwork_path||a.artwork_path||'';
@@ -1919,15 +1946,13 @@ async function plShowDetail(playlistId){
       +'<div class="queue-drag-handle" data-idx="'+idx+'" style="cursor:grab;font-size:1.1rem;color:var(--muted);padding:0 0.15rem">\u2261</div>'
       +(imgSrc?'<img src="'+imgSrc+'" alt="" onerror="this.style.display=\'none\'">':'')
       +'<div class="pl-album-info"><div class="pl-album-title">'+esc(a.title)+'</div><div class="pl-album-artist">'+esc(a.artist)+'</div></div>'
-      +'<button class="pl-album-remove" onclick="plRemoveAlbum('+playlistId+','+aid+')" title="Remove">\u2715</button>'
+      +'<span style="font-size:0.68rem;color:var(--muted);white-space:nowrap;margin-right:0.2rem">Side '+esc(side)+'</span>'
+      +'<button class="pl-album-remove" onclick="plRemoveEntry('+idx+')" title="Remove">\u2715</button>'
       +'</div>';
   });
   if(!html)html='<div style="color:var(--muted);padding:0.8rem;text-align:center;font-size:0.78rem">Tap "Add Albums" to browse your collection</div>';
   document.getElementById('pl-detail-albums').innerHTML=html;
   initPlDrag();
-  // If playlist is empty, auto-switch to Add tab
-  if(!pl.album_ids.length){plSwitchTab('add')}
-  else{plSwitchTab('contents')}
 }
 function plBackToList(){
   document.getElementById('pl-add-search').value='';
@@ -1938,14 +1963,12 @@ function plBackToList(){
 }
 async function plPlayCurrent(){
   if(!_plCurrentId)return;
-  var r=await fetch('/api/playlists').then(d=>d.json());
-  var pl=r.playlists.find(function(p){return p.id===_plCurrentId});
-  if(!pl||!pl.album_ids.length){showToast('Empty playlist');return}
-  loadPlaylist(_plCurrentId,pl.album_ids);
+  if(!_plCurrentEntries.length){showToast('Empty playlist');return}
+  loadPlaylist(_plCurrentId,null,_plCurrentEntries);
   togglePlaylistsPanel();
 }
-function plPlayDirect(id,albumIds){
-  loadPlaylist(id,albumIds);
+function plPlayDirect(id,albumIds,entries){
+  loadPlaylist(id,albumIds,entries);
   togglePlaylistsPanel();
 }
 async function plDeleteFromList(id){
@@ -1953,10 +1976,13 @@ async function plDeleteFromList(id){
   await fetch('/api/playlists/'+id,{method:'DELETE'});
   plShowList();
 }
+async function plRemoveEntry(entryIdx){
+  if(!_plCurrentId)return;
+  await fetch('/api/playlists/'+_plCurrentId+'/remove',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({entry_idx:entryIdx})});
+  _plRefreshContents();
+}
 async function plRemoveAlbum(playlistId,albumId){
   await fetch('/api/playlists/'+playlistId+'/remove',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({album_id:albumId})});
-  _plCurrentAlbumIds=_plCurrentAlbumIds.filter(function(id){return id!==albumId});
-  document.getElementById('pl-detail-count').textContent=_plCurrentAlbumIds.length+' album'+(_plCurrentAlbumIds.length!==1?'s':'');
   _plRefreshContents();
 }
 async function plCreateNew(){
@@ -2015,45 +2041,25 @@ async function plToggleAlbum(albumId){
   if(!_plCurrentId)return;
   var inList=_plCurrentAlbumIds.indexOf(albumId)!==-1;
   if(inList){
-    // Remove
+    // Remove all sides of this album
     await fetch('/api/playlists/'+_plCurrentId+'/remove',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({album_id:albumId})});
-    _plCurrentAlbumIds=_plCurrentAlbumIds.filter(function(id){return id!==albumId});
   }else{
-    // Add
-    var r=await fetch('/api/playlists/'+_plCurrentId+'/add',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({album_id:albumId})}).then(d=>d.json());
-    if(r.ok)_plCurrentAlbumIds.push(albumId);
+    // Add all sides of this album
+    await fetch('/api/playlists/'+_plCurrentId+'/add',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({album_id:albumId})});
   }
-  // Update count
-  document.getElementById('pl-detail-count').textContent=_plCurrentAlbumIds.length+' album'+(_plCurrentAlbumIds.length!==1?'s':'');
-  // Update just the clicked item in the grid without re-rendering everything
+  // Refresh everything from server
+  await _plRefreshContents();
   plRenderBrowseGrid();
-  // Also refresh the contents tab in the background
-  _plRefreshContents();
 }
 async function _plRefreshContents(){
   var r=await fetch('/api/playlists').then(d=>d.json());
   var pl=r.playlists.find(function(p){return p.id===_plCurrentId});
   if(!pl)return;
   _plCurrentAlbumIds=pl.album_ids.slice();
-  document.getElementById('pl-detail-count').textContent=pl.album_ids.length+' album'+(pl.album_ids.length!==1?'s':'');
-  var albumsById={};
-  _catalogAlbums.forEach(function(a){albumsById[a.id]=a});
-  var html='';
-  pl.album_ids.forEach(function(aid,idx){
-    var a=albumsById[aid];
-    if(!a)return;
-    var art=a.user_artwork_path||a.artwork_path||'';
-    var imgSrc=art?'/artwork/'+art.split('/').pop():'';
-    html+='<div class="pl-album-item" data-pl-idx="'+idx+'">'
-      +'<div class="queue-drag-handle" data-idx="'+idx+'" style="cursor:grab;font-size:1.1rem;color:var(--muted);padding:0 0.15rem">\u2261</div>'
-      +(imgSrc?'<img src="'+imgSrc+'" alt="" onerror="this.style.display=\'none\'">':'')
-      +'<div class="pl-album-info"><div class="pl-album-title">'+esc(a.title)+'</div><div class="pl-album-artist">'+esc(a.artist)+'</div></div>'
-      +'<button class="pl-album-remove" onclick="plRemoveAlbum('+_plCurrentId+','+aid+')" title="Remove">\u2715</button>'
-      +'</div>';
-  });
-  if(!html)html='<div style="color:var(--muted);padding:0.8rem;text-align:center;font-size:0.78rem">No albums yet</div>';
-  document.getElementById('pl-detail-albums').innerHTML=html;
-  initPlDrag();
+  _plCurrentEntries=pl.entries||[];
+  var sideCount=_plCurrentEntries.length;
+  document.getElementById('pl-detail-count').textContent=sideCount+' side'+(sideCount!==1?'s':'');
+  _plRenderContents(pl);
 }
 
 // --- Playlist drag-to-reorder ---
