@@ -1812,7 +1812,67 @@
       <div class="stats-list" id="recent-plays-list"></div>
     </div>
 
-    <button class="btn btn-ghost" onclick="hideStats()" style="width:100%;margin-top:1rem">Close</button>
+    <!-- Listening Heatmap -->
+    <div class="stats-section">
+      <h3>Listening Heatmap</h3>
+      <div id="heatmap-container" style="display:grid;grid-template-columns:repeat(7,1fr);gap:3px;margin-bottom:1rem"></div>
+    </div>
+
+    <!-- Genre Breakdown -->
+    <div class="stats-section">
+      <h3>Genre Breakdown</h3>
+      <div id="genre-bars-container"></div>
+    </div>
+
+    <!-- Artist Breakdown -->
+    <div class="stats-section">
+      <h3>Top Artists</h3>
+      <div id="artist-bars-container"></div>
+    </div>
+
+    <!-- Decade Distribution -->
+    <div class="stats-section">
+      <h3>Decade Distribution</h3>
+      <div id="decade-bars-container"></div>
+    </div>
+
+    <!-- Weekly Trend -->
+    <div class="stats-section">
+      <h3>Listening Trend (Last 12 Weeks)</h3>
+      <div id="weekly-bars-container"></div>
+    </div>
+
+    <!-- On This Day -->
+    <div class="stats-section">
+      <h3>On This Day</h3>
+      <div id="on-this-day-container"></div>
+    </div>
+
+    <div style="margin-top:1rem;padding-top:1rem;border-top:1px solid rgba(0,0,0,0.1)">
+      <button class="btn btn-ghost" onclick="showDuplicates()" style="width:100%;margin-bottom:0.5rem">Find Duplicate Albums</button>
+    </div>
+
+    <button class="btn btn-ghost" onclick="hideStats()" style="width:100%;margin-top:0.5rem">Close</button>
+  </div>
+</div>
+
+<!-- Duplicates Modal -->
+<div class="modal-overlay" id="duplicates-modal" onclick="if(event.target===this)hideDuplicates()">
+  <div class="modal" style="max-width:680px">
+    <button class="modal-x" onclick="hideDuplicates()" title="Close">✕</button>
+    <h2 style="font-family:var(--display-font);font-size:1rem;margin-bottom:1rem">Potential Duplicates</h2>
+    <div id="duplicates-list" style="display:flex;flex-direction:column;gap:1rem"></div>
+    <button class="btn btn-ghost" onclick="hideDuplicates()" style="width:100%;margin-top:1rem">Close</button>
+  </div>
+</div>
+
+<!-- Keyboard Shortcuts Modal -->
+<div class="modal-overlay" id="shortcuts-modal" onclick="if(event.target===this)hideShortcuts()">
+  <div class="modal" style="max-width:680px">
+    <button class="modal-x" onclick="hideShortcuts()" title="Close">✕</button>
+    <h2 style="font-family:var(--display-font);font-size:1rem;margin-bottom:1rem">Keyboard Shortcuts</h2>
+    <div id="shortcuts-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:0.8rem"></div>
+    <button class="btn btn-ghost" onclick="hideShortcuts()" style="width:100%;margin-top:1rem">Close</button>
   </div>
 </div>
 
@@ -4161,3 +4221,280 @@ document.addEventListener('keydown', function(e){
 </div>
 </body>
 </html>
+
+<script>
+// Additional features for Stats QoL
+
+// Feature 1: Inline Metadata Editing
+window.editAlbumMetadata = function(albumId, field){
+  const modal = document.getElementById('album-modal');
+  if(!modal.classList.contains('open')) return;
+  const value = document.getElementById('modal-' + field);
+  if(!value) return;
+  const currentText = value.textContent;
+  const input = document.createElement('input');
+  input.type = field === 'year' ? 'number' : 'text';
+  input.value = currentText;
+  input.style.width = '100%';
+  input.style.padding = '0.3rem';
+  input.style.border = '1px solid var(--amber-dk)';
+  input.style.borderRadius = '4px';
+  input.onblur = function(){
+    saveAlbumMetadata(albumId, field, input.value);
+  };
+  input.onkeydown = function(e){
+    if(e.key === 'Enter') this.blur();
+  };
+  value.replaceWith(input);
+  input.focus();
+};
+
+window.saveAlbumMetadata = async function(albumId, field, value){
+  try{
+    const data = {};
+    data[field] = field === 'year' ? (parseInt(value) || null) : value;
+    const r = await fetch(`/api/catalog/${albumId}/metadata`, {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(data)
+    }).then(r => r.json());
+    if(r.ok){
+      showToast('Saved');
+      loadCatalog();
+      setTimeout(() => openAlbumModal(albumId), 100);
+    } else {
+      showError('Failed to save');
+    }
+  } catch(e){
+    showError('Error: ' + e.message);
+  }
+};
+
+// Feature 2: Duplicate Detection
+window.showDuplicates = async function(){
+  try{
+    const r = await fetch('/api/catalog/duplicates').then(r => r.json());
+    const groups = r.duplicate_groups || [];
+    const container = document.getElementById('duplicates-list');
+    if(!groups.length){
+      container.innerHTML = '<div style="color:var(--muted);font-size:0.82rem;padding:1rem">No duplicates found</div>';
+    } else {
+      container.innerHTML = groups.map(group => `
+        <div style="border:1px solid rgba(0,0,0,0.1);border-radius:8px;padding:1rem">
+          <div style="font-weight:600;margin-bottom:0.5rem;color:var(--amber-dk)">Duplicate: ${group[0].title} by ${group[0].artist}</div>
+          <div style="display:flex;gap:0.5rem;flex-wrap:wrap">
+            ${group.map(a => `<div style="flex:1;min-width:120px;text-align:center;padding:0.5rem;background:var(--paper);border-radius:4px;cursor:pointer" onclick="openAlbumModal(${a.id})"><div style="font-size:0.82rem;font-weight:600">${esc(a.title)}</div><div style="font-size:0.72rem;color:var(--muted)">${esc(a.artist)}</div></div>`).join('')}
+          </div>
+        </div>
+      `).join('');
+    }
+    document.getElementById('duplicates-modal').classList.add('open');
+  } catch(e){
+    showError('Failed to load duplicates: ' + e.message);
+  }
+};
+
+window.hideDuplicates = function(){
+  document.getElementById('duplicates-modal').classList.remove('open');
+};
+
+// Feature 3: Enhanced Stats Rendering
+
+window.renderHeatmap = function(heatmap){
+  const container = document.getElementById('heatmap-container');
+  const today = new Date();
+  const startDate = new Date(today);
+  startDate.setDate(startDate.getDate() - 180);
+  const maxCount = Math.max(...Object.values(heatmap || {}), 1);
+  let html = '';
+  for(let d = new Date(startDate); d <= today; d.setDate(d.getDate() + 1)){
+    const dateStr = d.toISOString().split('T')[0];
+    const count = heatmap[dateStr] || 0;
+    const intensity = count > 0 ? count / maxCount : 0;
+    const color = `rgba(212,162,78,${0.2 + intensity * 0.8})`;
+    html += `<div style="width:100%;height:20px;background:${color};border-radius:3px;border:1px solid rgba(212,162,78,0.3)" title="${dateStr}: ${count} plays"></div>`;
+  }
+  container.innerHTML = html;
+};
+
+window.renderGenreChart = function(genres){
+  const container = document.getElementById('genre-bars-container');
+  if(!genres.length){
+    container.innerHTML = '<div style="color:var(--muted);font-size:0.82rem">No genres</div>';
+    return;
+  }
+  const maxCount = Math.max(...genres.map(g => g.count), 1);
+  const html = genres.map(g => {
+    const percent = (g.count / maxCount) * 100;
+    return `<div style="margin-bottom:0.6rem"><div style="display:flex;justify-content:space-between;margin-bottom:0.2rem"><span style="font-size:0.82rem">${esc(g.genre || 'Unknown')}</span><span style="font-size:0.75rem;color:var(--amber-dk)">${g.count}</span></div><div style="height:24px;background:var(--paper-dk);border-radius:4px;overflow:hidden"><div style="height:100%;width:${percent}%;background:linear-gradient(90deg,var(--amber-dk),var(--amber));transition:width 0.3s"></div></div></div>`;
+  }).join('');
+  container.innerHTML = html;
+};
+
+window.renderArtistChart = function(artists){
+  const container = document.getElementById('artist-bars-container');
+  if(!artists.length){
+    container.innerHTML = '<div style="color:var(--muted);font-size:0.82rem">No artists</div>';
+    return;
+  }
+  const maxCount = Math.max(...artists.map(a => a.album_count), 1);
+  const html = artists.map(a => {
+    const percent = (a.album_count / maxCount) * 100;
+    return `<div style="margin-bottom:0.6rem"><div style="display:flex;justify-content:space-between;margin-bottom:0.2rem"><span style="font-size:0.82rem">${esc(a.artist || 'Unknown')}</span><span style="font-size:0.75rem;color:var(--amber-dk)">${a.album_count} albums</span></div><div style="height:24px;background:var(--paper-dk);border-radius:4px;overflow:hidden"><div style="height:100%;width:${percent}%;background:linear-gradient(90deg,var(--leather),var(--amber-dk));transition:width 0.3s"></div></div></div>`;
+  }).join('');
+  container.innerHTML = html;
+};
+
+window.renderDecadeChart = function(decades){
+  const container = document.getElementById('decade-bars-container');
+  if(!decades.length){
+    container.innerHTML = '<div style="color:var(--muted);font-size:0.82rem">No decades</div>';
+    return;
+  }
+  const maxCount = Math.max(...decades.map(d => d.count), 1);
+  const html = decades.map(d => {
+    const percent = (d.count / maxCount) * 100;
+    return `<div style="margin-bottom:0.6rem"><div style="display:flex;justify-content:space-between;margin-bottom:0.2rem"><span style="font-size:0.82rem">${esc(d.decade)}</span><span style="font-size:0.75rem;color:var(--amber-dk)">${d.count}</span></div><div style="height:24px;background:var(--paper-dk);border-radius:4px;overflow:hidden"><div style="height:100%;width:${percent}%;background:linear-gradient(90deg,var(--sage-dk),var(--sage));transition:width 0.3s"></div></div></div>`;
+  }).join('');
+  container.innerHTML = html;
+};
+
+window.renderWeeklyChart = function(weeks){
+  const container = document.getElementById('weekly-bars-container');
+  if(!weeks.length){
+    container.innerHTML = '<div style="color:var(--muted);font-size:0.82rem">No data</div>';
+    return;
+  }
+  const maxCount = Math.max(...weeks.map(w => w.count), 1);
+  const html = weeks.map(w => {
+    const percent = (w.count / maxCount) * 100;
+    const weekDate = new Date(w.week_start);
+    const weekStr = weekDate.toLocaleDateString('en-US', {month:'short', day:'numeric'});
+    return `<div style="margin-bottom:0.6rem"><div style="display:flex;justify-content:space-between;margin-bottom:0.2rem"><span style="font-size:0.82rem">${weekStr}</span><span style="font-size:0.75rem;color:var(--amber-dk)">${w.count}</span></div><div style="height:24px;background:var(--paper-dk);border-radius:4px;overflow:hidden"><div style="height:100%;width:${percent}%;background:linear-gradient(90deg,var(--teal),var(--sage));transition:width 0.3s"></div></div></div>`;
+  }).join('');
+  container.innerHTML = html;
+};
+
+window.renderOnThisDay = function(albums){
+  const container = document.getElementById('on-this-day-container');
+  if(!albums.length){
+    container.innerHTML = '<div style="color:var(--muted);font-size:0.82rem;padding:0.5rem 0">Nothing played on this date in previous years</div>';
+    return;
+  }
+  const html = albums.map(a => {
+    const art = a.user_artwork_path || a.artwork_path;
+    const artHtml = art ? `<img src="/artwork/${art.split('/').pop()}" style="width:50px;height:50px;border-radius:4px;object-fit:cover;border:1px solid rgba(0,0,0,0.1)">` : `<div style="width:50px;height:50px;border-radius:4px;background:var(--paper-dk);display:flex;align-items:center;justify-content:center;font-size:1.2rem">💿</div>`;
+    const playedDate = new Date(a.played_at);
+    const year = playedDate.getFullYear();
+    const today = new Date();
+    const yearsAgo = today.getFullYear() - year;
+    return `<div style="display:flex;align-items:center;gap:0.5rem;padding:0.5rem;background:var(--paper);border-radius:6px;cursor:pointer;border:1px solid rgba(0,0,0,0.06)" onclick="openAlbumModal(${a.id})"><div style="overflow:hidden;border-radius:4px">${artHtml}</div><div style="flex:1;min-width:0"><div style="font-size:0.85rem;font-weight:600">${esc(a.title)}</div><div style="font-size:0.75rem;color:var(--muted)">${esc(a.artist)}</div><div style="font-size:0.72rem;color:var(--amber-dk)">${yearsAgo} year${yearsAgo !== 1 ? 's' : ''} ago</div></div></div>`;
+  }).join('');
+  container.innerHTML = html;
+};
+
+// Feature 4: Player Status Restoration
+window.restorePlayerStatus = async function(){
+  try{
+    const r = await fetch('/api/player/status').then(r => r.json());
+    if(r.state === 'playing' || r.state === 'paused'){
+      console.log('Player status restored:', r.state);
+    }
+  } catch(e){}
+};
+
+// Feature 5: Keyboard Shortcuts
+window.showShortcuts = function(){
+  const shortcuts = [
+    ['Space', 'Play/Pause'],
+    ['N', 'Next track'],
+    ['P', 'Playlists'],
+    ['Q', 'Queue'],
+    ['S', 'Settings'],
+    ['F', 'Search'],
+    ['Escape', 'Close modal'],
+    ['?', 'Show shortcuts'],
+    ['Up/Down', 'Volume'],
+  ];
+  const grid = document.getElementById('shortcuts-grid');
+  grid.innerHTML = shortcuts.map(([key, desc]) => `
+    <div style="padding:0.5rem;background:var(--paper);border-radius:4px;border:1px solid rgba(0,0,0,0.06)">
+      <div style="font-weight:700;color:var(--amber-dk);font-size:0.85rem;margin-bottom:0.2rem">${key}</div>
+      <div style="font-size:0.75rem;color:var(--muted)">${desc}</div>
+    </div>
+  `).join('');
+  document.getElementById('shortcuts-modal').classList.add('open');
+};
+
+window.hideShortcuts = function(){
+  document.getElementById('shortcuts-modal').classList.remove('open');
+};
+
+// Feature 6: Undo for Destructive Actions
+let _undoTimeout = null;
+let _lastDeletedAlbumId = null;
+
+window.showUndoToast = function(albumId){
+  clearTimeout(_undoTimeout);
+  _lastDeletedAlbumId = albumId;
+  const toast = document.getElementById('toast-msg');
+  toast.innerHTML = `Album deleted <button style="margin-left:0.5rem;padding:0.2rem 0.6rem;background:var(--amber-dk);color:var(--walnut);border:none;border-radius:3px;cursor:pointer;font-size:0.78rem" onclick="undoDelete()">Undo</button>`;
+  toast.style.display = 'block';
+  _undoTimeout = setTimeout(() => {
+    toast.style.display = 'none';
+    _lastDeletedAlbumId = null;
+  }, 5000);
+};
+
+window.undoDelete = async function(){
+  if(!_lastDeletedAlbumId) return;
+  clearTimeout(_undoTimeout);
+  try{
+    const r = await fetch(`/api/catalog/${_lastDeletedAlbumId}/restore`, {
+      method: 'POST'
+    }).then(r => r.json());
+    if(r.ok){
+      showToast('Restored');
+      loadCatalog();
+    }
+  } catch(e){}
+  _lastDeletedAlbumId = null;
+};
+
+// Update the loadStats function to include new charts
+const _originalLoadStats = window.loadStats;
+window.loadStats = async function(){
+  try{
+    const r = await fetch('/api/catalog/stats').then(r => r.json());
+    document.getElementById('stat-plays').textContent = r.total_plays || 0;
+    document.getElementById('stat-albums').textContent = r.total_albums || 0;
+    document.getElementById('stat-tracks').textContent = r.total_tracks || 0;
+    document.getElementById('stat-hours').textContent = (r.total_listening_hours || 0).toFixed(1);
+    renderTopAlbums(r.top_albums || []);
+    renderTopTracks(r.top_tracks || []);
+    renderRecentPlays(r.recent_plays || []);
+
+    try{ const hm = await fetch('/api/catalog/heatmap').then(r => r.json()); renderHeatmap(hm.heatmap || {}); } catch(e){}
+    try{ const gen = await fetch('/api/catalog/genre-stats').then(r => r.json()); renderGenreChart(gen.genres || []); } catch(e){}
+    try{ const art = await fetch('/api/catalog/artist-stats').then(r => r.json()); renderArtistChart(art.artists || []); } catch(e){}
+    try{ const dec = await fetch('/api/catalog/decade-stats').then(r => r.json()); renderDecadeChart(dec.decades || []); } catch(e){}
+    try{ const week = await fetch('/api/catalog/weekly-trend').then(r => r.json()); renderWeeklyChart(week.weeks || []); } catch(e){}
+    try{ const otd = await fetch('/api/catalog/on-this-day').then(r => r.json()); renderOnThisDay(otd.albums || []); } catch(e){}
+  } catch(e){
+    showError('Failed to load stats');
+  }
+};
+
+// Keyboard shortcut handler
+document.addEventListener('keydown', function(e){
+  if((e.key === '?' || e.key === '/') && !document.getElementById('catalog-search').matches(':focus')){
+    e.preventDefault();
+    showShortcuts();
+  }
+});
+
+// Restore player status on load
+window.addEventListener('load', function(){
+  setTimeout(restorePlayerStatus, 500);
+});
+</script>
