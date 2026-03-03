@@ -1698,7 +1698,22 @@ function renderRecentlyPlayed(albums){
 }
 
 function onAlbumTap(id,has){if(!has){openAlbumDetail(id);return}if(_isStreaming||_playerActive){playAlbum(id)}else{_pendingAlbumId=id;showOutputPicker(id)}}
-async function playAlbum(id,trackId){showToast('Starting playback\u2026');var body={album_id:id};if(trackId)body.track_id=trackId;if(_currentDevices)body.devices=_currentDevices;const r=await fetch('/api/player/play',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(r=>r.json());if(!r.ok)showError(r.error||'Playback failed')}
+async function playAlbum(id,trackId){
+  showToast('Starting playback\u2026');
+  var body={album_id:id};
+  if(trackId)body.track_id=trackId;
+  // If current device is browser, create a fresh stream
+  var isBrowser=false;
+  if(_currentDevices&&_currentDevices.length>0&&_currentDevices[0].id&&_currentDevices[0].id.startsWith('browser:')){
+    stopBrowserAudioStream();
+    var sr=await fetch('/api/stream/create',{method:'POST',headers:{'Content-Type':'application/json'}}).then(function(r){return r.json()});
+    if(sr.ok){_currentDevices[0].id='browser:'+sr.stream_id;isBrowser=true}
+  }
+  if(_currentDevices)body.devices=_currentDevices;
+  var r=await fetch('/api/player/play',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(function(r){return r.json()});
+  if(!r.ok){showError(r.error||'Playback failed')}
+  else if(isBrowser){startBrowserAudioStream(_currentDevices[0].id.replace('browser:',''))}
+}
 async function shufflePlay(){
   const p=_catalogAlbums.filter(a=>a.audio_count>0);
   if(!p.length){showToast('No recorded albums to shuffle');return}
@@ -1751,12 +1766,18 @@ async function playMultipleAlbums(ids,devices,entries){
   var body={};
   if(entries)body.entries=entries;
   else body.album_ids=ids;
-  if(devices)body.devices=devices;
-  else if(_currentDevices)body.devices=_currentDevices;
-  var isBrowser=devices&&devices.length>0&&devices[0].id&&devices[0].id.startsWith('browser:');
+  var devs=devices||_currentDevices;
+  // If target is browser, create a fresh stream
+  var isBrowser=devs&&devs.length>0&&devs[0].id&&devs[0].id.startsWith('browser:');
+  if(isBrowser){
+    stopBrowserAudioStream();
+    var sr=await fetch('/api/stream/create',{method:'POST',headers:{'Content-Type':'application/json'}}).then(function(r){return r.json()});
+    if(sr.ok){devs[0].id='browser:'+sr.stream_id}
+  }
+  if(devs)body.devices=devs;
   var r=await fetch('/api/player/play-queue',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(function(r){return r.json()});
   if(!r.ok){showError(r.error||'Playback failed')}
-  else if(isBrowser){var streamId=devices[0].id.replace('browser:','');startBrowserAudioStream(streamId)}
+  else if(isBrowser){startBrowserAudioStream(devs[0].id.replace('browser:',''))}
 }
 
 // ── Browser Audio Stream (Web Audio API) ──
