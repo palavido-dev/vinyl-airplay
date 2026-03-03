@@ -24,7 +24,7 @@ import pyatv
 from pyatv.interface import MediaMetadata
 import sounddevice as sd
 import uvicorn
-from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect, UploadFile, File
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect, UploadFile, File, Body
 from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.templating import Jinja2Templates
 
@@ -1522,6 +1522,16 @@ async def get_stats():
 @app.get("/api/catalog/{album_id}/tracks")
 async def get_tracks(album_id: int):
     return {"tracks": cat.get_album_tracks(album_id)}
+
+
+@app.put("/api/catalog/track/{track_id}/boundaries")
+async def update_boundaries(track_id: int, body: dict = Body(...)):
+    start = body.get("start_secs")
+    end = body.get("end_secs")
+    if start is None or end is None:
+        return {"ok": False, "error": "start_secs and end_secs required"}
+    cat.update_track_timestamps(track_id, float(start), float(end))
+    return {"ok": True}
 
 
 @app.post("/api/catalog/{album_id}/artwork")
