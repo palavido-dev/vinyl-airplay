@@ -2282,6 +2282,10 @@ async def _run_playback(album_id: int, targets: list[dict], volume: int,
             side          = side,
             duration_secs = af.get("duration_secs") or 0,
             tracks        = side_tracks,
+            album_id      = album_id,
+            album_title   = album_info["title"],
+            album_artist  = album_info["artist"],
+            artwork_path  = album_info.get("user_artwork_path") or album_info.get("artwork_path"),
         ))
 
     if not playlist:
