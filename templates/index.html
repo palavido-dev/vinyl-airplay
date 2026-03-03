@@ -1910,12 +1910,13 @@ async function plShowDetail(playlistId){
   var albumsById={};
   _catalogAlbums.forEach(function(a){albumsById[a.id]=a});
   var html='';
-  pl.album_ids.forEach(function(aid){
+  pl.album_ids.forEach(function(aid,idx){
     var a=albumsById[aid];
     if(!a)return;
     var art=a.user_artwork_path||a.artwork_path||'';
     var imgSrc=art?'/artwork/'+art.split('/').pop():'';
-    html+='<div class="pl-album-item">'
+    html+='<div class="pl-album-item" data-pl-idx="'+idx+'">'
+      +'<div class="queue-drag-handle" data-idx="'+idx+'" style="cursor:grab;font-size:1.1rem;color:var(--muted);padding:0 0.15rem">\u2261</div>'
       +(imgSrc?'<img src="'+imgSrc+'" alt="" onerror="this.style.display=\'none\'">':'')
       +'<div class="pl-album-info"><div class="pl-album-title">'+esc(a.title)+'</div><div class="pl-album-artist">'+esc(a.artist)+'</div></div>'
       +'<button class="pl-album-remove" onclick="plRemoveAlbum('+playlistId+','+aid+')" title="Remove">\u2715</button>'
@@ -1923,6 +1924,7 @@ async function plShowDetail(playlistId){
   });
   if(!html)html='<div style="color:var(--muted);padding:0.8rem;text-align:center;font-size:0.78rem">Tap "Add Albums" to browse your collection</div>';
   document.getElementById('pl-detail-albums').innerHTML=html;
+  initPlDrag();
   // If playlist is empty, auto-switch to Add tab
   if(!pl.album_ids.length){plSwitchTab('add')}
   else{plSwitchTab('contents')}
@@ -2033,15 +2035,17 @@ async function _plRefreshContents(){
   var pl=r.playlists.find(function(p){return p.id===_plCurrentId});
   if(!pl)return;
   _plCurrentAlbumIds=pl.album_ids.slice();
+  document.getElementById('pl-detail-count').textContent=pl.album_ids.length+' album'+(pl.album_ids.length!==1?'s':'');
   var albumsById={};
   _catalogAlbums.forEach(function(a){albumsById[a.id]=a});
   var html='';
-  pl.album_ids.forEach(function(aid){
+  pl.album_ids.forEach(function(aid,idx){
     var a=albumsById[aid];
     if(!a)return;
     var art=a.user_artwork_path||a.artwork_path||'';
     var imgSrc=art?'/artwork/'+art.split('/').pop():'';
-    html+='<div class="pl-album-item">'
+    html+='<div class="pl-album-item" data-pl-idx="'+idx+'">'
+      +'<div class="queue-drag-handle" data-idx="'+idx+'" style="cursor:grab;font-size:1.1rem;color:var(--muted);padding:0 0.15rem">\u2261</div>'
       +(imgSrc?'<img src="'+imgSrc+'" alt="" onerror="this.style.display=\'none\'">':'')
       +'<div class="pl-album-info"><div class="pl-album-title">'+esc(a.title)+'</div><div class="pl-album-artist">'+esc(a.artist)+'</div></div>'
       +'<button class="pl-album-remove" onclick="plRemoveAlbum('+_plCurrentId+','+aid+')" title="Remove">\u2715</button>'
@@ -2049,6 +2053,54 @@ async function _plRefreshContents(){
   });
   if(!html)html='<div style="color:var(--muted);padding:0.8rem;text-align:center;font-size:0.78rem">No albums yet</div>';
   document.getElementById('pl-detail-albums').innerHTML=html;
+  initPlDrag();
+}
+
+// --- Playlist drag-to-reorder ---
+function initPlDrag(){
+  var list=document.getElementById('pl-detail-albums');
+  var dragIdx=null,dragEl=null,items=[];
+  function getItemAtY(y){
+    for(var i=0;i<items.length;i++){var r=items[i].el.getBoundingClientRect();if(y>=r.top&&y<=r.bottom)return items[i]}
+    return null;
+  }
+  list.querySelectorAll('.queue-drag-handle').forEach(function(handle){
+    handle.addEventListener('pointerdown',function(e){
+      e.preventDefault();
+      dragIdx=parseInt(this.dataset.idx);
+      dragEl=this.closest('.pl-album-item');
+      dragEl.style.opacity='0.5';
+      items=[];
+      list.querySelectorAll('.pl-album-item[data-pl-idx]').forEach(function(el){
+        items.push({el:el,idx:parseInt(el.dataset.plIdx)});
+      });
+      document.addEventListener('pointermove',onMove);
+      document.addEventListener('pointerup',onUp);
+    });
+  });
+  function onMove(e){
+    e.preventDefault();
+    items.forEach(function(it){it.el.style.background=''});
+    var target=getItemAtY(e.clientY);
+    if(target&&target.idx!==dragIdx){target.el.style.background='rgba(212,162,78,0.15)'}
+  }
+  function onUp(e){
+    document.removeEventListener('pointermove',onMove);
+    document.removeEventListener('pointerup',onUp);
+    if(dragEl)dragEl.style.opacity='';
+    items.forEach(function(it){it.el.style.background=''});
+    var target=getItemAtY(e.clientY);
+    if(target&&target.idx!==dragIdx&&dragIdx!==null){
+      reorderPlaylist(dragIdx,target.idx);
+    }
+    dragIdx=null;dragEl=null;
+  }
+}
+async function reorderPlaylist(fromIdx,toIdx){
+  if(!_plCurrentId)return;
+  var r=await fetch('/api/playlists/'+_plCurrentId+'/reorder',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({from:fromIdx,to:toIdx})}).then(d=>d.json());
+  if(r.ok){_plRefreshContents()}
+  else{showToast(r.error||'Cannot reorder')}
 }
 
 // --- Add to Playlist from Modal ---

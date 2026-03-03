@@ -1739,6 +1739,17 @@ async def add_to_playlist(playlist_id: int, body: dict):
     return {"ok": ok}
 
 
+@app.post("/api/playlists/{playlist_id}/reorder")
+async def reorder_playlist(playlist_id: int, body: dict):
+    """Move an album within a playlist. body: { from: int, to: int }"""
+    from_idx = body.get("from")
+    to_idx = body.get("to")
+    if from_idx is None or to_idx is None:
+        return {"ok": False, "error": "from and to indices required"}
+    ok = cat.reorder_playlist(playlist_id, int(from_idx), int(to_idx))
+    return {"ok": ok}
+
+
 @app.post("/api/playlists/{playlist_id}/remove")
 async def remove_from_playlist(playlist_id: int, body: dict):
     """Remove an album from a playlist. body: { album_id: int }"""
