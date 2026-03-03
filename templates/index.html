@@ -158,7 +158,7 @@
     background: var(--walnut);
     border-left: 2px solid var(--walnut-lt);
     box-shadow: -2px 0 12px rgba(0,0,0,0.3);
-    z-index: 90;
+    z-index: 200;
     display: flex; flex-direction: column;
     transition: right 0.3s ease-out;
     overflow: hidden;
@@ -204,19 +204,40 @@
     padding: 1rem;
   }
   .queue-item {
-    display: flex;
-    gap: 0.6rem;
+    display: flex; align-items: center;
+    gap: 0.5rem;
     padding: 0.5rem;
     margin-bottom: 0.3rem;
-    background: rgba(255,255,255,0.02);
+    background: rgba(255,255,255,0.04);
     border-radius: 6px;
     border-left: 3px solid transparent;
-    transition: background 0.15s;
+    transition: background 0.15s, transform 0.15s, box-shadow 0.15s;
+    user-select: none;
   }
   .queue-item.current {
-    background: rgba(212,162,78,0.1);
+    background: rgba(212,162,78,0.12);
     border-left-color: var(--amber);
   }
+  .queue-item.dragging {
+    opacity: 0.85;
+    background: rgba(212,162,78,0.2);
+    box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+    z-index: 10;
+  }
+  .queue-item.drag-over {
+    border-top: 2px solid var(--amber);
+  }
+  .queue-drag-handle {
+    flex-shrink: 0;
+    width: 20px;
+    color: var(--muted);
+    font-size: 0.9rem;
+    cursor: grab;
+    display: flex; align-items: center; justify-content: center;
+    touch-action: none;
+    opacity: 0.5;
+  }
+  .queue-drag-handle:hover { opacity: 1; }
   .queue-art {
     width: 40px; height: 40px;
     flex-shrink: 0;
@@ -246,6 +267,20 @@
     letter-spacing: 0.05em;
     font-weight: 600;
   }
+  .queue-remove-btn {
+    flex-shrink: 0;
+    width: 28px; height: 28px;
+    background: none; border: none;
+    color: var(--muted);
+    font-size: 0.75rem;
+    cursor: pointer;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    transition: background 0.15s, color 0.15s;
+    touch-action: manipulation;
+  }
+  .queue-remove-btn:hover { background: rgba(255,80,80,0.15); color: #ff6b6b; }
+  .queue-remove-btn:active { background: rgba(255,80,80,0.25); color: #ff6b6b; }
 
   .main-content { flex: 1; overflow: hidden; padding: 0.75rem; -webkit-overflow-scrolling: touch; display: flex; gap: 0.75rem; }
   .album-grid-wrap { flex-shrink: 0; overflow-y: auto; }
@@ -1600,7 +1635,10 @@ function playerSeekClick(e){const b=e.currentTarget,r=b.getBoundingClientRect(),
 var _queuePanelOpen=false;
 function toggleQueue(){var p=document.getElementById('queue-panel');_queuePanelOpen=!_queuePanelOpen;p.classList.toggle('open',_queuePanelOpen);document.getElementById('queue-backdrop').style.display=_queuePanelOpen?'block':'none';if(_queuePanelOpen){refreshQueueDisplay();document.addEventListener('click',closeQueueOnClickOutside,true)}else{document.removeEventListener('click',closeQueueOnClickOutside,true)}}
 function closeQueueOnClickOutside(e){var p=document.getElementById('queue-panel');if(!p.contains(e.target)&&e.target.id!=='np-repeat'&&!e.target.closest('[onclick*="toggleQueue"]')){_queuePanelOpen=false;p.classList.remove('open');document.getElementById('queue-backdrop').style.display='none';document.removeEventListener('click',closeQueueOnClickOutside,true)}}
-async function refreshQueueDisplay(){if(!_queuePanelOpen)return;try{const r=await fetch('/api/player/queue').then(d=>d.json());if(!r.ok||!r.queue)return;const list=document.getElementById('queue-list');if(!r.queue.length){list.innerHTML='<div class="queue-empty">Queue is empty</div>';return}let html='';r.queue.forEach((item,idx)=>{const isCurrent=idx===r.current_index;let art='<div class="queue-art" style="display:flex;align-items:center;justify-content:center;font-size:1.5rem">💿</div>';if(item.artwork){const artFile=item.artwork.split('/').pop();art=`<img src="/artwork/${artFile}?t=${item.album_id}" class="queue-art" alt="">`}html+=`<div class="queue-item${isCurrent?' current':''}">${art}<div class="queue-info"><div class="queue-album-title">${esc(item.album_title)}</div><div class="queue-album-artist">${esc(item.album_artist)}</div><div class="queue-side">Side ${esc(item.side)}</div></div></div>`});list.innerHTML=html}catch(e){console.warn('Queue refresh error:',e)}}
+async function refreshQueueDisplay(){if(!_queuePanelOpen)return;try{const r=await fetch('/api/player/queue').then(d=>d.json());if(!r.ok||!r.queue)return;const list=document.getElementById('queue-list');if(!r.queue.length){list.innerHTML='<div class="queue-empty">Queue is empty</div>';return}let html='';r.queue.forEach((item,idx)=>{const isCurrent=idx===r.current_index;let art='<div class="queue-art" style="display:flex;align-items:center;justify-content:center;font-size:1.5rem">\uD83D\uDCBF</div>';if(item.artwork){const artFile=item.artwork.split('/').pop();art=`<img src="/artwork/${artFile}?t=${item.album_id}" class="queue-art" alt="">`}const removeBtn=isCurrent?'':'<button class="queue-remove-btn" onclick="event.stopPropagation();removeFromQueue('+idx+')" title="Remove">\u2715</button>';const dragHandle=isCurrent?'<div style="width:20px"></div>':'<div class="queue-drag-handle" data-idx="'+idx+'">\u2261</div>';html+=`<div class="queue-item${isCurrent?' current':''}" data-queue-idx="${idx}">${dragHandle}${art}<div class="queue-info"><div class="queue-album-title">${esc(item.album_title)}</div><div class="queue-album-artist">${esc(item.album_artist)}</div><div class="queue-side">Side ${esc(item.side)}</div></div>${removeBtn}</div>`});list.innerHTML=html;initQueueDrag()}catch(e){console.warn('Queue refresh error:',e)}}
+async function removeFromQueue(idx){try{const r=await fetch('/api/player/queue/remove',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({index:idx})}).then(d=>d.json());if(r.ok){refreshQueueDisplay()}else{showToast(r.error||'Cannot remove')}}catch(e){showToast('Failed to remove')}}
+async function reorderQueue(fromIdx,toIdx){try{const r=await fetch('/api/player/queue/reorder',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({from:fromIdx,to:toIdx})}).then(d=>d.json());if(r.ok){refreshQueueDisplay()}else{showToast(r.error||'Cannot reorder')}}catch(e){showToast('Failed to reorder')}}
+function initQueueDrag(){const list=document.getElementById('queue-list');let dragIdx=null;let dragEl=null;let startY=0;let items=[];function getItemAtY(y){for(const it of items){const r=it.el.getBoundingClientRect();if(y>=r.top&&y<=r.bottom)return it}return null}list.querySelectorAll('.queue-drag-handle').forEach(handle=>{handle.addEventListener('pointerdown',function(e){e.preventDefault();dragIdx=parseInt(this.dataset.idx);dragEl=this.closest('.queue-item');dragEl.classList.add('dragging');startY=e.clientY;items=[];list.querySelectorAll('.queue-item').forEach(el=>{const i=parseInt(el.dataset.queueIdx);items.push({el:el,idx:i})});document.addEventListener('pointermove',onMove);document.addEventListener('pointerup',onUp)})});function onMove(e){e.preventDefault();items.forEach(it=>it.el.classList.remove('drag-over'));const target=getItemAtY(e.clientY);if(target&&target.idx!==dragIdx){target.el.classList.add('drag-over')}}function onUp(e){document.removeEventListener('pointermove',onMove);document.removeEventListener('pointerup',onUp);if(dragEl)dragEl.classList.remove('dragging');items.forEach(it=>it.el.classList.remove('drag-over'));const target=getItemAtY(e.clientY);if(target&&target.idx!==dragIdx&&dragIdx!==null){reorderQueue(dragIdx,target.idx)}dragIdx=null;dragEl=null}}
 async function addToQueue(albumId){if(!_playerActive){showToast('Start playback first');return}try{const r=await fetch('/api/player/queue/add',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({album_id:albumId})}).then(d=>d.json());if(r.ok){showToast(r.message||'Added to queue');refreshQueueDisplay()}else showError(r.error||'Failed to add to queue')}catch(e){showError('Failed to add to queue')}}
 async function addToQueueFromModal(){if(!currentAlbumId)return;if(!_playerActive){showToast('Start playback first');closeModal();return}await addToQueue(currentAlbumId);closeModal()}
 async function clearQueuePrompt(){if(!confirm('Clear queue? Playback will stop after the current album.'))return;clearQueue()}
