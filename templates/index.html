@@ -396,6 +396,14 @@
     display: none; position: fixed; inset: 0; z-index: 149;
   }
   .sort-panel-backdrop.open { display: block; }
+  .sort-panel-handle {
+    display: none; text-align: center; padding: 0.5rem 0 0.2rem;
+    cursor: pointer; touch-action: manipulation;
+  }
+  .sort-panel-handle span {
+    display: inline-block; width: 36px; height: 4px;
+    background: var(--shelf); border-radius: 2px;
+  }
   .sort-panel-section { margin-bottom: 0.6rem; }
   .sort-panel-section:last-child { margin-bottom: 0; }
   .sort-panel-label {
@@ -788,6 +796,7 @@
     }
     .sort-panel.open { bottom: 0; }
     .sort-panel-backdrop { z-index: 149; }
+    .sort-panel-handle { display: block; }
 
     /* Hide on-screen keyboard on mobile */
     .osk-overlay { display: none !important; }
@@ -842,6 +851,7 @@
   <button class="header-btn" onclick="showSettings()" title="Settings">⚙</button>
   <div id="sort-panel-backdrop" class="sort-panel-backdrop" onclick="closeSortPanel()"></div>
   <div id="sort-panel" class="sort-panel">
+    <div class="sort-panel-handle" onclick="closeSortPanel()"><span></span></div>
     <div class="sort-panel-section">
       <div class="sort-panel-label">Sort by</div>
       <div class="sort-panel-options" id="sort-options">
@@ -1280,7 +1290,8 @@ function renderCatalog(albums){
   if(_viewState.groupBy){
     var groups={},order=[];
     sorted.forEach(function(a){
-      var key=(_viewState.groupBy==='genre'?(a.genre||'Unknown Genre'):_viewState.groupBy==='favorites'?(a.favorite?'Favorites':'Everything Else'):(a.artist||'Unknown Artist'));
+      if(_viewState.groupBy==='favorites'&&!a.favorite) return;
+      var key=(_viewState.groupBy==='genre'?(a.genre||'Unknown Genre'):_viewState.groupBy==='favorites'?'Favorites':(a.artist||'Unknown Artist'));
       if(!groups[key]){groups[key]=[];order.push(key)}
       groups[key].push(a);
     });
