@@ -1725,8 +1725,6 @@ async def save_playlist(body: dict):
     album_ids = body.get("album_ids", [])
     if not name:
         return {"ok": False, "error": "Playlist name required"}
-    if not album_ids:
-        return {"ok": False, "error": "No albums in playlist"}
     pid = cat.save_playlist(name, album_ids)
     return {"ok": True, "id": pid}
 
