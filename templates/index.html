@@ -3548,7 +3548,8 @@ async function init(){
   if(d.storage)updateStorageInfo(d.storage);
   if(d.album_recording){_recAlbumId=d.album_recording.album_id;_recSide=d.album_recording.side;if(!_recStartTime)_recStartTime=Date.now()}
   initSwipeGestures();
-  loadCatalog();
+  await loadCatalog();
+  switchView('home');
 }
 init();
 
