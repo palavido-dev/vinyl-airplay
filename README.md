@@ -28,7 +28,7 @@ But it goes further than just streaming live vinyl. Every album you teach it get
 
 - **Vinyl Jukebox** - Browse and play your entire vinyl collection from the touchscreen or any browser. Recordings are stored as lossless FLAC files, so you get the full quality of the original recording without putting wear on your records.
 - **Automatic Record Recognition** - Drop the needle and the system identifies what's playing within seconds using Chromaprint audio fingerprinting against a local database. No cloud service required.
-- **Lossless Streaming** - Streams CD-quality audio (16-bit/44.1kHz PCM) to AirPlay and Bluetooth speakers. Multi-room AirPlay support with independent volume control.
+- **CD-Quality Streaming** - Streams 16-bit/44.1kHz PCM audio to AirPlay, Bluetooth, and local speakers. Multi-room AirPlay support with independent volume control. See [Audio Quality](#audio-quality-and-lossless) for details on each output path.
 - **Album Recording** - Records full album sides as FLAC files with automatic track boundary detection. Silence-based splitting with Discogs track duration fallback for tricky gaps. Color-coded input level meter shows recording levels in real time.
 - **Gapless Playback and Crossfade** - Seamless transitions between album sides with pre-buffered ffmpeg decoding. Optional equal-power crossfade (up to 2 seconds) blends smoothly between sides instead of a hard cut. Configure from settings or leave at zero for pure gapless.
 - **Queue and Playlists** - Add albums to a playback queue from any album card or the detail modal. Queue panel slides out from the right to show what's coming up next. Drag to reorder sides, remove individual items, and save the current queue as a named playlist to reload later.
@@ -195,7 +195,24 @@ When recording an album side, the system captures the full side as a continuous 
 
 ### Streaming
 
-Audio is captured at 16-bit/44.1kHz from the USB interface, processed through a real-time EQ stage, and streamed to AirPlay devices via [pyatv](https://github.com/postlund/pyatv) and to Bluetooth speakers via BlueALSA. Multiple AirPlay speakers can receive simultaneously, plus one Bluetooth device.
+Audio is captured at 16-bit/44.1kHz from the USB interface, processed through a real-time EQ stage (bass and treble shelving filters), and streamed to AirPlay devices via [pyatv](https://github.com/postlund/pyatv), to Bluetooth speakers via BlueALSA, or to the browser via Web Audio API. Multiple AirPlay speakers can receive simultaneously, plus one Bluetooth device. For a deeper look at what happens to the audio during playback and how each output path compares, see [Audio Quality](#audio-quality-and-lossless).
+
+### Audio Quality and "Lossless"
+
+Throughout this project, "lossless" refers to how the audio is captured and stored. Recordings are saved as FLAC files, a lossless codec that preserves the full quality of the analog-to-digital conversion from your USB interface. Nothing is lost at the storage level.
+
+During playback, the audio goes through a processing chain before it reaches your speakers: FLAC is decoded to 16-bit PCM, converted to floating point for the EQ stage (shelving filters running at 64-bit float precision), then converted back to 16-bit integer for output. That round-trip and the EQ processing itself introduce changes that are technically not reversible. The difference is imperceptible to human ears, but the output is not bit-for-bit identical to what's in the FLAC file.
+
+If you've ever listened to a record through a receiver and adjusted the bass or treble knobs, that's the same idea. The moment the signal passes through any EQ stage, analog or digital, it's no longer a perfect reproduction of the source. Nobody in the vinyl world considers that a flaw. It's just how listening works. The digital EQ here is doing exactly what your amplifier's tone controls do in a traditional setup.
+
+What reaches your speakers depends on the output path:
+
+- **Local speakers (ALSA):** Processed 16-bit PCM is sent directly to the DAC with no additional encoding. This is the most direct path and the closest to the source after EQ processing.
+- **AirPlay (RAOP):** The same processed PCM is wrapped in a WAV container and transmitted via Apple's RAOP protocol. No additional compression is applied during transport, so quality is equivalent to local output.
+- **Bluetooth (A2DP/SBC):** On top of the playback processing, Bluetooth adds SBC encoding, which is lossy. Most consumer Bluetooth speakers negotiate SBC by default. This is a noticeable step down from local or AirPlay, but perfectly fine for casual listening.
+- **Browser ("This Device"):** Processed PCM is streamed over HTTP and decoded in real time by the Web Audio API. Quality is equivalent to local output, limited only by your device's audio hardware.
+
+In short: FLAC storage is lossless. Playback processing colors the audio slightly (just like your amp's tone knobs do), and the final quality depends on the output path. Local, AirPlay, and browser output preserve the processed audio faithfully. Bluetooth adds a lossy encoding step.
 
 ---
 
