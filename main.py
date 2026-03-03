@@ -2781,6 +2781,151 @@ async def player_status():
     return {"state": "stopped"}
 
 
+@app.get("/api/player/queue")
+async def player_queue():
+    """Get current queue (playlist) with current index."""
+    if not state.player:
+        return {"ok": True, "queue": [], "current_index": -1}
+
+    queue = []
+    for i, entry in enumerate(state.player.playlist):
+        queue.append({
+            "index": i,
+            "album_id": entry.album_id,
+            "album_title": entry.album_title or "",
+            "album_artist": entry.album_artist or "",
+            "side": entry.side,
+            "artwork": entry.artwork_path or "",
+        })
+
+    current = state.player._side_idx if hasattr(state.player, '_side_idx') else -1
+    return {"ok": True, "queue": queue, "current_index": current}
+
+
+@app.post("/api/player/queue/add")
+async def player_queue_add(body: dict):
+    """Add album to end of queue. body: { album_id: int }"""
+    album_id = body.get("album_id")
+    if not album_id:
+        return {"ok": False, "error": "album_id required"}
+
+    # Get album info and audio files
+    audio_files = cat.get_album_audio(album_id)
+    if not audio_files:
+        return {"ok": False, "error": f"No recorded audio for album {album_id}"}
+
+    albums = cat.get_all_albums()
+    album_info = next((a for a in albums if a["id"] == album_id), None)
+    if not album_info:
+        return {"ok": False, "error": f"Album {album_id} not found"}
+
+    all_tracks = cat.get_album_tracks(album_id)
+
+    # Build playlist entries for this album's sides
+    new_entries = []
+    for af in audio_files:
+        side = af["side"]
+        side_tracks = [
+            {
+                "id":           t["id"],
+                "title":        t["title"],
+                "artist":       t.get("artist") or album_info["artist"],
+                "track_number": t["track_number"],
+                "start_secs":   t.get("start_secs"),
+                "end_secs":     t.get("end_secs"),
+            }
+            for t in all_tracks
+            if t["side"] == side
+        ]
+        if side_tracks:
+            first_start = min(
+                (t["start_secs"] for t in side_tracks if t["start_secs"] is not None),
+                default=0,
+            )
+            if first_start > 5.0:
+                for t in side_tracks:
+                    if t["start_secs"] is not None:
+                        t["start_secs"] -= first_start
+                    if t["end_secs"] is not None:
+                        t["end_secs"] -= first_start
+
+        new_entries.append(plr.PlaylistEntry(
+            audio_path=af["file_path"],
+            side=side,
+            duration_secs=af.get("duration_secs"),
+            tracks=side_tracks,
+            album_id=album_id,
+            album_title=album_info["title"],
+            album_artist=album_info["artist"],
+            artwork_path=album_info.get("user_artwork_path") or album_info.get("artwork_path"),
+        ))
+
+    if not new_entries:
+        return {"ok": False, "error": "Could not create playlist entries"}
+
+    # If player doesn't exist or is stopped, start playback with just this album
+    if not state.player or state.player.state == "stopped":
+        await _stop_playback()
+        targets = state.settings.get("saved_devices", [])
+        if not targets:
+            return {"ok": False, "error": "No AirPlay devices selected"}
+
+        volume = state.settings.get("volume", 80)
+        state.player_task = asyncio.create_task(
+            _run_playback_queue(album_id, album_info, new_entries, targets, volume)
+        )
+        await broadcast("queue_updated", {"queue": []})
+        return {"ok": True, "message": "Starting playback"}
+
+    # Add to existing queue
+    state.player.playlist.extend(new_entries)
+    # Build queue info for broadcast
+    queue_info = []
+    for i, entry in enumerate(state.player.playlist):
+        queue_info.append({
+            "index": i,
+            "album_id": entry.album_id,
+            "album_title": entry.album_title or "",
+            "album_artist": entry.album_artist or "",
+            "side": entry.side,
+            "artwork": entry.artwork_path or "",
+        })
+    await broadcast("queue_updated", {"queue": queue_info})
+    return {"ok": True, "message": f"Added {len(new_entries)} side(s) to queue"}
+
+
+@app.post("/api/player/queue/clear")
+async def player_queue_clear():
+    """Clear queue (stop after current album finishes)."""
+    if not state.player:
+        return {"ok": False, "error": "No playback active"}
+
+    # Keep only the current album, clear the rest
+    if state.player.playlist and hasattr(state.player, '_side_idx'):
+        current_idx = state.player._side_idx
+        # Find which album the current side belongs to
+        if current_idx >= 0 and current_idx < len(state.player.playlist):
+            current_album_id = state.player.playlist[current_idx].album_id
+            # Keep only sides from current album
+            state.player.playlist = [
+                entry for entry in state.player.playlist
+                if entry.album_id == current_album_id
+            ]
+
+    # Build queue info for broadcast
+    queue_info = []
+    for i, entry in enumerate(state.player.playlist):
+        queue_info.append({
+            "index": i,
+            "album_id": entry.album_id,
+            "album_title": entry.album_title or "",
+            "album_artist": entry.album_artist or "",
+            "side": entry.side,
+            "artwork": entry.artwork_path or "",
+        })
+    await broadcast("queue_updated", {"queue": queue_info})
+    return {"ok": True}
+
 
 # ── Learn Session ─────────────────────────────────────────────────────────────
 

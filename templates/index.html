@@ -147,6 +147,102 @@
   .eq-label { font-size: 0.6rem; color: rgba(245,235,216,0.4); letter-spacing: 0.06em; min-width: 32px; }
   .eq-slider { flex: 1; height: 4px; -webkit-appearance: none; appearance: none; background: rgba(255,255,255,0.1); border-radius: 2px; outline: none; }
   .eq-slider::-webkit-slider-thumb { -webkit-appearance: none; width: 18px; height: 18px; border-radius: 50%; background: linear-gradient(135deg, var(--amber) 0%, var(--amber-dk) 100%); border: 2px solid var(--walnut); cursor: pointer; box-shadow: 0 1px 4px rgba(0,0,0,0.4); }
+
+  /* ── Queue Panel ── */
+  .queue-panel {
+    position: fixed; right: -320px; top: 0; width: 320px; height: 100vh;
+    background: var(--walnut);
+    border-left: 2px solid var(--walnut-lt);
+    box-shadow: -2px 0 12px rgba(0,0,0,0.3);
+    z-index: 90;
+    display: flex; flex-direction: column;
+    transition: right 0.3s ease-out;
+    overflow: hidden;
+  }
+  .queue-panel.open { right: 0; }
+  .queue-header {
+    flex-shrink: 0;
+    padding: 1rem;
+    background: linear-gradient(180deg, var(--walnut-lt) 0%, var(--walnut) 100%);
+    border-bottom: 1px solid rgba(212,162,78,0.2);
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .queue-title {
+    font-family: var(--display-font);
+    font-size: 0.9rem; font-weight: 700;
+    color: var(--amber);
+    letter-spacing: 0.02em;
+  }
+  .queue-clear-btn {
+    width: 36px; height: 36px;
+    background: rgba(255,255,255,0.08);
+    border: 1px solid rgba(212,162,78,0.2);
+    border-radius: 6px;
+    color: var(--amber);
+    font-size: 0.85rem;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    transition: background 0.15s;
+  }
+  .queue-clear-btn:active { background: rgba(212,162,78,0.2); }
+  .queue-list {
+    flex: 1;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    padding: 0.5rem;
+  }
+  .queue-empty {
+    display: flex; align-items: center; justify-content: center;
+    height: 100%;
+    color: var(--muted);
+    font-size: 0.8rem;
+    text-align: center;
+    padding: 1rem;
+  }
+  .queue-item {
+    display: flex;
+    gap: 0.6rem;
+    padding: 0.5rem;
+    margin-bottom: 0.3rem;
+    background: rgba(255,255,255,0.02);
+    border-radius: 6px;
+    border-left: 3px solid transparent;
+    transition: background 0.15s;
+  }
+  .queue-item.current {
+    background: rgba(212,162,78,0.1);
+    border-left-color: var(--amber);
+  }
+  .queue-art {
+    width: 40px; height: 40px;
+    flex-shrink: 0;
+    border-radius: 4px;
+    background: var(--walnut-lt);
+    object-fit: cover;
+    border: 1px solid rgba(212,162,78,0.2);
+  }
+  .queue-info {
+    flex: 1; min-width: 0;
+    display: flex; flex-direction: column; gap: 0.2rem;
+  }
+  .queue-album-title {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--amber);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .queue-album-artist {
+    font-size: 0.65rem;
+    color: rgba(245,235,216,0.6);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .queue-side {
+    font-size: 0.6rem;
+    color: var(--muted);
+    letter-spacing: 0.05em;
+    font-weight: 600;
+  }
+
   .main-content { flex: 1; overflow: hidden; padding: 0.75rem; -webkit-overflow-scrolling: touch; display: flex; gap: 0.75rem; }
   .album-grid-wrap { flex-shrink: 0; overflow-y: auto; }
   .main-content.has-hero .album-grid-wrap { width: 310px; }
@@ -162,6 +258,8 @@
   .album-favorite-btn { position: absolute; top: 5px; right: 38px; width: 28px; height: 28px; border-radius: 50%; background: rgba(44,24,16,0.65); border: none; font-size: 0.9rem; cursor: pointer; display: flex; align-items: center; justify-content: center; backdrop-filter: blur(4px); opacity: 0.75; transition: opacity 0.15s, color 0.2s; color: rgba(245,235,216,0.3); }
   .album-favorite-btn:active { opacity: 1; }
   .album-favorite-btn.is-favorite { color: var(--rust); opacity: 1; }
+  .album-queue-btn { position: absolute; bottom: 5px; right: 5px; width: 28px; height: 28px; border-radius: 50%; background: rgba(44,24,16,0.65); border: none; font-size: 1rem; cursor: pointer; display: flex; align-items: center; justify-content: center; backdrop-filter: blur(4px); opacity: 0.75; transition: opacity 0.15s, background 0.15s; color: var(--amber); }
+  .album-queue-btn:active { opacity: 1; background: rgba(212,162,78,0.3); }
   .album-badge { position: absolute; bottom: 5px; left: 5px; font-size: 0.6rem; font-weight: 600; padding: 0.12rem 0.4rem; border-radius: 3px; backdrop-filter: blur(4px); }
   .album-badge.unrecorded { background: rgba(122,102,82,0.8); color: #fff; }
   .album-card .album-meta { padding: 0.45rem 0.55rem; }
@@ -616,6 +714,7 @@
       <button class="np-btn" onclick="playerNext()">⏭</button>
       <button class="np-btn" onclick="playerStop()">⏹</button>
       <button class="np-btn" id="np-repeat" onclick="playerRepeat()" title="Repeat" style="opacity:0.4">🔁</button>
+      <button class="np-btn" onclick="toggleQueue()" title="Queue">☰</button>
       <button class="np-btn" onclick="switchOutput()" title="Switch output">🔊</button>
     </div>
   </div>
@@ -682,6 +781,7 @@
       </div>
       <div class="modal-actions">
         <button class="btn btn-primary" onclick="playAlbumFromModal()" id="btn-modal-play">▶ Play</button>
+        <button class="btn btn-accent" onclick="addToQueueFromModal()" id="btn-modal-queue">+ Queue</button>
         <button class="btn btn-accent" onclick="openLearnForAlbum()" id="btn-modal-learn">🎓 Learn</button>
         <button class="btn" onclick="showAlbumRecPanel()" id="btn-modal-rec">🎙 Record</button>
         <label class="btn" style="cursor:pointer" title="Upload album artwork">📷 Photo<input type="file" accept="image/*" style="display:none" onchange="uploadArtwork(event)"></label>
@@ -820,6 +920,20 @@
   </div>
 </div>
 
+<!-- Queue Panel -->
+<div class="queue-panel" id="queue-panel">
+  <div class="queue-header">
+    <div class="queue-title">Up Next</div>
+    <button class="queue-clear-btn" onclick="toggleQueue()" title="Close">✕</button>
+  </div>
+  <div class="queue-list" id="queue-list">
+    <div class="queue-empty">Queue is empty</div>
+  </div>
+  <div style="flex-shrink:0;padding:0.75rem;border-top:1px solid rgba(212,162,78,0.15);background:rgba(0,0,0,0.2)">
+    <button class="btn btn-ghost" style="width:100%;text-align:center" onclick="clearQueuePrompt()">Clear Queue</button>
+  </div>
+</div>
+
 <!-- On-Screen Keyboard -->
 <div class="osk-overlay" id="osk">
   <div class="osk-input-preview">
@@ -848,6 +962,7 @@ function handleEvent(d){
   if(d.event==='error')showError(d.message);
   if(d.event==='now_playing')renderNowPlaying(d);
   if(d.event==='player_status')onPlayerStatus(d);
+  if(d.event==='queue_updated')refreshQueueDisplay();
   if(d.event==='learn_audio_detected')onLearnAudioDetected(d);
   if(d.event==='learn_end_of_side')onLearnEndOfSide(d);
   if(d.event==='learn_update')onLearnUpdate(d);
@@ -901,7 +1016,8 @@ function renderAlbumCard(a){
   var badge=has?'':'<div class="album-badge unrecorded">not recorded</div>';
   var isFav=a.favorite?'is-favorite':'';
   var heart=a.favorite?'\u2665':'\u2661';
-  return '<div class="album-card" onclick="onAlbumTap('+a.id+','+has+')"><div class="album-art-wrap">'+artH+'<button class="album-favorite-btn '+isFav+'" onclick="event.stopPropagation();toggleAlbumFavorite('+a.id+')" title="Favorite">'+heart+'</button><button class="album-info-btn" onclick="event.stopPropagation();openAlbumDetail('+a.id+')" title="Details">\u2139</button>'+badge+'</div><div class="album-meta"><div class="title">'+esc(a.title)+'</div><div class="artist">'+esc(a.artist)+'</div></div></div>';
+  var queueBtn=has?'<button class="album-queue-btn" onclick="event.stopPropagation();addToQueue('+a.id+')" title="Add to queue">+</button>':'';
+  return '<div class="album-card" onclick="onAlbumTap('+a.id+','+has+')"><div class="album-art-wrap">'+artH+'<button class="album-favorite-btn '+isFav+'" onclick="event.stopPropagation();toggleAlbumFavorite('+a.id+')" title="Favorite">'+heart+'</button><button class="album-info-btn" onclick="event.stopPropagation();openAlbumDetail('+a.id+')" title="Details">\u2139</button>'+queueBtn+badge+'</div><div class="album-meta"><div class="title">'+esc(a.title)+'</div><div class="artist">'+esc(a.artist)+'</div></div></div>';
 }
 
 function renderCatalog(albums){
@@ -1212,6 +1328,15 @@ async function playerRepeat(){const r=await fetch('/api/player/repeat',{method:'
 function updateRepeatButton(mode){var btn=document.getElementById('np-repeat');if(!btn)return;if(mode==='album'){btn.style.opacity='1';btn.textContent='🔁';btn.title='Repeat album'}else if(mode==='track'){btn.style.opacity='1';btn.textContent='🔂';btn.title='Repeat track'}else{btn.style.opacity='0.4';btn.textContent='🔁';btn.title='Repeat off'}}
 function playerSeekClick(e){const b=e.currentTarget,r=b.getBoundingClientRect(),pct=(e.clientX-r.left)/r.width,pts=document.getElementById('np-time-dur').textContent.split(':'),dur=parseInt(pts[0])*60+parseInt(pts[1]);fetch('/api/player/seek',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({position_secs:pct*dur})})}
 
+var _queuePanelOpen=false;
+function toggleQueue(){var p=document.getElementById('queue-panel');_queuePanelOpen=!_queuePanelOpen;p.classList.toggle('open',_queuePanelOpen);if(_queuePanelOpen){refreshQueueDisplay();document.addEventListener('click',closeQueueOnClickOutside,true)}else{document.removeEventListener('click',closeQueueOnClickOutside,true)}}
+function closeQueueOnClickOutside(e){var p=document.getElementById('queue-panel');if(!p.contains(e.target)&&e.target.id!=='np-repeat'&&!e.target.closest('[onclick*="toggleQueue"]')){_queuePanelOpen=false;p.classList.remove('open');document.removeEventListener('click',closeQueueOnClickOutside,true)}}
+async function refreshQueueDisplay(){if(!_queuePanelOpen)return;try{const r=await fetch('/api/player/queue').then(d=>d.json());if(!r.ok||!r.queue)return;const list=document.getElementById('queue-list');if(!r.queue.length){list.innerHTML='<div class="queue-empty">Queue is empty</div>';return}let html='';r.queue.forEach((item,idx)=>{const isCurrent=idx===r.current_index;let art='<div class="queue-art" style="display:flex;align-items:center;justify-content:center;font-size:1.5rem">💿</div>';if(item.artwork){const artFile=item.artwork.split('/').pop();art=`<img src="/artwork/${artFile}?t=${item.album_id}" class="queue-art" alt="">`}html+=`<div class="queue-item${isCurrent?' current':''}">${art}<div class="queue-info"><div class="queue-album-title">${esc(item.album_title)}</div><div class="queue-album-artist">${esc(item.album_artist)}</div><div class="queue-side">Side ${esc(item.side)}</div></div></div>`});list.innerHTML=html}catch(e){console.warn('Queue refresh error:',e)}}
+async function addToQueue(albumId){if(!_playerActive){showToast('Start playback first');return}try{const r=await fetch('/api/player/queue/add',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({album_id:albumId})}).then(d=>d.json());if(r.ok){showToast(r.message||'Added to queue');refreshQueueDisplay()}else showError(r.error||'Failed to add to queue')}catch(e){showError('Failed to add to queue')}}
+async function addToQueueFromModal(){if(!currentAlbumId)return;if(!_playerActive){showToast('Start playback first');closeModal();return}await addToQueue(currentAlbumId);closeModal()}
+async function clearQueuePrompt(){if(!confirm('Clear queue? Playback will stop after the current album.'))return;clearQueue()}
+async function clearQueue(){try{const r=await fetch('/api/player/queue/clear',{method:'POST'}).then(d=>d.json());if(r.ok){showToast('Queue cleared');refreshQueueDisplay()}else showError(r.error||'Failed to clear queue')}catch(e){showError('Failed to clear queue')}}
+
 let _eqT=null;
 function sendEQ(){clearTimeout(_eqT);_eqT=setTimeout(()=>{fetch('/api/eq',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({bass:parseInt(document.getElementById('eq-bass').value),treble:parseInt(document.getElementById('eq-treble').value)})})},150)}
 function sendVolume(){clearTimeout(_eqT);_eqT=setTimeout(()=>{fetch('/api/volume',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({volume:parseInt(document.getElementById('eq-volume').value)})})},150)}
@@ -1234,6 +1359,7 @@ async function openAlbumDetail(id){
   window._modalAlbumHasAudio=(ad.audio&&ad.audio.length)?true:false;
   renderModalTracks(window._modalTracks,false);
   document.getElementById('btn-modal-play').style.display=(ad.audio&&ad.audio.length)?'':'none';
+  document.getElementById('btn-modal-queue').style.display=(ad.audio&&ad.audio.length&&_playerActive)?'':'none';
   loadAlbumAudio(id);
   if(_recAlbumId===id&&_recStartTime){restoreAlbumRecPanel()}else{hideAlbumRecPanel()}
   const recBtn=document.getElementById('btn-modal-rec');
