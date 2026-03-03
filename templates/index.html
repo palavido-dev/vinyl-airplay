@@ -1925,9 +1925,6 @@
   <div id="pl-view-smart" style="flex:1;overflow-y:auto;display:none">
     <div id="smart-playlists-list" style="color:var(--muted);padding:1rem;text-align:center;font-size:0.82rem">Loading smart playlists...</div>
   </div>
-  <div id="pl-view-list" style="flex:1;overflow-y:auto;display:none">
-    <div style="color:var(--muted);padding:1rem;text-align:center;font-size:0.82rem">No playlists yet</div>
-  </div>
   <div id="pl-view-detail" style="flex:1;overflow-y:auto;display:none;flex-direction:column">
     <div style="padding:0.5rem 0.75rem;display:flex;align-items:center;gap:0.4rem;border-bottom:1px solid rgba(212,162,78,0.15);flex-shrink:0">
       <button class="pl-item-btn" onclick="plBackToList()" style="font-size:0.9rem" title="Back">&#8592;</button>
@@ -2072,7 +2069,7 @@ async function renderHomeView(){
   try{const resp=await fetch('/api/catalog/shelves').then(r=>r.json());_homeShelvesData=resp;let html='';const shelves=[{title:'Recently Played',items:resp.recently_played},{title:'Recently Added',items:resp.recently_added},{title:'Most Played',items:resp.most_played},{title:'Unplayed',items:resp.unplayed},{title:'Favorites',items:resp.favorites},{title:'Top Rated',items:resp.top_rated}];shelves.forEach(s=>{if(s.items.length>0){html+=renderShelf(s.title,s.items)}});Object.entries(resp.decades||{}).forEach(([title,items])=>{if(items.length>0){html+=renderShelf(title,items)}});Object.entries(resp.genres||{}).forEach(([title,items])=>{if(items.length>0){html+=renderShelf(title,items)}});document.getElementById('home-view').innerHTML=html}catch(e){showError('Failed to load home shelves')}}
 
 function renderShelf(title,items){
-  const itemsHtml=items.map(a=>{const art=a.user_artwork_path||a.artwork_path;const src=art?'/artwork/'+art.split('/').pop()+'?t='+a.id:'';return `<div class="shelf-item" onclick="openAlbumDetail(${a.id})" title="${esc(a.title)}"><img ${src?'src="'+src+'"':'style="display:none"'} class="shelf-item-art" alt="" loading="lazy" onerror="this.style.display='none'"><div class="recently-played-art" style="width:80px;height:80px;border-radius:4px;display:flex;align-items:center;justify-content:center;background:var(--paper-dk);font-size:1.8rem" onclick="event.stopPropagation();openAlbumDetail(${a.id})">💿</div></div>`}).join('');
+  const itemsHtml=items.map(a=>{const art=a.user_artwork_path||a.artwork_path;const src=art?'/artwork/'+art.split('/').pop()+'?t='+a.id:'';const artEl=src?`<img src="${src}" class="shelf-item-art" alt="" loading="lazy" onerror="this.nextElementSibling.style.display='flex';this.style.display='none'">`:'';const fallbackStyle=src?'display:none':'display:flex';return `<div class="shelf-item" onclick="openAlbumDetail(${a.id})" title="${esc(a.title)}">${artEl}<div style="width:80px;height:80px;border-radius:4px;${fallbackStyle};align-items:center;justify-content:center;background:var(--paper-dk);font-size:1.8rem">&#x1F4BF;</div></div>`}).join('');
   return `<div class="shelf"><div class="shelf-header"><span class="shelf-title">${esc(title)}</span><span class="shelf-see-all" onclick="filterByShelf('${esc(title)}')">See All</span></div><div class="shelf-scroll">${itemsHtml}</div></div>`
 }
 
@@ -2818,11 +2815,11 @@ async function spShowDetail(playlistId){
 }
 
 async function plShowList(){
-  document.getElementById('pl-view-list').style.display='block';
+  document.getElementById('pl-view-regular').style.display='block';
   document.getElementById('pl-view-detail').style.display='none';
   _plCurrentId=null;
   var r=await fetch('/api/playlists').then(d=>d.json());
-  var el=document.getElementById('pl-view-list');
+  var el=document.getElementById('pl-view-regular');
   if(!r.ok||!r.playlists||!r.playlists.length){
     el.innerHTML='<div style="color:var(--muted);padding:1rem;text-align:center;font-size:0.82rem">No playlists yet. Add albums from the catalog.</div>';
     return;
@@ -2847,7 +2844,7 @@ async function plShowList(){
 var _plCurrentEntries=[]; // side-level entries [{a, s}, ...]
 async function plShowDetail(playlistId){
   _plCurrentId=playlistId;
-  document.getElementById('pl-view-list').style.display='none';
+  document.getElementById('pl-view-regular').style.display='none';
   document.getElementById('pl-view-detail').style.display='flex';
   var r=await fetch('/api/playlists').then(d=>d.json());
   var pl=r.playlists.find(function(p){return p.id===playlistId});
