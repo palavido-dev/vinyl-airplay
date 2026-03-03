@@ -970,6 +970,9 @@ async def lifespan(app: FastAPI):
     if state.settings.get("auto_stream_enabled"):
         state.auto_stream_task = asyncio.create_task(_auto_stream_watcher())
         print("[auto-stream] Watcher started on boot")
+    # Backfill any missing track durations from MusicBrainz (non-blocking)
+    loop = asyncio.get_event_loop()
+    loop.run_in_executor(None, cat.backfill_all_missing_durations)
     yield
     if state.stop_event: state.stop_event.set()
     if state.player:
