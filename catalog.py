@@ -1528,6 +1528,43 @@ def save_playlist(name: str, album_ids: list[int]) -> int:
         db.close()
 
 
+def add_album_to_playlist(playlist_id: int, album_id: int) -> bool:
+    """Append an album to a playlist (skips if already present). Returns True on success."""
+    import json
+    db = get_db()
+    try:
+        row = db.execute("SELECT album_ids FROM playlists WHERE id = ?", (playlist_id,)).fetchone()
+        if not row:
+            return False
+        ids = json.loads(row[0])
+        if album_id not in ids:
+            ids.append(album_id)
+        db.execute("UPDATE playlists SET album_ids = ?, updated_at = datetime('now') WHERE id = ?",
+                   (json.dumps(ids), playlist_id))
+        db.commit()
+        return True
+    finally:
+        db.close()
+
+
+def remove_album_from_playlist(playlist_id: int, album_id: int) -> bool:
+    """Remove an album from a playlist. Returns True on success."""
+    import json
+    db = get_db()
+    try:
+        row = db.execute("SELECT album_ids FROM playlists WHERE id = ?", (playlist_id,)).fetchone()
+        if not row:
+            return False
+        ids = json.loads(row[0])
+        ids = [i for i in ids if i != album_id]
+        db.execute("UPDATE playlists SET album_ids = ?, updated_at = datetime('now') WHERE id = ?",
+                   (json.dumps(ids), playlist_id))
+        db.commit()
+        return True
+    finally:
+        db.close()
+
+
 def delete_playlist(playlist_id: int):
     """Delete a playlist by ID."""
     db = get_db()

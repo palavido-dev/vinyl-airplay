@@ -1731,6 +1731,26 @@ async def save_playlist(body: dict):
     return {"ok": True, "id": pid}
 
 
+@app.post("/api/playlists/{playlist_id}/add")
+async def add_to_playlist(playlist_id: int, body: dict):
+    """Add an album to a playlist. body: { album_id: int }"""
+    album_id = body.get("album_id")
+    if not album_id:
+        return {"ok": False, "error": "album_id required"}
+    ok = cat.add_album_to_playlist(playlist_id, int(album_id))
+    return {"ok": ok}
+
+
+@app.post("/api/playlists/{playlist_id}/remove")
+async def remove_from_playlist(playlist_id: int, body: dict):
+    """Remove an album from a playlist. body: { album_id: int }"""
+    album_id = body.get("album_id")
+    if not album_id:
+        return {"ok": False, "error": "album_id required"}
+    ok = cat.remove_album_from_playlist(playlist_id, int(album_id))
+    return {"ok": ok}
+
+
 @app.delete("/api/playlists/{playlist_id}")
 async def delete_playlist(playlist_id: int):
     """Delete a playlist."""

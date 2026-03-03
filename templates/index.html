@@ -164,6 +164,37 @@
     overflow: hidden;
   }
   .queue-panel.open { right: 0; }
+  .playlists-panel {
+    position: fixed; left: -340px; top: 0; width: 340px; height: 100vh;
+    background: var(--walnut);
+    border-right: 2px solid var(--walnut-lt);
+    box-shadow: 2px 0 12px rgba(0,0,0,0.3);
+    z-index: 200;
+    display: flex; flex-direction: column;
+    transition: left 0.3s ease-out;
+    overflow: hidden;
+  }
+  .playlists-panel.open { left: 0; }
+  .pl-album-item {
+    display: flex; align-items: center; gap: 0.5rem; padding: 0.4rem 0.5rem;
+    border-bottom: 1px solid rgba(255,255,255,0.04); font-size: 0.78rem; color: var(--amber);
+  }
+  .pl-album-item img { width: 36px; height: 36px; border-radius: 4px; object-fit: cover; flex-shrink: 0; }
+  .pl-album-item .pl-album-info { flex: 1; min-width: 0; }
+  .pl-album-item .pl-album-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pl-album-item .pl-album-artist { font-size: 0.68rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pl-album-remove { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 0.75rem; padding: 0.2rem 0.4rem; border-radius: 3px; }
+  .pl-album-remove:hover { color: var(--rust); background: rgba(255,255,255,0.05); }
+  .pl-item {
+    display: flex; align-items: center; gap: 0.5rem; padding: 0.6rem 0.75rem;
+    border-bottom: 1px solid rgba(255,255,255,0.04); cursor: pointer; transition: background 0.15s;
+  }
+  .pl-item:active { background: rgba(212,162,78,0.1); }
+  .pl-item-name { flex: 1; color: var(--amber); font-size: 0.85rem; }
+  .pl-item-count { font-size: 0.7rem; color: var(--muted); }
+  .pl-item-actions { display: flex; gap: 0.3rem; }
+  .pl-item-btn { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 0.72rem; padding: 0.15rem 0.3rem; border-radius: 3px; }
+  .pl-item-btn:hover { color: var(--amber); background: rgba(255,255,255,0.05); }
   .queue-header {
     flex-shrink: 0;
     padding: 1rem;
@@ -830,6 +861,16 @@
     .queue-panel.open { bottom: 0; }
     .queue-clear-btn { min-width: 44px; min-height: 44px; }
 
+    .playlists-panel {
+      position: fixed; bottom: -100%; left: 0; right: 0;
+      top: auto; width: 100%; height: auto; max-height: 70vh;
+      border-right: none; border-top: 2px solid var(--amber-dk);
+      border-radius: 12px 12px 0 0;
+      transition: bottom 0.3s ease-out;
+      z-index: 200;
+    }
+    .playlists-panel.open { bottom: 0; left: 0; }
+
     /* Sort Panel: Full width bottom sheet */
     .sort-panel {
       position: fixed; top: auto; bottom: -100%; left: 0; right: 0;
@@ -891,6 +932,7 @@
   <input type="search" class="search-bar" id="catalog-search" placeholder="Search your collection…" oninput="filterCatalog(this.value)">
   <button class="header-btn" id="btn-sort" onclick="toggleSortPanel()" title="Sort &amp; group">&#8645;</button>
   <button class="header-btn" onclick="showStats()" title="Stats &amp; history">📊</button>
+  <button class="header-btn" onclick="togglePlaylistsPanel()" title="Playlists">♫</button>
   <button class="header-btn" onclick="shufflePlay()" title="Shuffle play">🔀</button>
   <button class="header-btn" onclick="showAddForm()" title="Add record" style="font-size:1.5rem;font-weight:700;line-height:1">+</button>
   <button class="header-btn" onclick="showSettings()" title="Settings">⚙</button>
@@ -1036,6 +1078,7 @@
       <div class="modal-actions">
         <button class="btn btn-primary" onclick="playAlbumFromModal()" id="btn-modal-play">▶ Play</button>
         <button class="btn btn-accent" onclick="addToQueueFromModal()" id="btn-modal-queue">+ Queue</button>
+        <button class="btn btn-accent" onclick="showAddToPlaylistMenu()" id="btn-modal-playlist">+ Playlist</button>
         <button class="btn btn-accent" onclick="openLearnForAlbum()" id="btn-modal-learn">🎓 Learn</button>
         <button class="btn" onclick="showAlbumRecPanel()" id="btn-modal-rec">🎙 Record</button>
         <label class="btn" style="cursor:pointer" title="Upload album artwork">📷 Photo<input type="file" accept="image/*" style="display:none" onchange="uploadArtwork(event)"></label>
@@ -1044,6 +1087,11 @@
         <button class="btn btn-ghost" onclick="clearAlbumFingerprints()" title="Clear learned fingerprints">🗑 Clear FP</button>
         <button class="btn btn-ghost" style="color:var(--rust)" onclick="deleteAlbum()">Delete</button>
         <button class="btn btn-ghost" onclick="closeModal()" style="margin-left:auto">Close</button>
+      </div>
+      <div id="modal-playlist-menu" style="display:none;margin-top:0.4rem;padding:0.5rem;background:rgba(0,0,0,0.04);border:1px solid rgba(0,0,0,0.08);border-radius:6px">
+        <div style="font-size:0.72rem;color:var(--muted);margin-bottom:0.3rem">Add to playlist:</div>
+        <div id="modal-playlist-options" style="max-height:140px;overflow-y:auto"></div>
+        <button onclick="addToNewPlaylistFromModal()" style="width:100%;margin-top:0.3rem;padding:0.35rem;font-size:0.75rem;background:none;border:1px dashed rgba(0,0,0,0.15);border-radius:4px;cursor:pointer;color:var(--muted);font-family:var(--body-font)">+ New Playlist</button>
       </div>
     </div>
   </div>
@@ -1244,6 +1292,30 @@
       </div>
       <div class="ss-eq-viz" id="ss-eq-viz"></div>
     </div>
+  </div>
+</div>
+
+<!-- Playlists Backdrop -->
+<div id="playlists-backdrop" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:199" onclick="togglePlaylistsPanel()"></div>
+<!-- Playlists Panel -->
+<div class="playlists-panel" id="playlists-panel">
+  <div class="queue-header">
+    <div class="queue-title">Playlists</div>
+    <button class="queue-clear-btn" onclick="togglePlaylistsPanel()" title="Close" style="touch-action:manipulation;-webkit-tap-highlight-color:transparent">✕</button>
+  </div>
+  <div id="pl-view-list" style="flex:1;overflow-y:auto">
+    <div style="color:var(--muted);padding:1rem;text-align:center;font-size:0.82rem">No playlists yet</div>
+  </div>
+  <div id="pl-view-detail" style="flex:1;overflow-y:auto;display:none">
+    <div style="padding:0.6rem 0.75rem;display:flex;align-items:center;gap:0.4rem;border-bottom:1px solid rgba(212,162,78,0.15)">
+      <button class="pl-item-btn" onclick="plBackToList()" style="font-size:0.9rem" title="Back">&#8592;</button>
+      <span id="pl-detail-name" style="flex:1;font-family:var(--display-font);color:var(--amber);font-size:0.9rem"></span>
+      <button class="btn btn-ghost" style="font-size:0.7rem;padding:0.25rem 0.5rem" onclick="plPlayCurrent()">&#9654; Play</button>
+    </div>
+    <div id="pl-detail-albums" style="overflow-y:auto"></div>
+  </div>
+  <div style="flex-shrink:0;padding:0.6rem 0.75rem;border-top:1px solid rgba(212,162,78,0.15);background:rgba(0,0,0,0.2)">
+    <button class="btn btn-ghost" style="width:100%;text-align:center;font-size:0.78rem" onclick="plCreateNew()">+ New Playlist</button>
   </div>
 </div>
 
@@ -1745,6 +1817,141 @@ async function deletePlaylist(id){
   togglePlaylistPicker();togglePlaylistPicker();
 }
 
+// --- Playlists Panel ---
+var _playlistsPanelOpen=false;
+var _plCurrentId=null; // playlist being viewed in detail
+function togglePlaylistsPanel(){
+  _playlistsPanelOpen=!_playlistsPanelOpen;
+  var p=document.getElementById('playlists-panel');
+  p.classList.toggle('open',_playlistsPanelOpen);
+  document.getElementById('playlists-backdrop').style.display=_playlistsPanelOpen?'block':'none';
+  if(_playlistsPanelOpen){plShowList();document.addEventListener('click',closePlOnClickOutside,true)}
+  else{document.removeEventListener('click',closePlOnClickOutside,true)}
+}
+function closePlOnClickOutside(e){
+  var p=document.getElementById('playlists-panel');
+  if(!p.contains(e.target)&&!e.target.closest('[onclick*="togglePlaylistsPanel"]')){
+    _playlistsPanelOpen=false;p.classList.remove('open');
+    document.getElementById('playlists-backdrop').style.display='none';
+    document.removeEventListener('click',closePlOnClickOutside,true);
+  }
+}
+async function plShowList(){
+  document.getElementById('pl-view-list').style.display='block';
+  document.getElementById('pl-view-detail').style.display='none';
+  _plCurrentId=null;
+  var r=await fetch('/api/playlists').then(d=>d.json());
+  var el=document.getElementById('pl-view-list');
+  if(!r.ok||!r.playlists||!r.playlists.length){
+    el.innerHTML='<div style="color:var(--muted);padding:1rem;text-align:center;font-size:0.82rem">No playlists yet. Add albums from the catalog.</div>';
+    return;
+  }
+  var html='';
+  r.playlists.forEach(function(p){
+    html+='<div class="pl-item" onclick="plShowDetail('+p.id+')">'
+      +'<span class="pl-item-name">'+esc(p.name)+'</span>'
+      +'<span class="pl-item-count">'+p.album_ids.length+' album'+(p.album_ids.length!==1?'s':'')+'</span>'
+      +'<div class="pl-item-actions">'
+      +'<button class="pl-item-btn" onclick="event.stopPropagation();plPlayDirect('+p.id+','+JSON.stringify(p.album_ids).replace(/"/g,'&quot;')+')" title="Play">&#9654;</button>'
+      +'<button class="pl-item-btn" onclick="event.stopPropagation();plDeleteFromList('+p.id+')" title="Delete" style="color:var(--rust)">\u2715</button>'
+      +'</div></div>';
+  });
+  el.innerHTML=html;
+}
+async function plShowDetail(playlistId){
+  _plCurrentId=playlistId;
+  document.getElementById('pl-view-list').style.display='none';
+  document.getElementById('pl-view-detail').style.display='flex';
+  document.getElementById('pl-view-detail').style.flexDirection='column';
+  var r=await fetch('/api/playlists').then(d=>d.json());
+  var pl=r.playlists.find(function(p){return p.id===playlistId});
+  if(!pl){plBackToList();return}
+  document.getElementById('pl-detail-name').textContent=pl.name;
+  var cat=await fetch('/api/catalog').then(d=>d.json());
+  var albumsById={};
+  cat.albums.forEach(function(a){albumsById[a.id]=a});
+  var html='';
+  pl.album_ids.forEach(function(aid){
+    var a=albumsById[aid];
+    if(!a)return;
+    var art=a.user_artwork_path||a.artwork_path||'';
+    var imgSrc=art?'/api/catalog/'+a.id+'/artwork':'';
+    html+='<div class="pl-album-item">'
+      +(imgSrc?'<img src="'+imgSrc+'" alt="" onerror="this.style.display=\'none\'">':'')
+      +'<div class="pl-album-info"><div class="pl-album-title">'+esc(a.title)+'</div><div class="pl-album-artist">'+esc(a.artist)+'</div></div>'
+      +'<button class="pl-album-remove" onclick="plRemoveAlbum('+playlistId+','+aid+')" title="Remove">\u2715</button>'
+      +'</div>';
+  });
+  if(!html)html='<div style="color:var(--muted);padding:1rem;text-align:center;font-size:0.82rem">Empty playlist</div>';
+  document.getElementById('pl-detail-albums').innerHTML=html;
+}
+function plBackToList(){plShowList()}
+async function plPlayCurrent(){
+  if(!_plCurrentId)return;
+  var r=await fetch('/api/playlists').then(d=>d.json());
+  var pl=r.playlists.find(function(p){return p.id===_plCurrentId});
+  if(!pl||!pl.album_ids.length){showToast('Empty playlist');return}
+  loadPlaylist(_plCurrentId,pl.album_ids);
+  togglePlaylistsPanel();
+}
+function plPlayDirect(id,albumIds){
+  loadPlaylist(id,albumIds);
+  togglePlaylistsPanel();
+}
+async function plDeleteFromList(id){
+  if(!confirm('Delete this playlist?'))return;
+  await fetch('/api/playlists/'+id,{method:'DELETE'});
+  plShowList();
+}
+async function plRemoveAlbum(playlistId,albumId){
+  await fetch('/api/playlists/'+playlistId+'/remove',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({album_id:albumId})});
+  plShowDetail(playlistId);
+}
+async function plCreateNew(){
+  var name=prompt('Playlist name:');
+  if(!name||!name.trim())return;
+  await fetch('/api/playlists',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:name.trim(),album_ids:[]})});
+  showToast('Playlist "'+name.trim()+'" created');
+  plShowList();
+}
+
+// --- Add to Playlist from Modal ---
+async function showAddToPlaylistMenu(){
+  var menu=document.getElementById('modal-playlist-menu');
+  if(menu.style.display!=='none'){menu.style.display='none';return}
+  menu.style.display='block';
+  var r=await fetch('/api/playlists').then(d=>d.json());
+  var opts=document.getElementById('modal-playlist-options');
+  if(!r.ok||!r.playlists||!r.playlists.length){
+    opts.innerHTML='<div style="color:var(--muted);font-size:0.72rem;padding:0.2rem 0">No playlists yet</div>';
+    return;
+  }
+  var html='';
+  r.playlists.forEach(function(p){
+    html+='<div style="display:flex;align-items:center;gap:0.4rem;padding:0.3rem 0;border-bottom:1px solid rgba(0,0,0,0.04);cursor:pointer" onclick="addCurrentAlbumToPlaylist('+p.id+',\''+esc(p.name).replace(/'/g,"\\'")+'\')">'
+      +'<span style="flex:1;font-size:0.78rem;color:var(--ink)">'+esc(p.name)+'</span>'
+      +'<span style="font-size:0.65rem;color:var(--muted)">'+p.album_ids.length+' album'+(p.album_ids.length!==1?'s':'')+'</span>'
+      +'</div>';
+  });
+  opts.innerHTML=html;
+}
+async function addCurrentAlbumToPlaylist(playlistId,playlistName){
+  if(!currentAlbumId)return;
+  var r=await fetch('/api/playlists/'+playlistId+'/add',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({album_id:currentAlbumId})}).then(d=>d.json());
+  if(r.ok){showToast('Added to "'+playlistName+'"')}
+  else{showToast(r.error||'Failed to add')}
+  document.getElementById('modal-playlist-menu').style.display='none';
+}
+async function addToNewPlaylistFromModal(){
+  if(!currentAlbumId)return;
+  var name=prompt('New playlist name:');
+  if(!name||!name.trim())return;
+  var r=await fetch('/api/playlists',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:name.trim(),album_ids:[currentAlbumId]})}).then(d=>d.json());
+  if(r.ok){showToast('Added to new playlist "'+name.trim()+'"')}
+  else{showToast(r.error||'Failed')}
+  document.getElementById('modal-playlist-menu').style.display='none';
+}
+
 let _eqT=null;
 function sendEQ(){clearTimeout(_eqT);_eqT=setTimeout(()=>{fetch('/api/eq',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({bass:parseInt(document.getElementById('eq-bass').value),treble:parseInt(document.getElementById('eq-treble').value)})})},150)}
 function sendVolume(){clearTimeout(_eqT);_eqT=setTimeout(()=>{fetch('/api/volume',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({volume:parseInt(document.getElementById('eq-volume').value)})})},150)}
@@ -1754,6 +1961,7 @@ function saveCrossfade(){var v=parseFloat(document.getElementById('crossfade-sli
 
 async function openAlbumDetail(id){
   currentAlbumId=id;
+  var plMenu=document.getElementById('modal-playlist-menu');if(plMenu)plMenu.style.display='none';
   const [cd,td]=await Promise.all([fetch('/api/catalog').then(r=>r.json()),fetch(`/api/catalog/${id}/tracks`).then(r=>r.json())]);
   const a=cd.albums.find(x=>x.id===id);if(!a)return;
   const art=a.user_artwork_path||a.artwork_path;
@@ -2336,8 +2544,10 @@ document.addEventListener('keydown', function(e){
   else if(e.key==='ArrowLeft'&&_playerActive){e.preventDefault();playerPrev()}
   else if(e.key==='q'||e.key==='Q'){e.preventDefault();toggleQueue()}
   else if(e.key==='s'||e.key==='S'){e.preventDefault();toggleSortPanel()}
+  else if(e.key==='p'||e.key==='P'){e.preventDefault();togglePlaylistsPanel()}
   else if(e.key==='Escape'){
-    if(_queuePanelOpen)toggleQueue();
+    if(_playlistsPanelOpen)togglePlaylistsPanel();
+    else if(_queuePanelOpen)toggleQueue();
     else if(document.getElementById('sort-panel').classList.contains('open'))closeSortPanel();
     else if(document.getElementById('album-modal').classList.contains('open'))closeModal();
     else if(document.getElementById('settings-modal').classList.contains('open'))hideSettings();
