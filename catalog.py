@@ -879,7 +879,10 @@ def backfill_all_missing_durations():
     finally:
         db.close()
 
-    for r in rows:
+    import time as _time
+    for i, r in enumerate(rows):
+        if i > 0:
+            _time.sleep(3)  # respect MusicBrainz rate limit between albums
         backfill_missing_durations(r["id"])
 
 
