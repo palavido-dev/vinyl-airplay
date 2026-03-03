@@ -15,6 +15,7 @@ import threading
 import concurrent.futures
 import os
 import time
+import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional
@@ -25,7 +26,7 @@ from pyatv.interface import MediaMetadata
 import sounddevice as sd
 import uvicorn
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect, UploadFile, File, Body
-from fastapi.responses import HTMLResponse, FileResponse
+from fastapi.responses import HTMLResponse, FileResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 
 import catalog as cat
@@ -64,7 +65,7 @@ def load_settings() -> dict:
     return {"saved_devices": [], "volume": 80, "audio_device_index": None,
             "bass": 0, "treble": 0, "discogs_token": "", "hidden_devices": [],
             "auto_stream_enabled": False, "auto_stream_device": None,
-            "device_names": {}, "audio_storage_path": ""}
+            "device_names": {}, "audio_storage_path": "", "device_volumes": {}}
 
 
 def save_settings(s: dict):
@@ -315,6 +316,29 @@ class LocalOutputStream:
                 self._proc.kill()
             self._proc = None
             print("[local-out] Closed")
+
+
+# ── Browser Audio Stream ──────────────────────────────────────────────────────
+
+_browser_streams = {}
+
+class BrowserAudioStream:
+    """Buffer PCM chunks for browser playback via HTTP streaming."""
+
+    def __init__(self):
+        self.stream_id = uuid.uuid4().hex
+        self._deque = collections.deque(maxlen=300)
+        self._stop = threading.Event()
+
+    def put(self, pcm_bytes):
+        if not self._stop.is_set():
+            self._deque.append(pcm_bytes)
+
+    def stop(self):
+        self._stop.set()
+
+    def is_stopped(self):
+        return self._stop.is_set()
 
 
 # ── Bluetooth Manager ─────────────────────────────────────────────────────────
@@ -1239,7 +1263,17 @@ async def get_cached_devices():
     custom_names = state.settings.get("device_names", {})
     for d in state.available_devices:
         d["custom_name"] = custom_names.get(d["id"])
-    return {"devices": state.available_devices + _get_local_outputs() + _get_bluetooth_devices()}
+    devices = state.available_devices + _get_local_outputs() + _get_bluetooth_devices()
+    # Add browser device
+    devices.insert(0, {
+        "id": "browser",
+        "type": "browser",
+        "name": "This Device",
+        "custom_name": custom_names.get("browser"),
+        "paired": True,
+        "hidden": "browser" in state.settings.get("hidden_devices", []),
+    })
+    return {"devices": devices}
 
 
 @app.post("/api/devices/{device_id}/rename")
@@ -1262,6 +1296,41 @@ async def rename_device(device_id: str, body: dict = {}):
 @app.get("/api/audio-devices")
 async def audio_devices():
     return {"devices": state.audio_devices}
+
+
+# ── Browser Stream Routes ─────────────────────────────────────────────────────
+
+@app.post("/api/stream/create")
+async def create_browser_stream():
+    """Create a new browser audio stream and return its stream_id."""
+    stream = BrowserAudioStream()
+    _browser_streams[stream.stream_id] = stream
+    print(f"[browser-stream] Created stream {stream.stream_id}")
+    return {"ok": True, "stream_id": stream.stream_id}
+
+
+@app.get("/api/stream/{stream_id}")
+async def stream_audio(stream_id: str):
+    """Stream PCM audio as WAV to browser."""
+    stream = _browser_streams.get(stream_id)
+    if not stream:
+        return {"error": "Stream not found"}, 404
+
+    async def generate():
+        # Send WAV header first
+        yield wav_header()
+        # Stream chunks from buffer
+        while not stream.is_stopped() or stream._deque:
+            if stream._deque:
+                chunk = stream._deque.popleft()
+                yield chunk
+            else:
+                await asyncio.sleep(0.01)  # Poll every 10ms
+        # Clean up when done
+        _browser_streams.pop(stream_id, None)
+        print(f"[browser-stream] Closed stream {stream_id}")
+
+    return StreamingResponse(generate(), media_type="audio/wav")
 
 
 # ── Bluetooth Routes ──────────────────────────────────────────────────────────
@@ -1773,6 +1842,65 @@ async def delete_playlist(playlist_id: int):
     """Delete a playlist."""
     cat.delete_playlist(playlist_id)
     return {"ok": True}
+
+
+@app.put("/api/playlists/{playlist_id}/rename")
+async def rename_playlist(playlist_id: int, body: dict):
+    """Rename a playlist. body: { name: string }"""
+    new_name = body.get("name", "").strip()
+    if not new_name:
+        return {"ok": False, "error": "Name cannot be empty"}
+    cat.rename_playlist(playlist_id, new_name)
+    return {"ok": True}
+
+
+@app.put("/api/catalog/{album_id}/position")
+async def update_playback_position(album_id: int, body: dict):
+    """Save playback position for resume. body: { side_idx: string, secs: float }"""
+    side_idx = body.get("side_idx")
+    secs = body.get("secs", 0.0)
+    cat.update_playback_position(album_id, side_idx, float(secs))
+    return {"ok": True}
+
+
+@app.post("/api/player/queue/insert-next")
+async def player_queue_insert_next(body: dict):
+    """Insert album sides right after currently playing track in queue."""
+    if not state.player:
+        return {"ok": False, "error": "No player active"}
+
+    album_id = body.get("album_id")
+    if not album_id:
+        return {"ok": False, "error": "album_id required"}
+
+    album_info = cat.get_album(album_id)
+    if not album_info:
+        return {"ok": False, "error": "Album not found"}
+
+    # Get all sides for this album from tracks
+    all_sides = set()
+    for track in cat.get_album_tracks(album_id):
+        if track.get("side"):
+            all_sides.add(track["side"])
+
+    sides = sorted(list(all_sides))
+    entries = []
+    for side in sides:
+        entry = _build_side_entry(album_id, side, album_info)
+        if entry:
+            entries.append(entry)
+
+    if not entries:
+        return {"ok": False, "error": "No playable sides found"}
+
+    # Insert after current position
+    current_idx = state.player.current_index if state.player else 0
+    insert_pos = current_idx + 1
+
+    for i, entry in enumerate(entries):
+        state.player.queue.insert(insert_pos + i, entry)
+
+    return {"ok": True, "inserted": len(entries)}
 
 
 @app.put("/api/catalog/{album_id}/rating")
@@ -2382,10 +2510,11 @@ async def _run_playback(album_id: int, targets: list[dict], volume: int,
         title=None, artist=None, album=album_info.get("title"), artwork=None,
     )
 
-    # Separate local / Bluetooth / AirPlay targets
+    # Separate local / Bluetooth / browser / AirPlay targets
     local_targets     = [t for t in targets if str(t.get("id", "")).startswith("local:")]
     bluetooth_targets = [t for t in targets if str(t.get("id", "")).startswith("bt:")]
-    airplay_targets   = [t for t in targets if not str(t.get("id", "")).startswith(("local:", "bt:"))]
+    browser_targets   = [t for t in targets if str(t.get("id", "")).startswith("browser:")]
+    airplay_targets   = [t for t in targets if not str(t.get("id", "")).startswith(("local:", "bt:", "browser:"))]
     if len(bluetooth_targets) > 1:
         bluetooth_targets = bluetooth_targets[:1]
 
@@ -2397,7 +2526,7 @@ async def _run_playback(album_id: int, targets: list[dict], volume: int,
         id_to_conf = {d.identifier: d for d in found}
         confs      = [id_to_conf[t["id"]] for t in airplay_targets if t["id"] in id_to_conf]
 
-    if not confs and not local_targets and not bluetooth_targets:
+    if not confs and not local_targets and not bluetooth_targets and not browser_targets:
         await broadcast("error", {"message": "No paired devices found on network"})
         state.airplay_metadata = None
         return
@@ -2405,7 +2534,7 @@ async def _run_playback(album_id: int, targets: list[dict], volume: int,
     await broadcast("player_status", {
         "state": "loading",
         "album_id": album_id,
-        "message": f"Connecting to {len(confs) + len(local_targets) + len(bluetooth_targets)} device(s)…",
+        "message": f"Connecting to {len(confs) + len(local_targets) + len(bluetooth_targets) + len(browser_targets)} device(s)…",
     })
 
     audio_streams = {conf.identifier: AsyncAudioStream() for conf in confs}
@@ -2443,7 +2572,15 @@ async def _run_playback(album_id: int, targets: list[dict], volume: int,
         except Exception as e:
             print(f"[player] Failed to open BT device {address}: {e}")
 
-    all_streams = list(audio_streams.values()) + local_streams + bt_streams
+    # Set up browser output streams
+    browser_streams = []
+    for br in browser_targets:
+        stream_id = br.get("id", "").replace("browser:", "")
+        if stream_id and stream_id in _browser_streams:
+            browser_streams.append(_browser_streams[stream_id])
+            print(f"[player] Added browser stream {stream_id}")
+
+    all_streams = list(audio_streams.values()) + local_streams + bt_streams + browser_streams
 
     if not all_streams:
         await broadcast("error", {"message": "No output devices available"})
@@ -2547,6 +2684,8 @@ async def _run_playback(album_id: int, targets: list[dict], volume: int,
             s.stop()
         for s in bt_streams:
             s.stop()
+        for s in browser_streams:
+            s.stop()
         state.player = None
         state.player_task = None
         state.now_playing = None
@@ -2573,7 +2712,8 @@ async def _run_playback_queue(album_id: int, album_info: dict,
 
     local_targets      = [t for t in targets if str(t.get("id", "")).startswith("local:")]
     bluetooth_targets  = [t for t in targets if str(t.get("id", "")).startswith("bt:")]
-    airplay_targets    = [t for t in targets if not str(t.get("id", "")).startswith(("local:", "bt:"))]
+    browser_targets    = [t for t in targets if str(t.get("id", "")).startswith("browser:")]
+    airplay_targets    = [t for t in targets if not str(t.get("id", "")).startswith(("local:", "bt:", "browser:"))]
 
     confs = []
     if airplay_targets:
@@ -2581,7 +2721,7 @@ async def _run_playback_queue(album_id: int, album_info: dict,
         id_to_conf = {d.identifier: d for d in found}
         confs = [id_to_conf[t["id"]] for t in airplay_targets if t["id"] in id_to_conf]
 
-    if not confs and not local_targets and not bluetooth_targets:
+    if not confs and not local_targets and not bluetooth_targets and not browser_targets:
         await broadcast("error", {"message": "No paired devices found on network"})
         state.airplay_metadata = None
         return
@@ -2624,7 +2764,14 @@ async def _run_playback_queue(album_id: int, album_info: dict,
             except Exception as e:
                 print(f"[player-playlist] Failed to open BT device {bt_addr}: {e}")
 
-    all_streams = list(audio_streams.values()) + local_streams + bt_streams
+    browser_streams = []
+    for br in browser_targets:
+        stream_id = br.get("id", "").replace("browser:", "")
+        if stream_id and stream_id in _browser_streams:
+            browser_streams.append(_browser_streams[stream_id])
+            print(f"[player-playlist] Added browser stream {stream_id}")
+
+    all_streams = list(audio_streams.values()) + local_streams + bt_streams + browser_streams
     if not all_streams:
         await broadcast("error", {"message": "No output devices available"})
         state.airplay_metadata = None
@@ -2708,6 +2855,8 @@ async def _run_playback_queue(album_id: int, album_info: dict,
         for s in local_streams:
             s.stop()
         for s in bt_streams:
+            s.stop()
+        for s in browser_streams:
             s.stop()
         state.player = None
         state.player_task = None

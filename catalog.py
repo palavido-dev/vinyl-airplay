@@ -170,6 +170,12 @@ def _migrate_db(db: sqlite3.Connection):
     if "rating" not in cols_albums:
         db.execute("ALTER TABLE albums ADD COLUMN rating INTEGER DEFAULT 0")
         print("[catalog] Migration: added albums.rating")
+    if "last_position_side_idx" not in cols_albums:
+        db.execute("ALTER TABLE albums ADD COLUMN last_position_side_idx TEXT")
+        print("[catalog] Migration: added albums.last_position_side_idx")
+    if "last_position_secs" not in cols_albums:
+        db.execute("ALTER TABLE albums ADD COLUMN last_position_secs REAL DEFAULT 0")
+        print("[catalog] Migration: added albums.last_position_secs")
 
 
 # ── Fingerprint Buffer ────────────────────────────────────────────────────────
@@ -1330,6 +1336,32 @@ def reorder_album_tracks(ordered_track_ids: list) -> bool:
         db.close()
 
 
+def get_album(album_id: int) -> Optional[dict]:
+    """Get a single album by ID with play counts."""
+    db = get_db()
+    try:
+        row = db.execute("""
+            SELECT a.*,
+                   COUNT(DISTINCT t.id)   as track_count,
+                   COUNT(DISTINCT p.id)   as play_count,
+                   MAX(p.played_at)       as last_played,
+                   (SELECT COUNT(*) FROM album_audio aa
+                    WHERE aa.album_id = a.id) as audio_count,
+                   (SELECT COUNT(DISTINCT f.track_id)
+                    FROM fingerprints f
+                    JOIN tracks t2 ON t2.id = f.track_id
+                    WHERE t2.album_id = a.id) as learned_count
+            FROM albums a
+            LEFT JOIN tracks t ON t.album_id = a.id
+            LEFT JOIN plays  p ON p.album_id = a.id
+            WHERE a.id = ?
+            GROUP BY a.id
+        """, (album_id,)).fetchone()
+        return dict(row) if row else None
+    finally:
+        db.close()
+
+
 def get_album_tracks(album_id: int) -> list[dict]:
     db = get_db()
     try:
@@ -1684,6 +1716,32 @@ def delete_playlist(playlist_id: int):
     db = get_db()
     try:
         db.execute("DELETE FROM playlists WHERE id = ?", (playlist_id,))
+        db.commit()
+    finally:
+        db.close()
+
+
+def rename_playlist(playlist_id: int, new_name: str):
+    """Rename a playlist."""
+    db = get_db()
+    try:
+        db.execute(
+            "UPDATE playlists SET name = ?, updated_at = datetime('now') WHERE id = ?",
+            (new_name.strip(), playlist_id)
+        )
+        db.commit()
+    finally:
+        db.close()
+
+
+def update_playback_position(album_id: int, side_idx: Optional[str], secs: float):
+    """Save the last playback position for an album for resume feature."""
+    db = get_db()
+    try:
+        db.execute(
+            "UPDATE albums SET last_position_side_idx = ?, last_position_secs = ? WHERE id = ?",
+            (side_idx, max(0.0, float(secs)), album_id)
+        )
         db.commit()
     finally:
         db.close()
