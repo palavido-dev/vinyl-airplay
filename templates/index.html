@@ -1516,7 +1516,7 @@
   <div class="osk-row" id="osk-row-bottom"></div>
 </div>
 <script>
-let ws,currentAlbumId=null,_catalogAlbums=[],_playerActive=false,_playerSource=null,_isStreaming=false,_lastUsedDevice=null,_pendingAlbumId=null,_pendingTrackId=null,_currentDevices=null,_playerAlbumId=null,_learnLog=[],_learnLevelInterval=null,_audioPlayer=null,_audioPlayingId=null,_reorderMode=false,_boundaryEditMode=false,_pendingRelease=null,_recTimerInterval=null,_browserAudioEl=null;
+let ws,currentAlbumId=null,_catalogAlbums=[],_playerActive=false,_playerSource=null,_isStreaming=false,_lastUsedDevice=null,_pendingAlbumId=null,_pendingTrackId=null,_currentDevices=null,_playerAlbumId=null,_learnLog=[],_learnLevelInterval=null,_audioPlayer=null,_audioPlayingId=null,_reorderMode=false,_boundaryEditMode=false,_pendingRelease=null,_recTimerInterval=null,_browserAudioCtx=null,_browserStreamReader=null,_browserStreamActive=false;
 var _viewState={sortMode:'artist',groupBy:null};
 
 function esc(s){if(!s)return'';const d=document.createElement('div');d.textContent=s;return d.innerHTML}
@@ -1753,8 +1753,75 @@ async function playMultipleAlbums(ids,devices,entries){
   else body.album_ids=ids;
   if(devices)body.devices=devices;
   else if(_currentDevices)body.devices=_currentDevices;
+  var isBrowser=devices&&devices.length>0&&devices[0].id&&devices[0].id.startsWith('browser:');
   var r=await fetch('/api/player/play-queue',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(function(r){return r.json()});
-  if(!r.ok)showError(r.error||'Playback failed');
+  if(!r.ok){showError(r.error||'Playback failed')}
+  else if(isBrowser){var streamId=devices[0].id.replace('browser:','');startBrowserAudioStream(streamId)}
+}
+
+// ── Browser Audio Stream (Web Audio API) ──
+function stopBrowserAudioStream(){
+  _browserStreamActive=false;
+  if(_browserStreamReader){try{_browserStreamReader.cancel()}catch(e){}_browserStreamReader=null}
+  if(_browserAudioCtx&&_browserAudioCtx.state!=='closed'){try{_browserAudioCtx.close()}catch(e){}_browserAudioCtx=null}
+}
+async function startBrowserAudioStream(streamId){
+  stopBrowserAudioStream();
+  var ctx=new (window.AudioContext||window.webkitAudioContext)({sampleRate:44100});
+  _browserAudioCtx=ctx;
+  _browserStreamActive=true;
+  var resp=await fetch('/api/stream/'+streamId);
+  if(!resp.ok||!resp.body){showError('Browser stream failed');return}
+  var reader=resp.body.getReader();
+  _browserStreamReader=reader;
+  // WAV header is 44 bytes, skip it
+  var headerLeft=44;
+  var leftover=null;
+  // Buffer a small amount before starting to avoid underruns
+  var BUFFER_SECS=0.15;
+  var BYTES_PER_SAMPLE=4; // 16-bit stereo = 4 bytes per frame
+  var nextTime=ctx.currentTime+0.1;
+  async function pump(){
+    while(_browserStreamActive){
+      var result;
+      try{result=await reader.read()}catch(e){break}
+      if(result.done)break;
+      var data=result.value;
+      // Skip WAV header bytes
+      if(headerLeft>0){
+        if(data.length<=headerLeft){headerLeft-=data.length;continue}
+        data=data.slice(headerLeft);headerLeft=0;
+      }
+      // Combine with leftover from previous chunk
+      if(leftover){
+        var combined=new Uint8Array(leftover.length+data.length);
+        combined.set(leftover);combined.set(data,leftover.length);
+        data=combined;leftover=null;
+      }
+      // Ensure even number of frames (4 bytes per frame for 16-bit stereo)
+      var usable=data.length-(data.length%BYTES_PER_SAMPLE);
+      if(usable<data.length){leftover=data.slice(usable);data=data.slice(0,usable)}
+      if(usable===0)continue;
+      // Convert Int16 PCM to Float32
+      var frames=usable/BYTES_PER_SAMPLE;
+      var buf=ctx.createBuffer(2,frames,44100);
+      var left=buf.getChannelData(0);
+      var right=buf.getChannelData(1);
+      var view=new DataView(data.buffer,data.byteOffset,usable);
+      for(var i=0;i<frames;i++){
+        left[i]=view.getInt16(i*4,true)/32768;
+        right[i]=view.getInt16(i*4+2,true)/32768;
+      }
+      var src=ctx.createBufferSource();
+      src.buffer=buf;
+      src.connect(ctx.destination);
+      var now=ctx.currentTime;
+      if(nextTime<now)nextTime=now+0.02;
+      src.start(nextTime);
+      nextTime+=buf.duration;
+    }
+  }
+  pump().catch(function(e){console.error('Browser stream pump error:',e)});
 }
 
 // ── Output Picker ──
@@ -1892,14 +1959,7 @@ async function playAlbumTo(id,devices,resume,isBrowser){
     showError(r.error||'Playback failed');
   }else if(isBrowser&&devices&&devices.length>0){
     var streamId=devices[0].id.replace('browser:','');
-    var audioUrl='/api/stream/'+streamId;
-    if(_browserAudioEl){
-      _browserAudioEl.pause();
-      _browserAudioEl.src='';
-    }
-    _browserAudioEl=new Audio();
-    _browserAudioEl.src=audioUrl;
-    _browserAudioEl.play().catch(function(e){console.error('Browser audio play error:',e)});
+    startBrowserAudioStream(streamId);
   }
 }
 function closeOutputPicker(){document.getElementById('output-picker-overlay').classList.remove('open');_pendingAlbumId=null;_pendingAlbumIds=null;_pendingTrackId=null;_pickerAlbumId=null;_pendingPlaylistEntries=null}
@@ -1986,7 +2046,7 @@ function onPlayerStatus(d){
 
 async function playerToggle(){await fetch('/api/player/pause',{method:'POST'})}
 async function playerStop(){
-  if(_browserAudioEl){_browserAudioEl.pause();_browserAudioEl.src='';_browserAudioEl=null}
+  stopBrowserAudioStream();
   await fetch('/api/player/stop',{method:'POST'})
 }
 var _resumeInfo=null;

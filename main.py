@@ -1319,14 +1319,25 @@ async def stream_audio(stream_id: str):
     async def generate():
         # Send WAV header first
         yield wav_header()
+        empty_polls = 0
+        max_empty = 500  # 5 seconds of empty polls before giving up
         # Stream chunks from buffer
-        while not stream.is_stopped() or stream._deque:
+        while True:
             if stream._deque:
                 chunk = stream._deque.popleft()
+                empty_polls = 0
                 yield chunk
+            elif stream.is_stopped():
+                # Drain remaining
+                while stream._deque:
+                    yield stream._deque.popleft()
+                break
             else:
-                await asyncio.sleep(0.01)  # Poll every 10ms
-        # Clean up when done
+                empty_polls += 1
+                if empty_polls > max_empty:
+                    print(f"[browser-stream] Timeout waiting for data on {stream_id}")
+                    break
+                await asyncio.sleep(0.01)
         _browser_streams.pop(stream_id, None)
         print(f"[browser-stream] Closed stream {stream_id}")
 
