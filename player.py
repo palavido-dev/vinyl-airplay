@@ -97,6 +97,9 @@ class Player:
         self._ffmpeg: Optional[subprocess.Popen] = None
         self._next_ffmpeg: Optional[subprocess.Popen] = None  # pre-started for gapless
 
+        self._crossfade_secs = 0.0           # 0 = disabled
+        self._crossfade_bytes_consumed = 0   # bytes read from next side during crossfade
+
         self._pause_event.set()  # start unpaused
 
     # ── Properties ───────────────────────────────────────────────────────────
@@ -145,6 +148,11 @@ class Player:
             "repeat_mode":   self._repeat_mode,
         }
 
+    def set_crossfade(self, secs: float):
+        """Set crossfade duration (0 to disable, max 2 seconds)."""
+        self._crossfade_secs = max(0.0, min(2.0, float(secs)))
+        print(f"[player] Crossfade: {self._crossfade_secs}s")
+
     def cycle_repeat(self) -> str:
         """Cycle repeat mode: off → album → track → off."""
         modes = ["off", "album", "track"]
@@ -163,6 +171,7 @@ class Player:
 
         self.album_id   = album_id
         self.album_info = album_info
+        self._crossfade_bytes_consumed = 0
         self.playlist   = playlist
 
         if not playlist:
@@ -568,8 +577,32 @@ class Player:
                 bytes_fed += CHUNK_BYTES
                 self._position = pos_start + bytes_fed / BYTES_PER_SEC
 
-                # Apply EQ
+                # Convert to float32 for processing
                 audio_f32 = np.frombuffer(data, dtype=np.int16).reshape(-1, CHANNELS).astype(np.float32) / 32767.0
+
+                # Crossfade: blend with next side when approaching end
+                if (self._crossfade_secs > 0
+                        and entry.duration_secs > self._crossfade_secs * 2
+                        and self._position >= entry.duration_secs - self._crossfade_secs
+                        and self._next_ffmpeg is not None
+                        and self._next_ffmpeg.poll() is None):
+                    try:
+                        next_chunk = self._next_ffmpeg.stdout.read(CHUNK_BYTES)
+                    except Exception:
+                        next_chunk = b""
+                    if next_chunk:
+                        if len(next_chunk) < CHUNK_BYTES:
+                            next_chunk += b'\x00' * (CHUNK_BYTES - len(next_chunk))
+                        self._crossfade_bytes_consumed += CHUNK_BYTES
+                        elapsed = self._position - (entry.duration_secs - self._crossfade_secs)
+                        t = min(1.0, max(0.0, elapsed / self._crossfade_secs))
+                        # Equal-power crossfade (cosine curve)
+                        fade_out = float(np.cos(t * np.pi * 0.5))
+                        fade_in  = float(np.sin(t * np.pi * 0.5))
+                        nxt_f32 = np.frombuffer(next_chunk, dtype=np.int16).reshape(-1, CHANNELS).astype(np.float32) / 32767.0
+                        audio_f32 = audio_f32 * fade_out + nxt_f32 * fade_in
+
+                # Apply EQ
                 processed = self.eq.process(audio_f32)
                 pcm_out   = (processed * 32767).astype(np.int16).tobytes()
 
@@ -620,7 +653,12 @@ class Player:
 
             # Auto-advance to next side
             self._side_idx += 1
-            self._position = 0.0
+            # If crossfade consumed bytes from the next side, start position there
+            if self._crossfade_bytes_consumed > 0:
+                self._position = self._crossfade_bytes_consumed / BYTES_PER_SEC
+            else:
+                self._position = 0.0
+            self._crossfade_bytes_consumed = 0
             self._current_track_idx = -1
 
             if self._side_idx < len(self.playlist):

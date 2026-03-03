@@ -119,6 +119,14 @@ CREATE TABLE IF NOT EXISTS album_audio (
     created_at  TEXT DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS playlists (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    name        TEXT NOT NULL,
+    album_ids   TEXT NOT NULL,   -- JSON array of album IDs
+    created_at  TEXT DEFAULT (datetime('now')),
+    updated_at  TEXT DEFAULT (datetime('now'))
+);
+
 CREATE INDEX IF NOT EXISTS idx_plays_album  ON plays(album_id);
 CREATE INDEX IF NOT EXISTS idx_plays_track  ON plays(track_id);
 CREATE INDEX IF NOT EXISTS idx_tracks_album ON tracks(album_id);
@@ -159,6 +167,9 @@ def _migrate_db(db: sqlite3.Connection):
     if "favorite" not in cols_albums:
         db.execute("ALTER TABLE albums ADD COLUMN favorite INTEGER DEFAULT 0")
         print("[catalog] Migration: added albums.favorite")
+    if "rating" not in cols_albums:
+        db.execute("ALTER TABLE albums ADD COLUMN rating INTEGER DEFAULT 0")
+        print("[catalog] Migration: added albums.rating")
 
 
 # ── Fingerprint Buffer ────────────────────────────────────────────────────────
@@ -1475,6 +1486,65 @@ def toggle_favorite(album_id: int) -> bool:
         db.execute("UPDATE albums SET favorite = ? WHERE id = ?", (new_state, album_id))
         db.commit()
         return bool(new_state)
+    finally:
+        db.close()
+
+
+def get_playlists() -> list[dict]:
+    """Return all saved playlists."""
+    db = get_db()
+    try:
+        rows = db.execute("SELECT * FROM playlists ORDER BY updated_at DESC").fetchall()
+        import json
+        result = []
+        for r in rows:
+            d = dict(r)
+            d["album_ids"] = json.loads(d["album_ids"])
+            result.append(d)
+        return result
+    finally:
+        db.close()
+
+
+def save_playlist(name: str, album_ids: list[int]) -> int:
+    """Create or update a playlist. Returns the playlist ID."""
+    import json
+    db = get_db()
+    try:
+        ids_json = json.dumps(album_ids)
+        # Check if playlist with this name exists
+        existing = db.execute("SELECT id FROM playlists WHERE name = ?", (name,)).fetchone()
+        if existing:
+            db.execute("UPDATE playlists SET album_ids = ?, updated_at = datetime('now') WHERE id = ?",
+                       (ids_json, existing[0]))
+            db.commit()
+            return existing[0]
+        else:
+            cur = db.execute("INSERT INTO playlists (name, album_ids) VALUES (?, ?)",
+                             (name, ids_json))
+            db.commit()
+            return cur.lastrowid
+    finally:
+        db.close()
+
+
+def delete_playlist(playlist_id: int):
+    """Delete a playlist by ID."""
+    db = get_db()
+    try:
+        db.execute("DELETE FROM playlists WHERE id = ?", (playlist_id,))
+        db.commit()
+    finally:
+        db.close()
+
+
+def update_album_rating(album_id: int, rating: int):
+    """Set the star rating (0-5) for an album."""
+    db = get_db()
+    try:
+        db.execute("UPDATE albums SET rating = ?, updated_at = datetime('now') WHERE id = ?",
+                   (max(0, min(5, int(rating))), album_id))
+        db.commit()
     finally:
         db.close()
 
