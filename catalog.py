@@ -1547,6 +1547,27 @@ def add_album_to_playlist(playlist_id: int, album_id: int) -> bool:
         db.close()
 
 
+def reorder_playlist(playlist_id: int, from_idx: int, to_idx: int) -> bool:
+    """Move an album within a playlist from one position to another. Returns True on success."""
+    import json
+    db = get_db()
+    try:
+        row = db.execute("SELECT album_ids FROM playlists WHERE id = ?", (playlist_id,)).fetchone()
+        if not row:
+            return False
+        ids = json.loads(row[0])
+        if from_idx < 0 or from_idx >= len(ids) or to_idx < 0 or to_idx >= len(ids):
+            return False
+        item = ids.pop(from_idx)
+        ids.insert(to_idx, item)
+        db.execute("UPDATE playlists SET album_ids = ?, updated_at = datetime('now') WHERE id = ?",
+                   (json.dumps(ids), playlist_id))
+        db.commit()
+        return True
+    finally:
+        db.close()
+
+
 def remove_album_from_playlist(playlist_id: int, album_id: int) -> bool:
     """Remove an album from a playlist. Returns True on success."""
     import json
