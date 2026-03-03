@@ -1663,6 +1663,34 @@ async def get_shelves():
     }
 
 
+@app.get("/api/catalog/shelves/optimized")
+async def get_catalog_shelves():
+    """Get home screen shelf data with optimized catalog structure."""
+    all_albums = cat.get_all_albums()
+    recently_played = [a for a in all_albums if a.get("last_played") and a["audio_count"] > 0]
+    recently_played.sort(key=lambda a: a.get("last_played") or "", reverse=True)
+    recently_played = recently_played[:8]
+    recently_added = sorted(all_albums, key=lambda a: a.get("created_at") or "", reverse=True)[:8]
+    most_played = sorted(all_albums, key=lambda a: a.get("play_count") or 0, reverse=True)
+    most_played = [a for a in most_played if (a.get("play_count") or 0) > 0][:8]
+    unplayed = [a for a in all_albums if a["audio_count"] > 0 and (a.get("play_count") or 0) == 0][:8]
+    favorites = [a for a in all_albums if a.get("favorite")][:8]
+    top_rated = [a for a in all_albums if (a.get("rating") or 0) >= 4][:8]
+    decades = cat.get_decades_with_albums()
+    decade_shelves = {}
+    for decade in decades:
+        albums_in_decade = cat.get_albums_by_decade(decade)[:8]
+        if albums_in_decade:
+            decade_shelves[f"The {decade}s"] = albums_in_decade
+    genres = cat.get_genres_with_count(min_count=3)
+    genre_shelves = {}
+    for genre, _ in genres:
+        genre_albums = [a for a in all_albums if (a.get("genre") or "Unknown") == genre][:8]
+        if genre_albums:
+            genre_shelves[genre] = genre_albums
+    return {"recently_played": recently_played, "recently_added": recently_added, "most_played": most_played, "unplayed": unplayed, "favorites": favorites, "top_rated": top_rated, "decades": decade_shelves, "genres": genre_shelves}
+
+
 @app.get("/api/catalog/history")
 async def get_history():
     return {"plays": cat.get_recent_plays()}
@@ -1850,7 +1878,10 @@ async def reorder_tracks(album_id: int, body: dict):
 
 @app.delete("/api/catalog/{album_id}")
 async def delete_album_route(album_id: int):
-    cat.delete_album(album_id)
+    # Use soft-delete for undo support
+    success = cat.soft_delete_album(album_id)
+    if not success:
+        return {"ok": False, "error": "Album not found"}, 404
     return {"ok": True}
 
 
@@ -1995,6 +2026,101 @@ async def update_album_notes(album_id: int, body: dict):
     """Update the notes field for an album. body: { notes: string }"""
     notes = body.get("notes", "")
     cat.update_album_notes(album_id, notes)
+    return {"ok": True}
+
+
+# ── Feature 1: Inline Metadata Editing ────────────────────────────────────
+
+@app.put("/api/catalog/{album_id}/metadata")
+async def update_album_metadata(album_id: int, body: dict = Body(...)):
+    """Update album metadata fields. body: {title?, artist?, year?, genre?, label?}"""
+    success = cat.update_album_metadata(album_id, body)
+    if not success:
+        return {"ok": False, "error": "Album not found"}, 404
+    return {"ok": True}
+
+
+# ── Feature 2: Duplicate Detection ────────────────────────────────────────
+
+@app.get("/api/catalog/duplicates")
+async def get_duplicate_albums():
+    """Get groups of potential duplicate albums."""
+    groups = cat.find_duplicate_albums(similarity_threshold=0.80)
+    return {"duplicate_groups": groups}
+
+
+# ── Feature 3: Enhanced Stats Endpoints ───────────────────────────────────
+
+@app.get("/api/catalog/heatmap")
+async def get_heatmap():
+    """Get play activity heatmap for the last 6 months."""
+    heatmap = cat.get_play_heatmap(months=6)
+    return {"heatmap": heatmap}
+
+
+@app.get("/api/catalog/genre-stats")
+async def get_genre_stats():
+    """Get album count per genre."""
+    genres = cat.get_genre_stats()
+    return {"genres": genres}
+
+
+@app.get("/api/catalog/artist-stats")
+async def get_artist_stats():
+    """Get top 10 artists by album count."""
+    artists = cat.get_artist_stats(limit=10)
+    return {"artists": artists}
+
+
+@app.get("/api/catalog/decade-stats")
+async def get_decade_stats():
+    """Get album count by decade."""
+    decades = cat.get_decade_stats()
+    return {"decades": decades}
+
+
+@app.get("/api/catalog/on-this-day")
+async def get_on_this_day():
+    """Get albums played on this date in prior years."""
+    albums = cat.get_on_this_day()
+    return {"albums": albums}
+
+
+@app.get("/api/catalog/weekly-trend")
+async def get_weekly_trend():
+    """Get play count per week for the last 12 weeks."""
+    trend = cat.get_weekly_trend(weeks=12)
+    return {"weeks": trend}
+
+
+# ── Feature 4: Player Status Restoration ──────────────────────────────────
+
+@app.get("/api/player/status")
+async def get_player_status():
+    """Get current player status (for page reload restoration)."""
+    if not state.player:
+        return {"state": "stopped"}
+    status = state.player.get_status()
+    return status
+
+
+# ── Feature 6: Soft Delete Support ───────────────────────────────────────
+
+@app.post("/api/catalog/{album_id}/soft-delete")
+async def soft_delete_album_route(album_id: int):
+    """Soft-delete an album (can be restored)."""
+    success = cat.soft_delete_album(album_id)
+    if not success:
+        return {"ok": False, "error": "Album not found"}, 404
+    return {"ok": True}
+
+
+@app.post("/api/catalog/{album_id}/restore")
+async def restore_album_route(album_id: int):
+    """Restore a soft-deleted album."""
+    success = cat.restore_album(album_id)
+    if not success:
+        return {"ok": False, "error": "Album not found"}, 404
     return {"ok": True}
 
 
