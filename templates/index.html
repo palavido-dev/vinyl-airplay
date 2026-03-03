@@ -474,6 +474,10 @@
   .drag-handle { cursor: grab; color: var(--muted); font-size: 1rem; user-select: none; }
   .track-list.reorder-mode .track-row { cursor: grab; }
   .track-list.reorder-mode .track-row.dragging { opacity: 0.4; }
+  .track-list.boundary-edit-mode .track-row { display: flex; align-items: center; }
+  .boundary-time-input { width: 70px; padding: 0.35rem 0.4rem; font-family: monospace; font-size: 0.78rem; border: 1px solid rgba(0,0,0,0.12); border-radius: 4px; background: var(--cream); color: var(--ink); text-align: center; }
+  .boundary-time-input:focus { outline: none; border-color: var(--amber-dk); }
+  .boundary-save-btn { padding: 0.3rem 0.5rem; font-size: 0.7rem; min-height: auto; height: 28px; }
   .main-content::-webkit-scrollbar { display: none; }
   .album-grid-wrap::-webkit-scrollbar { width: 6px; }
   .album-grid-wrap::-webkit-scrollbar-track { background: transparent; }
@@ -960,6 +964,7 @@
         <button class="btn" onclick="showAlbumRecPanel()" id="btn-modal-rec">🎙 Record</button>
         <label class="btn" style="cursor:pointer" title="Upload album artwork">📷 Photo<input type="file" accept="image/*" style="display:none" onchange="uploadArtwork(event)"></label>
         <button class="btn btn-ghost" onclick="toggleReorderMode()" id="btn-reorder" title="Reorder tracks">⇅ Reorder</button>
+        <button class="btn btn-ghost" onclick="toggleBoundaryEdit()" id="btn-boundary-edit" title="Edit track boundaries">✂ Boundaries</button>
         <button class="btn btn-ghost" onclick="clearAlbumFingerprints()" title="Clear learned fingerprints">🗑 Clear FP</button>
         <button class="btn btn-ghost" style="color:var(--rust)" onclick="deleteAlbum()">Delete</button>
         <button class="btn btn-ghost" onclick="closeModal()" style="margin-left:auto">Close</button>
@@ -1170,11 +1175,13 @@
   <div class="osk-row" id="osk-row-bottom"></div>
 </div>
 <script>
-let ws,currentAlbumId=null,_catalogAlbums=[],_playerActive=false,_playerSource=null,_isStreaming=false,_lastUsedDevice=null,_pendingAlbumId=null,_pendingTrackId=null,_currentDevices=null,_playerAlbumId=null,_learnLog=[],_learnLevelInterval=null,_audioPlayer=null,_audioPlayingId=null,_reorderMode=false,_pendingRelease=null,_recTimerInterval=null;
+let ws,currentAlbumId=null,_catalogAlbums=[],_playerActive=false,_playerSource=null,_isStreaming=false,_lastUsedDevice=null,_pendingAlbumId=null,_pendingTrackId=null,_currentDevices=null,_playerAlbumId=null,_learnLog=[],_learnLevelInterval=null,_audioPlayer=null,_audioPlayingId=null,_reorderMode=false,_boundaryEditMode=false,_pendingRelease=null,_recTimerInterval=null;
 var _viewState={sortMode:'artist',groupBy:null};
 
 function esc(s){if(!s)return'';const d=document.createElement('div');d.textContent=s;return d.innerHTML}
 function fmtTime(s){return Math.floor(s/60)+':'+String(Math.floor(s%60)).padStart(2,'0')}
+function fmtTimePrecise(s){const min=Math.floor(s/60);const sec=Math.floor(s%60);const tenth=Math.floor((s%1)*10);return min+':'+String(sec).padStart(2,'0')+'.'+tenth}
+function parseTimeToSecs(str){const parts=str.split(':');if(parts.length!==2)return null;const min=parseInt(parts[0]);const rest=parts[1].split('.');const sec=parseInt(rest[0]);const tenth=rest[1]?parseInt(rest[1].charAt(0)):0;if(isNaN(min)||isNaN(sec))return null;return min*60+sec+tenth*0.1}
 function showError(msg){const el=document.getElementById('error-msg');el.textContent='\u26A0 '+msg;el.style.display='block';setTimeout(()=>el.style.display='none',5000)}
 function showToast(msg){const el=document.getElementById('toast-msg');el.textContent=msg;el.style.display='block';setTimeout(()=>el.style.display='none',3000)}
 
@@ -1583,7 +1590,7 @@ async function openAlbumDetail(id){
   window._modalTracks=td.tracks.slice();
   const ad=await fetch('/api/album-audio/'+id).then(r=>r.json());
   window._modalAlbumHasAudio=(ad.audio&&ad.audio.length)?true:false;
-  renderModalTracks(window._modalTracks,false);
+  renderModalTracks(window._modalTracks,false,false);
   document.getElementById('btn-modal-play').style.display=(ad.audio&&ad.audio.length)?'':'none';
   document.getElementById('btn-modal-queue').style.display=(ad.audio&&ad.audio.length&&_playerActive)?'':'none';
   loadAlbumAudio(id);
@@ -1607,8 +1614,8 @@ async function toggleModalFavorite(){
 }
 function playAlbumFromModal(){if(!currentAlbumId)return;if(_isStreaming||_playerActive){playAlbum(currentAlbumId);closeModal()}else{closeModal();_pendingAlbumId=currentAlbumId;showOutputPicker(currentAlbumId)}}
 
-function renderModalTracks(tracks,reorder){
-  const c=document.getElementById('modal-tracks');c.classList.toggle('reorder-mode',reorder);
+function renderModalTracks(tracks,reorder,boundaryEdit){
+  const c=document.getElementById('modal-tracks');c.classList.toggle('reorder-mode',reorder);c.classList.toggle('boundary-edit-mode',boundaryEdit);
   if(!tracks.length){c.innerHTML='<div style="color:var(--muted);font-size:0.82rem;padding:0.5rem 0">No tracks</div>';return}
   const sides={};tracks.forEach(t=>{if(!sides[t.side])sides[t.side]=[];sides[t.side].push(t)});
   let h='';Object.keys(sides).sort().forEach(side=>{
@@ -1619,18 +1626,18 @@ function renderModalTracks(tracks,reorder){
       const fpBadge=learned?`<span style="color:var(--sage);font-size:0.68rem">\u2713 ${t.fingerprint_count}fp</span>`:'<span style="color:var(--muted);font-size:0.68rem">unlearned</span>';
       const fpClear=learned?`<span class="track-fp-clear" title="Clear fingerprints for this track" onclick="event.stopPropagation();clearTrackFP(${t.id},'${esc(t.title)}')">\u2715</span>`:'';
       const handle=reorder?'<span class="drag-handle">\u2807</span>':'';
-      const hasAudio=window._modalAlbumHasAudio;const isPlayable=hasAudio&&!reorder;
-      const click=t.start_secs!=null&&!reorder?`onclick="seekToTrack(${t.id})"`:'';
+      const hasAudio=window._modalAlbumHasAudio;const isPlayable=hasAudio&&!reorder&&!boundaryEdit;
+      const click=t.start_secs!=null&&!reorder&&!boundaryEdit?`onclick="seekToTrack(${t.id})"`:'';
       const trackClick=isPlayable?`onclick="playTrackFromModal(${t.id})"`:'';
       const playIcon=isPlayable?`<span class="track-play-icon">\u25B6</span>`:'';
-      h+=`<div class="track-row" data-id="${t.id}" data-idx="${i}" ${trackClick} ${click}>${handle}${playIcon}<span class="track-num">${esc(t.track_number||'')}</span><span style="flex:1">${esc(t.title)}</span>${fpBadge}${fpClear}<span style="color:var(--muted);font-size:0.72rem;min-width:2.5rem;text-align:right">${dur}</span></div>`;
+      if(boundaryEdit){const stVal=t.start_secs!=null?fmtTimePrecise(t.start_secs):'0:00.0';const endVal=t.end_secs!=null?fmtTimePrecise(t.end_secs):'0:00.0';h+=`<div class="track-row" data-id="${t.id}" data-idx="${i}" style="gap:0.6rem"><span class="track-num">${esc(t.track_number||'')}</span><span style="flex:1">${esc(t.title)}</span><input type="text" class="boundary-time-input" id="boundary-start-${t.id}" value="${stVal}" placeholder="MM:SS.s"><input type="text" class="boundary-time-input" id="boundary-end-${t.id}" value="${endVal}" placeholder="MM:SS.s"><button class="btn boundary-save-btn" onclick="saveBoundary(${t.id})">Save</button></div>`}else{h+=`<div class="track-row" data-id="${t.id}" data-idx="${i}" ${trackClick} ${click}>${handle}${playIcon}<span class="track-num">${esc(t.track_number||'')}</span><span style="flex:1">${esc(t.title)}</span>${fpBadge}${fpClear}<span style="color:var(--muted);font-size:0.72rem;min-width:2.5rem;text-align:right">${dur}</span></div>`}
     });
   });
   c.innerHTML=h;if(reorder)initDragReorder();
 }
 function seekToTrack(tid){if(!_playerActive)return;fetch('/api/player/seek',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({track_id:tid})})}
 function playTrackFromModal(trackId){if(!currentAlbumId||!window._modalAlbumHasAudio)return;if(_isStreaming||_playerActive){playAlbum(currentAlbumId,trackId);closeModal()}else{closeModal();_pendingAlbumId=currentAlbumId;_pendingTrackId=trackId;showOutputPicker(currentAlbumId)}}
-async function refreshModalTracks(aid){if(currentAlbumId!==aid)return;try{const d=await fetch(`/api/catalog/${aid}/tracks`).then(r=>r.json());d.tracks.sort((a,b)=>(a.side||'').localeCompare(b.side||'')||parseInt(a.track_number||0)-parseInt(b.track_number||0));window._modalTracks=d.tracks.slice();renderModalTracks(window._modalTracks,false)}catch(e){}}
+async function refreshModalTracks(aid){if(currentAlbumId!==aid)return;try{const d=await fetch(`/api/catalog/${aid}/tracks`).then(r=>r.json());d.tracks.sort((a,b)=>(a.side||'').localeCompare(b.side||'')||parseInt(a.track_number||0)-parseInt(b.track_number||0));window._modalTracks=d.tracks.slice();renderModalTracks(window._modalTracks,false,false)}catch(e){}}
 
 async function loadAlbumAudio(id){
   try{const d=await fetch('/api/album-audio/'+id).then(r=>r.json());const s=document.getElementById('modal-audio-section'),l=document.getElementById('modal-audio-list');
@@ -1648,6 +1655,8 @@ async function deleteAlbum(){if(!currentAlbumId||!confirm('Delete this album and
 
 function toggleReorderMode(){_reorderMode=!_reorderMode;document.getElementById('btn-reorder').classList.toggle('btn-accent',_reorderMode);renderModalTracks(window._modalTracks||[],_reorderMode)}
 function initDragReorder(){const c=document.getElementById('modal-tracks');let de=null;c.querySelectorAll('.track-row').forEach(r=>{r.draggable=true;r.addEventListener('dragstart',e=>{de=r;r.classList.add('dragging');e.dataTransfer.effectAllowed='move'});r.addEventListener('dragend',()=>{r.classList.remove('dragging');de=null});r.addEventListener('dragover',e=>{e.preventDefault();e.dataTransfer.dropEffect='move';if(de&&de!==r){const rect=r.getBoundingClientRect(),mid=rect.top+rect.height/2;if(e.clientY<mid)c.insertBefore(de,r);else c.insertBefore(de,r.nextSibling)}})});c.addEventListener('drop',async e=>{e.preventDefault();const ids=[...c.querySelectorAll('.track-row')].map(r=>parseInt(r.dataset.id));await fetch(`/api/catalog/${currentAlbumId}/reorder`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({track_ids:ids})});showToast('Track order saved');_reorderMode=false;document.getElementById('btn-reorder').classList.remove('btn-accent');openAlbumDetail(currentAlbumId)})}
+function toggleBoundaryEdit(){_boundaryEditMode=!_boundaryEditMode;document.getElementById('btn-boundary-edit').classList.toggle('btn-accent',_boundaryEditMode);renderModalTracks(window._modalTracks||[],false,_boundaryEditMode)}
+async function saveBoundary(trackId){const stElem=document.getElementById(`boundary-start-${trackId}`);const endElem=document.getElementById(`boundary-end-${trackId}`);if(!stElem||!endElem)return;const st=parseTimeToSecs(stElem.value);const end=parseTimeToSecs(endElem.value);if(st===null||end===null){showError('Invalid time format. Use MM:SS.s');return}if(st>=end){showError('Start time must be before end time');return}const resp=await fetch(`/api/catalog/track/${trackId}/boundaries`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({start_secs:st,end_secs:end})}).then(r=>r.json());if(resp.ok){showToast('Boundary saved');if(currentAlbumId)refreshModalTracks(currentAlbumId)}else showError(resp.error||'Failed to save')}
 
 function showAlbumRecPanel(){document.getElementById('album-rec-panel').style.display='block';var setup=document.getElementById('album-rec-setup');if(_recSetupHTML)setup.innerHTML=_recSetupHTML;setup.style.display='block';document.getElementById('album-rec-active').style.display='none';document.getElementById('album-rec-saving').style.display='none';document.getElementById('album-rec-flip-prompt').style.display='none';var sel=document.getElementById('album-rec-side');if(sel){var sides=[...new Set((window._modalTracks||[]).map(t=>t.side||'A'))].sort();if(!sides.length)sides=['A','B'];sel.innerHTML=sides.map(s=>'<option value="'+s+'">'+s+'</option>').join('')}updateRecSideInfo()}
 function updateRecSideInfo(){const side=document.getElementById('album-rec-side').value;const tracks=(window._modalTracks||[]).filter(t=>t.side===side);document.getElementById('album-rec-side-info').textContent=tracks.length?`${tracks.length} track${tracks.length>1?'s':''} on Side ${side}`:''}
