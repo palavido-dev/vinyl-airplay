@@ -1431,6 +1431,76 @@ def reassign_tracks_to_sides(assignments: list) -> bool:
         db.close()
 
 
+def add_track(album_id: int, title: str, side: str = "A",
+              track_number: str = None, artist: str = None) -> Optional[int]:
+    """Add a single track to an album. Returns the new track ID or None."""
+    db = get_db()
+    try:
+        if not track_number:
+            row = db.execute(
+                "SELECT MAX(CAST(track_number AS INTEGER)) FROM tracks "
+                "WHERE album_id = ? AND side = ?", (album_id, side)
+            ).fetchone()
+            track_number = str((row[0] or 0) + 1)
+        cur = db.execute(
+            "INSERT INTO tracks (album_id, title, artist, track_number, side) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (album_id, title, artist, track_number, side)
+        )
+        db.commit()
+        print(f"[catalog] Added track '{title}' to album {album_id} side {side}")
+        return cur.lastrowid
+    except Exception as e:
+        print(f"[catalog] add_track failed: {e}")
+        return None
+    finally:
+        db.close()
+
+
+def delete_track(track_id: int) -> bool:
+    """Delete a track and its fingerprints."""
+    db = get_db()
+    try:
+        db.execute("DELETE FROM fingerprints WHERE track_id = ?", (track_id,))
+        db.execute("DELETE FROM tracks WHERE id = ?", (track_id,))
+        db.commit()
+        print(f"[catalog] Deleted track {track_id}")
+        return True
+    except Exception as e:
+        print(f"[catalog] delete_track failed: {e}")
+        return False
+    finally:
+        db.close()
+
+
+def update_track(track_id: int, title: str = None, artist: str = None,
+                 track_number: str = None, side: str = None) -> bool:
+    """Update editable fields on a track."""
+    db = get_db()
+    try:
+        fields = []
+        vals = []
+        if title is not None:
+            fields.append("title = ?"); vals.append(title)
+        if artist is not None:
+            fields.append("artist = ?"); vals.append(artist)
+        if track_number is not None:
+            fields.append("track_number = ?"); vals.append(track_number)
+        if side is not None:
+            fields.append("side = ?"); vals.append(side)
+        if not fields:
+            return True
+        vals.append(track_id)
+        db.execute(f"UPDATE tracks SET {', '.join(fields)} WHERE id = ?", vals)
+        db.commit()
+        return True
+    except Exception as e:
+        print(f"[catalog] update_track failed: {e}")
+        return False
+    finally:
+        db.close()
+
+
 def get_album(album_id: int) -> Optional[dict]:
     """Get a single album by ID with play counts."""
     db = get_db()
