@@ -1592,6 +1592,26 @@ def get_album_tracks(album_id: int) -> list[dict]:
         db.close()
 
 
+def search_tracks(query: str, limit: int = 50) -> list[dict]:
+    """Search track titles across all albums. Returns tracks with album info."""
+    db = get_db()
+    try:
+        q = f"%{query}%"
+        rows = db.execute("""
+            SELECT t.id, t.title, t.side, t.track_number, t.duration_secs,
+                   a.id as album_id, a.title as album_title, a.artist,
+                   a.user_artwork_path, a.artwork_path, a.year
+            FROM tracks t
+            JOIN albums a ON a.id = t.album_id
+            WHERE t.title LIKE ? AND (a.deleted_at IS NULL OR a.deleted_at = '')
+            ORDER BY t.title COLLATE NOCASE, a.artist COLLATE NOCASE
+            LIMIT ?
+        """, (q, limit)).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        db.close()
+
+
 def get_recent_plays(limit: int = 20) -> list[dict]:
     db = get_db()
     try:

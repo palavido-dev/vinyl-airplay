@@ -1821,6 +1821,13 @@ async def get_stats():
     return cat.get_listening_stats()
 
 
+@app.get("/api/catalog/tracks/search")
+async def search_tracks(q: str = ""):
+    if not q.strip():
+        return {"tracks": []}
+    return {"tracks": cat.search_tracks(q.strip())}
+
+
 @app.get("/api/catalog/{album_id}/tracks")
 async def get_tracks(album_id: int):
     return {"tracks": cat.get_album_tracks(album_id)}

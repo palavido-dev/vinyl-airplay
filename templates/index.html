@@ -108,6 +108,25 @@
   }
   .search-bar:focus { border-color: var(--amber); background: rgba(255,255,255,0.15); }
   .search-bar::placeholder { color: rgba(245,235,216,0.45); }
+  .search-mode-btn {
+    padding: 0.35rem 0.6rem; border-radius: 6px;
+    background: rgba(255,255,255,0.06); border: 1px solid rgba(212,162,78,0.2);
+    color: var(--muted); font-family: var(--body-font); font-size: 0.72rem;
+    cursor: pointer; white-space: nowrap; transition: all 0.15s;
+  }
+  .search-mode-btn.active { background: var(--amber-dk); color: var(--walnut); border-color: var(--amber); font-weight: 600; }
+  .song-results { display: flex; flex-direction: column; gap: 2px; padding: 0.5rem 0; }
+  .song-result {
+    display: flex; align-items: center; gap: 0.6rem; padding: 0.5rem 0.6rem;
+    background: rgba(255,255,255,0.04); border-radius: 6px; cursor: pointer;
+    transition: background 0.12s;
+  }
+  .song-result:active { background: rgba(212,162,78,0.15); }
+  .song-result-art { width: 40px; height: 40px; border-radius: 4px; object-fit: cover; flex-shrink: 0; }
+  .song-result-info { flex: 1; min-width: 0; }
+  .song-result-title { font-size: 0.82rem; color: var(--amber); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .song-result-album { font-size: 0.72rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .song-result-side { font-size: 0.68rem; color: var(--muted); white-space: nowrap; flex-shrink: 0; }
   .header-btn {
     width: 40px; height: 40px; border-radius: 8px;
     background: rgba(255,255,255,0.08);
@@ -1141,7 +1160,8 @@
     .view-toggle-btn:first-child { border-radius: 4px 0 0 4px; }
     .view-toggle-btn:last-child { border-radius: 0 4px 4px 0; }
     .app-header > .header-btn { order: 2; min-height: 40px; min-width: 40px; font-size: 0.9rem; }
-    .search-bar { order: 3; flex-basis: 100%; width: 100%; padding: 0.45rem 0.6rem; font-size: 0.8rem; }
+    .search-bar { order: 3; flex: 1; min-width: 0; padding: 0.45rem 0.6rem; font-size: 0.8rem; }
+    .search-mode-btn { order: 3; }
     .album-grid { grid-template-columns: repeat(1, 1fr); gap: 0.4rem; }
     .album-card { border-radius: 6px; }
     .album-card .album-meta { padding: 0.25rem 0.3rem; }
@@ -1205,7 +1225,8 @@
     }
 
     /* Row 3: Search bar full width */
-    .search-bar { order: 3; flex-basis: 100%; width: 100%; }
+    .search-bar { order: 3; flex: 1; min-width: 0; }
+    .search-mode-btn { order: 3; }
 
     /* Album Grid: Smaller columns, 3 fit on mobile */
     .album-grid {
@@ -1339,7 +1360,8 @@
 <div class="frame">
 <div class="app-header">
   <span class="brand"><span class="brand-icon"></span>The Listening Room<span class="album-count" id="album-count"></span></span>
-  <input type="search" class="search-bar" id="catalog-search" placeholder="Search your collection…" oninput="filterCatalog(this.value)">
+  <input type="search" class="search-bar" id="catalog-search" placeholder="Search your collection…" oninput="onSearchInput(this.value)">
+  <button class="search-mode-btn" id="search-mode-btn" onclick="toggleSearchMode()" title="Toggle song search">Songs</button>
   <div class="view-toggle" id="view-toggle">
     <button class="view-toggle-btn" id="view-shelves" onclick="switchView('shelves')" title="Shelves">Shelves</button>
     <button class="view-toggle-btn active" id="view-library" onclick="switchView('library')" title="Library">Library</button>
@@ -2151,6 +2173,78 @@ function renderCatalog(albums){
 
 function filterCatalog(q){
   renderCatalog(getFilteredAlbums());
+}
+
+var _searchMode='albums'; // 'albums' or 'songs'
+var _songSearchTimeout=null;
+function toggleSearchMode(){
+  _searchMode=_searchMode==='albums'?'songs':'albums';
+  var btn=document.getElementById('search-mode-btn');
+  var input=document.getElementById('catalog-search');
+  if(_searchMode==='songs'){
+    btn.classList.add('active');
+    btn.textContent='Albums';
+    input.placeholder='Search songs across all albums...';
+  }else{
+    btn.classList.remove('active');
+    btn.textContent='Songs';
+    input.placeholder='Search your collection\u2026';
+    // Restore album view
+    document.getElementById('catalog-grid').style.display='';
+    var sr=document.getElementById('song-results');
+    if(sr)sr.remove();
+  }
+  onSearchInput(input.value);
+}
+function onSearchInput(q){
+  if(_searchMode==='songs'){
+    clearTimeout(_songSearchTimeout);
+    _songSearchTimeout=setTimeout(function(){searchSongs(q)},300);
+  }else{
+    filterCatalog(q);
+  }
+}
+async function searchSongs(q){
+  var grid=document.getElementById('catalog-grid');
+  var existing=document.getElementById('song-results');
+  if(!q||!q.trim()){
+    grid.style.display='';
+    if(existing)existing.remove();
+    return;
+  }
+  try{
+    var r=await fetch('/api/catalog/tracks/search?q='+encodeURIComponent(q.trim())).then(function(d){return d.json()});
+    var tracks=r.tracks||[];
+    grid.style.display='none';
+    if(!existing){
+      existing=document.createElement('div');
+      existing.id='song-results';
+      existing.className='song-results';
+      grid.parentNode.insertBefore(existing,grid.nextSibling);
+    }
+    if(!tracks.length){
+      existing.innerHTML='<div style="color:var(--muted);font-size:0.82rem;padding:1rem;text-align:center">No songs found matching "'+esc(q)+'"</div>';
+      return;
+    }
+    var html='<div style="color:var(--muted);font-size:0.72rem;padding:0.3rem 0.6rem">'+tracks.length+' song'+(tracks.length!==1?'s':'')+' found</div>';
+    tracks.forEach(function(t){
+      var artPath=t.user_artwork_path||t.artwork_path;
+      var artSrc=artPath?'/artwork/'+artPath.split('/').pop()+'?t='+t.album_id:'';
+      var art=artSrc?'<img class="song-result-art" src="'+artSrc+'" alt="">':'<div class="song-result-art" style="display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.15);font-size:1.2rem;color:var(--muted)">\uD83C\uDFB5</div>';
+      var dur=t.duration_secs?fmtTime(t.duration_secs):'';
+      html+='<div class="song-result" onclick="openAlbumDetail('+t.album_id+')">';
+      html+=art;
+      html+='<div class="song-result-info">';
+      html+='<div class="song-result-title">'+esc(t.title)+'</div>';
+      html+='<div class="song-result-album">'+esc(t.artist)+' \u2014 '+esc(t.album_title)+(t.year?' ('+t.year+')':'')+'</div>';
+      html+='</div>';
+      html+='<div class="song-result-side">Side '+esc(t.side||'?')+' #'+esc(t.track_number||'')+(dur?' \u00B7 '+dur:'')+'</div>';
+      html+='</div>';
+    });
+    existing.innerHTML=html;
+  }catch(e){
+    console.warn('Song search error:',e);
+  }
 }
 
 // ── Multi-Select Mode ──
