@@ -806,13 +806,15 @@ def save_release_to_catalog(release_data: dict,
     """
     db = get_db()
     try:
-        # Check if album already exists
-        existing = db.execute(
-            "SELECT id FROM albums WHERE musicbrainz_release_id = ?",
-            (release_data.get("mb_release_id"),)
-        ).fetchone()
-        if existing:
-            return existing["id"]
+        # Check if album already exists — try mb_release_id first, fall back to id
+        release_id = release_data.get("mb_release_id") or release_data.get("id") or None
+        if release_id:
+            existing = db.execute(
+                "SELECT id FROM albums WHERE musicbrainz_release_id = ?",
+                (release_id,)
+            ).fetchone()
+            if existing:
+                return existing["id"]
 
         cur = db.execute("""
             INSERT INTO albums
@@ -825,7 +827,7 @@ def save_release_to_catalog(release_data: dict,
             release_data.get("genre"),
             release_data.get("label"),
             release_data.get("country"),
-            release_data.get("mb_release_id"),
+            release_id,
         ))
         album_id = cur.lastrowid
 
@@ -3252,6 +3254,96 @@ def sync_from_discogs(username: str, token: str,
     return summary
 
 
+def backfill_discogs_ids(username: str, token: str, on_progress=None) -> dict:
+    """
+    One-time migration: match local albums to Discogs collection entries
+    by title/artist and fill in the missing musicbrainz_release_id field.
+    """
+    summary = {
+        "state": "running", "total": 0, "checked": 0,
+        "matched": 0, "skipped": 0,
+    }
+
+    def _progress(label=""):
+        if on_progress:
+            on_progress({**summary, "current_album": label})
+
+    try:
+        # Get all local albums missing a release ID
+        db = get_db()
+        try:
+            rows = db.execute(
+                "SELECT id, title, artist FROM albums "
+                "WHERE (musicbrainz_release_id IS NULL OR musicbrainz_release_id = '') "
+                "AND deleted_at IS NULL"
+            ).fetchall()
+        finally:
+            db.close()
+
+        if not rows:
+            summary["state"] = "complete"
+            _progress()
+            return summary
+
+        # Build lookup by normalized title+artist
+        def _norm(s):
+            return re.sub(r'[^a-z0-9]', '', (s or '').lower())
+
+        local_lookup = {}
+        for r in rows:
+            key = _norm(r["artist"]) + "|" + _norm(r["title"])
+            local_lookup[key] = r["id"]
+
+        # Paginate through Discogs collection
+        first = get_discogs_collection_page(username, token, page=1)
+        total_pages = first["pages"]
+        all_releases = first["releases"]
+        for pg in range(2, total_pages + 1):
+            time.sleep(1)
+            page_data = get_discogs_collection_page(username, token, page=pg)
+            all_releases.extend(page_data["releases"])
+
+        summary["total"] = len(all_releases)
+        _progress()
+
+        db = get_db()
+        try:
+            for rel in all_releases:
+                basic = rel.get("basic_information", {})
+                discogs_id = str(basic.get("id", ""))
+                artist = ", ".join(a.get("name", "") for a in basic.get("artists", []))
+                title = basic.get("title", "")
+                key = _norm(artist) + "|" + _norm(title)
+                summary["checked"] += 1
+
+                if key in local_lookup:
+                    album_id = local_lookup[key]
+                    db.execute(
+                        "UPDATE albums SET musicbrainz_release_id = ? WHERE id = ?",
+                        (f"discogs:{discogs_id}", album_id)
+                    )
+                    summary["matched"] += 1
+                    del local_lookup[key]  # don't match again
+                else:
+                    summary["skipped"] += 1
+
+                _progress(f"{artist} - {title}")
+
+            db.commit()
+        finally:
+            db.close()
+
+    except Exception as e:
+        summary["state"] = "error"
+        summary["errors"] = [str(e)]
+        _progress()
+        return summary
+
+    summary["state"] = "complete"
+    _progress()
+    return summary
+
+
 def fetch_missing_artwork(token: str, on_progress=None) -> dict:
     """
     Find albums imported from Discogs that have no artwork and attempt
@@ -3263,7 +3355,8 @@ def fetch_missing_artwork(token: str, on_progress=None) -> dict:
     try:
         rows = db.execute(
             "SELECT id, musicbrainz_release_id, title, artist FROM albums "
-            "WHERE musicbrainz_release_id LIKE 'discogs:%' "
+            "WHERE musicbrainz_release_id IS NOT NULL "
+            "AND musicbrainz_release_id != '' "
             "AND (artwork_path IS NULL OR artwork_path = '') "
             "AND (user_artwork_path IS NULL OR user_artwork_path = '') "
             "AND deleted_at IS NULL"
