@@ -623,21 +623,61 @@ def get_discogs_release(discogs_id: str, token: str = "") -> dict:
         catno  = labels[0].get("catno", "") if labels else ""
 
         # Tracks — Discogs uses position like "A1", "A2", "B1"
+        # Also handles numeric positions: "1","2" or "1-1","2-1"
+        # and heading entries like "Side 1", "Side 2" that mark boundaries
+        tracklist_raw = data.get("tracklist", [])
+
+        # First pass: collect side headings for numeric-position releases
+        # Headings map a side label to the tracks that follow it
+        side_labels = ["A", "B", "C", "D", "E", "F"]
+        heading_sides = {}  # position or index -> side letter
+        current_heading_side = None
+        heading_idx = 0
+        has_alpha_positions = False
+        has_numeric_positions = False
+        for t in tracklist_raw:
+            pos = t.get("position", "")
+            ttype = t.get("type_", "track")
+            if ttype == "heading" or ttype == "index":
+                # Assign this heading a side letter (A, B, C, ...)
+                if heading_idx < len(side_labels):
+                    current_heading_side = side_labels[heading_idx]
+                    heading_idx += 1
+            elif ttype == "track" and pos:
+                if pos[0].isalpha():
+                    has_alpha_positions = True
+                else:
+                    has_numeric_positions = True
+                    if current_heading_side:
+                        heading_sides[pos] = current_heading_side
+
         tracks = []
-        for t in data.get("tracklist", []):
-            # Skip non-track entries (headings like "Side A", index sub-tracks)
+        for t in tracklist_raw:
             ttype = t.get("type_", "track")
             if ttype != "track":
                 continue
             pos = t.get("position", "")
             if not pos and not t.get("title"):
-                continue  # skip entries with no position and no title
-            # Parse side from position: A1→side=A, B2→side=B, 1→side=A, etc.
+                continue
+
+            # Parse side from position
             if pos and pos[0].isalpha():
+                # Standard format: A1, B2, C1, etc.
                 side = pos[0].upper()
                 num  = pos[1:] or str(len([x for x in tracks if x["side"]==side])+1)
+            elif "-" in pos and pos.split("-")[0].isdigit():
+                # Dash format: 1-1, 1-2, 2-1, 2-2 (first number is side)
+                parts = pos.split("-", 1)
+                side_num = int(parts[0]) - 1
+                side = side_labels[side_num] if side_num < len(side_labels) else "A"
+                num = parts[1] if parts[1] else str(len([x for x in tracks if x["side"]==side])+1)
+            elif pos in heading_sides:
+                # Numeric position with heading context: use the heading-derived side
+                side = heading_sides[pos]
+                num = str(len([x for x in tracks if x["side"]==side])+1)
             else:
-                side = "A"
+                # Plain numeric with no headings: will assign sides after collecting all tracks
+                side = "__numeric__"
                 num  = pos or str(len(tracks)+1)
 
             # Duration
@@ -657,6 +697,24 @@ def get_discogs_release(discogs_id: str, token: str = "") -> dict:
                 "duration_secs": dur_secs,
                 "musicbrainz_track_id": None,
             })
+
+        # Second pass: if any tracks have __numeric__ side, split at midpoint
+        numeric_tracks = [t for t in tracks if t["side"] == "__numeric__"]
+        if numeric_tracks:
+            mid = len(numeric_tracks) // 2
+            for i, t in enumerate(numeric_tracks):
+                if i < mid:
+                    t["side"] = "A"
+                else:
+                    t["side"] = "B"
+                t["track_number"] = str(len([x for x in tracks
+                    if x["side"] == t["side"] and x is not t
+                    and tracks.index(x) < tracks.index(t)]) + 1)
+            # Renumber cleanly per side
+            for side_letter in ("A", "B"):
+                side_tracks = [t for t in tracks if t["side"] == side_letter]
+                for j, t in enumerate(side_tracks):
+                    t["track_number"] = str(j + 1)
 
         # Cover art: use primary image if available
         images    = data.get("images") or []
