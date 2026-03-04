@@ -4008,6 +4008,16 @@ def _count_commits_behind() -> int:
         return 0
 
 
+@app.get("/api/system/cert")
+async def download_cert():
+    """Serve the self-signed cert for iOS/mobile trust installation."""
+    cert_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "certs", "cert.pem")
+    if not os.path.exists(cert_path):
+        return JSONResponse({"error": "No certificate found"}, status_code=404)
+    return FileResponse(cert_path, media_type="application/x-pem-file",
+                        filename="vinyl-streamer.pem")
+
+
 @app.get("/api/system/check-update")
 async def check_update():
     current = _get_git_commit()
