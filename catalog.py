@@ -2548,12 +2548,16 @@ def get_decades_with_albums() -> list[int]:
 
 
 def get_genres_with_count(min_count: int = 3) -> list[tuple]:
-    """Get genres that have at least min_count albums. Returns [(genre, count), ...]."""
+    """Get genres that have at least min_count albums. Returns [(genre, count), ...].
+    Splits comma-separated genres so each individual tag is counted separately."""
     all_albums = get_all_albums()
     genre_counts = {}
     for album in all_albums:
-        genre = album.get("genre") or "Unknown"
-        genre_counts[genre] = genre_counts.get(genre, 0) + 1
+        raw = album.get("genre") or "Unknown"
+        for g in raw.split(","):
+            g = g.strip()
+            if g:
+                genre_counts[g] = genre_counts.get(g, 0) + 1
     return [(g, c) for g, c in genre_counts.items() if c >= min_count]
 
 
@@ -2585,17 +2589,21 @@ def get_play_heatmap(months: int = 6) -> dict:
 
 
 def get_genre_stats() -> list:
-    """Returns list of {genre, count} for all genres."""
+    """Returns list of {genre, count} for all genres.
+    Splits comma-separated genres so each tag is counted individually."""
     db = get_db()
     try:
         result = db.execute("""
-            SELECT genre, COUNT(*) as count
-            FROM albums
+            SELECT genre FROM albums
             WHERE genre IS NOT NULL AND genre != '' AND deleted_at IS NULL
-            GROUP BY genre
-            ORDER BY count DESC
         """).fetchall()
-        return [dict(r) for r in result]
+        counts = {}
+        for row in result:
+            for g in row["genre"].split(","):
+                g = g.strip()
+                if g:
+                    counts[g] = counts.get(g, 0) + 1
+        return [{"genre": g, "count": c} for g, c in sorted(counts.items(), key=lambda x: -x[1])]
     finally:
         db.close()
 
