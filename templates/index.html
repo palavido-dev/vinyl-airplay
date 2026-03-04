@@ -478,6 +478,30 @@
   .queue-remove-btn:hover { background: rgba(255,80,80,0.15); color: #ff6b6b; }
   .queue-remove-btn:active { background: rgba(255,80,80,0.25); color: #ff6b6b; }
 
+  .queue-item { cursor: pointer; }
+  .queue-item .queue-chevron {
+    flex-shrink: 0; width: 14px; height: 14px;
+    color: var(--muted); transition: transform 0.2s;
+    margin-left: -0.1rem; margin-right: 0.1rem;
+  }
+  .queue-item.expanded .queue-chevron { transform: rotate(90deg); }
+  .queue-tracks {
+    max-height: 0; overflow: hidden; transition: max-height 0.25s ease;
+    margin: 0; padding: 0;
+  }
+  .queue-tracks.open { max-height: 500px; }
+  .queue-track-row {
+    display: flex; align-items: center; gap: 0.4rem;
+    padding: 0.15rem 0.4rem 0.15rem 2.8rem;
+    font-size: 0.68rem; color: var(--light);
+  }
+  .queue-track-row .qt-num { color: var(--muted); min-width: 1rem; text-align: right; }
+  .queue-track-row .qt-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .queue-track-row .qt-dur { color: var(--muted); font-size: 0.62rem; }
+  .queue-track-row.qt-active { color: var(--amber); }
+  .queue-track-row.qt-active .qt-num,
+  .queue-track-row.qt-active .qt-dur { color: var(--amber); opacity: 0.7; }
+
   .main-content { flex: 1; overflow: hidden; padding: 0.75rem; -webkit-overflow-scrolling: touch; display: flex; gap: 0.75rem; }
   .album-grid-wrap { flex-shrink: 0; overflow-y: auto; }
   .main-content.has-hero .album-grid-wrap { width: 310px; }
@@ -3013,7 +3037,27 @@ async function refreshQueueDisplay(){
   // If player is active, show live queue
   if(_playerActive){
     if(actions)actions.innerHTML='<button class="btn btn-ghost" onclick="saveQueueAsPlaylist()" style="font-size:0.72rem">Save as Playlist</button><button class="btn btn-ghost" onclick="clearQueuePrompt()" style="font-size:0.72rem;color:var(--rust)">Clear</button>';
-    try{const r=await fetch('/api/player/queue').then(d=>d.json());if(!r.ok||!r.queue)return;if(!r.queue.length){list.innerHTML='<div class="queue-empty">Queue is empty</div>';return}let html='';r.queue.forEach((item,idx)=>{const isCurrent=idx===r.current_index;let art='<div class="queue-art" style="display:flex;align-items:center;justify-content:center;font-size:1.5rem">\uD83D\uDCBF</div>';if(item.artwork){const artFile=item.artwork.split('/').pop();art=`<img src="/artwork/${artFile}?t=${item.album_id}" class="queue-art" alt="">`}const removeBtn=isCurrent?'':'<button class="queue-remove-btn" onclick="event.stopPropagation();removeFromQueue('+idx+')" title="Remove">\u2715</button>';const dragHandle=isCurrent?'<div style="width:20px"></div>':'<div class="queue-drag-handle" data-idx="'+idx+'" style="cursor:grab;font-size:1.1rem;color:var(--muted);padding:0 0.15rem">\u2261</div>';html+=`<div class="queue-item${isCurrent?' current':''}" data-queue-idx="${idx}">${dragHandle}${art}<div class="queue-info"><div class="queue-album-title">${esc(item.album_title)}</div><div class="queue-album-artist">${esc(item.album_artist)}</div><div class="queue-side">Side ${esc(item.side)}</div></div>${removeBtn}</div>`});list.innerHTML=html;initQueueDrag()}catch(e){console.warn('Queue refresh error:',e)}
+    try{const r=await fetch('/api/player/queue').then(d=>d.json());if(!r.ok||!r.queue)return;if(!r.queue.length){list.innerHTML='<div class="queue-empty">Queue is empty</div>';return}
+    var chevronSvg='<svg class="queue-chevron" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="8 4 18 12 8 20"/></svg>';
+    let html='';r.queue.forEach((item,idx)=>{
+      const isCurrent=idx===r.current_index;
+      let art='<div class="queue-art" style="display:flex;align-items:center;justify-content:center;font-size:1.5rem">\uD83D\uDCBF</div>';
+      if(item.artwork){const artFile=item.artwork.split('/').pop();art=`<img src="/artwork/${artFile}?t=${item.album_id}" class="queue-art" alt="">`}
+      const removeBtn=isCurrent?'':'<button class="queue-remove-btn" onclick="event.stopPropagation();removeFromQueue('+idx+')" title="Remove">\u2715</button>';
+      const dragHandle=isCurrent?'<div style="width:20px"></div>':'<div class="queue-drag-handle" data-idx="'+idx+'" style="cursor:grab;font-size:1.1rem;color:var(--muted);padding:0 0.15rem">\u2261</div>';
+      const expanded=isCurrent?' expanded':'';
+      html+=`<div class="queue-item${isCurrent?' current':''}${expanded}" data-queue-idx="${idx}" onclick="toggleQueueExpand(this)">${dragHandle}${chevronSvg}${art}<div class="queue-info"><div class="queue-album-title">${esc(item.album_title)}</div><div class="queue-album-artist">${esc(item.album_artist)}</div><div class="queue-side">Side ${esc(item.side)}</div></div>${removeBtn}</div>`;
+      // Track list accordion
+      var tracks=item.tracks||[];
+      html+='<div class="queue-tracks'+(isCurrent?' open':'')+'">';
+      if(tracks.length){tracks.forEach((t,ti)=>{
+        var isActive=isCurrent&&ti===r.current_track_idx;
+        var dur=t.duration_secs!=null?fmtTime(t.duration_secs):'';
+        html+='<div class="queue-track-row'+(isActive?' qt-active':'')+'"><span class="qt-num">'+(t.track_number||ti+1)+'</span><span class="qt-title">'+esc(t.title)+'</span><span class="qt-dur">'+dur+'</span></div>';
+      })}else{html+='<div class="queue-track-row"><span class="qt-title" style="color:var(--muted)">No track info</span></div>'}
+      html+='</div>';
+    });
+    list.innerHTML=html;initQueueDrag()}catch(e){console.warn('Queue refresh error:',e)}
     return;
   }
   // Otherwise show pending queue
@@ -3030,6 +3074,12 @@ async function refreshQueueDisplay(){
     html+='<div class="queue-item"><div style="width:20px"></div>'+art+'<div class="queue-info"><div class="queue-album-title">'+esc(item.title)+'</div><div class="queue-album-artist">'+esc(item.artist)+'</div></div><button class="queue-remove-btn" onclick="event.stopPropagation();removeFromPendingQueue('+idx+')" title="Remove">\u2715</button></div>';
   });
   list.innerHTML=html;
+}
+function toggleQueueExpand(el){
+  var wasExpanded=el.classList.contains('expanded');
+  el.classList.toggle('expanded',!wasExpanded);
+  var tracks=el.nextElementSibling;
+  if(tracks&&tracks.classList.contains('queue-tracks')){tracks.classList.toggle('open',!wasExpanded)}
 }
 async function removeFromQueue(idx){try{const r=await fetch('/api/player/queue/remove',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({index:idx})}).then(d=>d.json());if(r.ok){refreshQueueDisplay()}else{showToast(r.error||'Cannot remove')}}catch(e){showToast('Failed to remove')}}
 async function reorderQueue(fromIdx,toIdx){try{const r=await fetch('/api/player/queue/reorder',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({from:fromIdx,to:toIdx})}).then(d=>d.json());if(r.ok){refreshQueueDisplay()}else{showToast(r.error||'Cannot reorder')}}catch(e){showToast('Failed to reorder')}}

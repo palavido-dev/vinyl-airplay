@@ -3794,6 +3794,17 @@ async def player_queue():
 
     queue = []
     for i, entry in enumerate(state.player.playlist):
+        tracks = []
+        for t in entry.tracks:
+            dur = None
+            if t.get("end_secs") is not None and t.get("start_secs") is not None:
+                dur = t["end_secs"] - t["start_secs"]
+            tracks.append({
+                "id": t.get("id"),
+                "title": t.get("title", ""),
+                "track_number": t.get("track_number"),
+                "duration_secs": dur,
+            })
         queue.append({
             "index": i,
             "album_id": entry.album_id,
@@ -3801,10 +3812,12 @@ async def player_queue():
             "album_artist": entry.album_artist or "",
             "side": entry.side,
             "artwork": entry.artwork_path or "",
+            "tracks": tracks,
         })
 
     current = state.player._side_idx if hasattr(state.player, '_side_idx') else -1
-    return {"ok": True, "queue": queue, "current_index": current}
+    current_track_idx = state.player._current_track_idx if hasattr(state.player, '_current_track_idx') else -1
+    return {"ok": True, "queue": queue, "current_index": current, "current_track_idx": current_track_idx}
 
 
 @app.post("/api/player/queue/add")
