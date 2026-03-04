@@ -96,6 +96,16 @@ Turntable ──▶ (Phono Preamp if needed) ──▶ USB Audio Interface (line
 
 ### Install
 
+The easiest way is to use the one-line installer:
+
+```bash
+curl -sSL https://raw.githubusercontent.com/palavido-dev/vinyl-airplay/main/install.sh | sudo bash
+```
+
+This automatically handles all dependencies, creates the systemd services, and gets the app running.
+
+Alternatively, for manual setup:
+
 ```bash
 # Clone the repository
 git clone https://github.com/palavido-dev/vinyl-airplay.git
@@ -108,7 +118,7 @@ sudo apt install -y python3-pip ffmpeg libchromaprint-tools portaudio19-dev liba
 # Create a virtual environment and install Python dependencies
 python3 -m venv venv
 source venv/bin/activate
-pip install numpy sounddevice pyatv fastapi uvicorn pillow requests jinja2 python-multipart
+pip install -r requirements.txt
 
 # Run it
 python3 main.py
@@ -117,6 +127,8 @@ python3 main.py
 The web UI will be available at `http://<your-pi-ip>:8080`.
 
 ### Running as a Service
+
+If you used the installer, services are set up automatically. For manual setup:
 
 ```bash
 sudo tee /etc/systemd/system/vinyl-airplay.service > /dev/null <<EOF
@@ -141,6 +153,19 @@ sudo systemctl daemon-reload
 sudo systemctl enable vinyl-airplay
 sudo systemctl start vinyl-airplay
 ```
+
+### Updating
+
+Vinyl Streamer can check for and install updates directly from the app. The update system automatically:
+
+- Checks the latest version from the remote repository
+- Downloads and installs updated code and dependencies
+- Restarts the application with zero data loss
+- Can rollback automatically if something goes wrong
+
+To check for updates, open the app settings and look for the "Check for Updates" section. If an update is available, tap "Update Now". The app will restart automatically when finished.
+
+The update system shows your current version, how many commits behind you are, and displays progress during the update process.
 
 ---
 
@@ -259,8 +284,9 @@ vinyl-airplay/
 - [x] **Library shuffle** - Shuffle all recorded albums into a single queue
 - [x] **Keyboard shortcuts** - Space, arrows, Q, S, Escape for kiosk and desktop
 - [x] **Side count indicator** - "Side 2 of 4" display in now-playing bar
-- [ ] **WiFi setup portal** - Captive portal for headless first-time WiFi configuration
-- [ ] **One-line install script** - Automated installer for existing Pi setups
+- [x] **WiFi setup portal** - Captive portal for headless first-time WiFi configuration
+- [x] **One-line install script** - Automated installer for existing Pi setups
+- [x] **Auto-update mechanism** - Check for and install updates directly from the app with automatic rollback on failure
 - [ ] **Flashable Pi image** - Pre-built SD card image for zero-config setup
 
 ---
