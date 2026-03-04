@@ -1244,7 +1244,7 @@
   /* ── Mobile Responsive (<480px) ── */
   @media (max-width: 480px) {
     .frame { margin: 2px; border: 2px solid var(--walnut-lt); border-radius: 6px; }
-    .app-header { flex-wrap: wrap; gap: 0.25rem; padding: 0.3rem 0.4rem; }
+    .app-header { flex-wrap: wrap; gap: 0.25rem; padding: 0.3rem 0.4rem; justify-content: center; }
     .brand { display: none; }
     .view-toggle { order: 1; flex-basis: 100%; gap: 0; }
     .view-toggle-btn { flex: 1; padding: 0.45rem; font-size: 0.8rem; border-radius: 0; }
@@ -1288,6 +1288,7 @@
     .app-header {
       flex-wrap: wrap; gap: 0.3rem;
       padding: 0.4rem 0.6rem;
+      justify-content: center;
     }
     .brand { display: none; }
 
@@ -3966,6 +3967,7 @@ document.addEventListener('keydown', function(e){
     _oskTarget.selectionStart = _oskTarget.selectionEnd = s + ch.length;
     if(_oskShift && action.match(/[a-z]/i)){ _oskShift = false; updateDisplay(); }
     fireInput(); updatePreview();
+  }
 
   // Mobile UX Features Implementation
 
@@ -4242,7 +4244,6 @@ document.addEventListener('keydown', function(e){
       });
     }
   };
-  }
 
   function fireInput(){
     if(!_oskTarget) return;
