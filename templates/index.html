@@ -3241,14 +3241,14 @@ async function openAlbumDetail(id){
   const art=a.user_artwork_path||a.artwork_path;
   const artEl=document.getElementById('modal-art');artEl.src=art?`/artwork/${art.split('/').pop()}?t=${Date.now()}`:'';artEl.style.display=art?'':'none';
   var titleEl=document.getElementById('modal-title');titleEl.textContent=a.title;
-  titleEl.onclick=function(){window.editAlbumMetadata(id,'title')};
+  titleEl.onclick=function(){editAlbumMetadata(id,'title')};
   var artistEl=document.getElementById('modal-artist');artistEl.textContent=a.artist;
-  artistEl.onclick=function(){window.editAlbumMetadata(id,'artist')};
+  artistEl.onclick=function(){editAlbumMetadata(id,'artist')};
   var metaEl=document.getElementById('modal-meta');
   var metaParts=[];
-  if(a.year)metaParts.push('<span class="meta-tag" data-field="year" title="Tap to edit year" onclick="window.editAlbumMetadata('+id+',\'year\');event.stopPropagation()">'+esc(String(a.year))+'</span>');
-  if(a.genre)metaParts.push('<span class="meta-tag" data-field="genre" title="Tap to edit genre" onclick="window.editAlbumMetadata('+id+',\'genre\');event.stopPropagation()">'+esc(a.genre)+'</span>');
-  if(a.label)metaParts.push('<span class="meta-tag" data-field="label" title="Tap to edit label" onclick="window.editAlbumMetadata('+id+',\'label\');event.stopPropagation()">'+esc(a.label)+'</span>');
+  if(a.year)metaParts.push('<span class="meta-tag" data-field="year" title="Tap to edit year" onclick="editAlbumMetadata('+id+',\'year\');event.stopPropagation()">'+esc(String(a.year))+'</span>');
+  if(a.genre)metaParts.push('<span class="meta-tag" data-field="genre" title="Tap to edit genre" onclick="editAlbumMetadata('+id+',\'genre\');event.stopPropagation()">'+esc(String(a.genre))+'</span>');
+  if(a.label)metaParts.push('<span class="meta-tag" data-field="label" title="Tap to edit label" onclick="editAlbumMetadata('+id+',\'label\');event.stopPropagation()">'+esc(a.label)+'</span>');
   metaEl.innerHTML=metaParts.join(' <span style="opacity:0.4">\xB7</span> ');
   // Update favorite button
   const favBtn=document.getElementById('modal-favorite-btn');
@@ -3275,6 +3275,33 @@ async function openAlbumDetail(id){
   document.getElementById('album-modal').classList.add('open');
 }
 function closeModal(){document.getElementById('album-modal').classList.remove('open');currentAlbumId=null}
+function editAlbumMetadata(albumId, field){
+  var modal=document.getElementById('album-modal');
+  if(!modal.classList.contains('open'))return;
+  var value=document.getElementById('modal-'+field);
+  if(!value)value=modal.querySelector('.meta-tag[data-field="'+field+'"]');
+  if(!value){console.log('[edit] element not found for field:',field);return}
+  var currentText=value.textContent.trim();
+  var input=document.createElement('input');
+  input.type=field==='year'?'number':'text';
+  input.value=currentText;
+  input.style.cssText='width:100%;padding:0.3rem 0.4rem;border:1px solid var(--amber-dk);border-radius:4px;font-size:inherit;font-family:inherit;background:var(--cream);color:var(--ink)';
+  if(field==='genre')input.placeholder='e.g. Trip-hop, Electronic, Jazz';
+  var saved=false;
+  input.onblur=function(){if(!saved){saved=true;saveAlbumMetadata(albumId,field,input.value)}};
+  input.onkeydown=function(e){if(e.key==='Enter')this.blur();if(e.key==='Escape'){saved=true;openAlbumDetail(albumId)}};
+  value.replaceWith(input);
+  input.focus();
+  input.select();
+}
+function saveAlbumMetadata(albumId,field,value){
+  var data={};
+  data[field]=field==='year'?(parseInt(value)||null):value;
+  fetch('/api/catalog/'+albumId+'/metadata',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)}).then(function(r){return r.json()}).then(function(r){
+    if(r.ok){showToast('Saved');loadCatalog();setTimeout(function(){openAlbumDetail(albumId)},100)}
+    else{showError('Failed to save')}
+  }).catch(function(e){showError('Error: '+e.message)});
+}
 async function toggleModalFavorite(){
   if(!currentAlbumId)return;
   try{
@@ -4359,57 +4386,6 @@ document.addEventListener('keydown', function(e){
 
 <script>
 // Additional features for Stats QoL
-
-// Feature 1: Inline Metadata Editing
-window.editAlbumMetadata = function(albumId, field){
-  var modal = document.getElementById('album-modal');
-  if(!modal.classList.contains('open')) return;
-  // Find the element: either modal-{field} for title/artist, or .meta-tag[data-field="{field}"] for year/genre/label
-  var value = document.getElementById('modal-' + field);
-  if(!value) {
-    value = modal.querySelector('.meta-tag[data-field="' + field + '"]');
-  }
-  if(!value) return;
-  var currentText = value.textContent.trim();
-  var input = document.createElement('input');
-  input.type = field === 'year' ? 'number' : 'text';
-  input.value = currentText;
-  input.className = 'meta-edit-input';
-  input.style.cssText = 'width:100%;padding:0.3rem 0.4rem;border:1px solid var(--amber-dk);border-radius:4px;font-size:inherit;font-family:inherit;background:var(--cream);color:var(--ink)';
-  if(field === 'genre') input.placeholder = 'e.g. Trip-hop, Electronic, Jazz';
-  var saved = false;
-  input.onblur = function(){
-    if(!saved){ saved = true; saveAlbumMetadata(albumId, field, input.value); }
-  };
-  input.onkeydown = function(e){
-    if(e.key === 'Enter') this.blur();
-    if(e.key === 'Escape'){ saved = true; openAlbumDetail(albumId); }
-  };
-  value.replaceWith(input);
-  input.focus();
-  input.select();
-};
-
-window.saveAlbumMetadata = async function(albumId, field, value){
-  try{
-    const data = {};
-    data[field] = field === 'year' ? (parseInt(value) || null) : value;
-    const r = await fetch(`/api/catalog/${albumId}/metadata`, {
-      method: 'PUT',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify(data)
-    }).then(r => r.json());
-    if(r.ok){
-      showToast('Saved');
-      loadCatalog();
-      setTimeout(() => openAlbumDetail(albumId), 100);
-    } else {
-      showError('Failed to save');
-    }
-  } catch(e){
-    showError('Error: ' + e.message);
-  }
-};
 
 // Feature 2: Duplicate Detection
 window.showDuplicates = async function(){
