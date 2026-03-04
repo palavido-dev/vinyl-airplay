@@ -2999,7 +2999,6 @@ function plSwitchListTab(tab){
   if(!isRegular){plLoadSmartPlaylists()}else{plShowList()}
 }
 
-var _smartPlaylists=[];
 async function plLoadSmartPlaylists(){
   const r=await fetch('/api/smart-playlists').then(d=>d.json());
   const el=document.getElementById('smart-playlists-list');
