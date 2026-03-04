@@ -3406,6 +3406,19 @@ def fetch_missing_artwork(token: str, on_progress=None) -> dict:
 
         _progress(label)
 
+    # Count how many albums are still missing artwork overall
+    db = get_db()
+    try:
+        still_missing = db.execute(
+            "SELECT COUNT(*) FROM albums "
+            "WHERE (artwork_path IS NULL OR artwork_path = '') "
+            "AND (user_artwork_path IS NULL OR user_artwork_path = '') "
+            "AND deleted_at IS NULL"
+        ).fetchone()[0]
+    finally:
+        db.close()
+    summary["still_missing"] = still_missing
+
     summary["state"] = "complete"
     _progress()
     return summary
