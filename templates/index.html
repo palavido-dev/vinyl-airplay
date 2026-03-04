@@ -532,14 +532,16 @@
   .modal-x:active { background: var(--paper-dk); color: var(--ink); }
   .modal-header { display: flex; align-items: flex-start; gap: 0.8rem; margin-bottom: 0.8rem; }
   .modal-art { width: 80px; height: 80px; border-radius: 6px; object-fit: cover; border: 1px solid rgba(0,0,0,0.1); flex-shrink: 0; box-shadow: 0 2px 8px rgba(0,0,0,0.15); }
-  .modal-title { font-family: var(--display-font); font-size: 1rem; font-weight: 700; }
+  .modal-title { font-family: var(--display-font); font-size: 1rem; font-weight: 700; cursor: pointer; padding: 0.1rem 0.2rem; border-radius: 3px; margin: -0.1rem -0.2rem; transition: background 0.15s; }
+  .modal-title:hover { background: rgba(212,162,78,0.15); }
   .modal-favorite-btn { transition: color 0.2s; }
   .modal-favorite-btn.is-favorite { color: var(--rust) !important; }
   .star-rating { display: inline-flex; gap: 0.1rem; }
   .star-rating button { background: none; border: none; cursor: pointer; font-size: 0.85rem; color: var(--shelf); padding: 0; line-height: 1; transition: color 0.15s; }
   .star-rating button.filled { color: var(--amber-dk); }
   .star-rating button:hover { color: var(--amber); }
-  .modal-artist { font-size: 0.82rem; color: var(--muted); margin-top: 0.15rem; }
+  .modal-artist { font-size: 0.82rem; color: var(--muted); margin-top: 0.15rem; cursor: pointer; padding: 0.1rem 0.2rem; border-radius: 3px; margin-left: -0.2rem; transition: background 0.15s; }
+  .modal-artist:hover { background: rgba(212,162,78,0.15); }
   .modal-meta { font-size: 0.72rem; color: var(--muted); margin-top: 0.1rem; }
   .meta-tag { cursor: pointer; padding: 0.1rem 0.2rem; border-radius: 3px; transition: background 0.15s; }
   .meta-tag:hover { background: rgba(212,162,78,0.15); }
@@ -1608,7 +1610,7 @@
     <div id="modal-detail">
       <div class="modal-header">
         <img id="modal-art" class="modal-art" src="" alt="" onerror="this.style.display='none'">
-        <div style="flex:1"><div style="display:flex;align-items:center;gap:0.4rem"><div class="modal-title" id="modal-title" style="cursor:pointer" title="Tap to edit"></div><button id="modal-favorite-btn" class="modal-favorite-btn" onclick="toggleModalFavorite()" title="Favorite" style="font-size:0.9rem;background:none;border:none;cursor:pointer;color:rgba(0,0,0,0.3);padding:0;margin:0">&#x2661;</button></div><div class="modal-artist" id="modal-artist" style="cursor:pointer" title="Tap to edit"></div><div class="modal-meta" id="modal-meta"></div></div>
+        <div style="flex:1"><div style="display:flex;align-items:center;gap:0.4rem"><div class="modal-title" id="modal-title" title="Tap to edit"></div><button id="modal-favorite-btn" class="modal-favorite-btn" onclick="toggleModalFavorite()" title="Favorite" style="font-size:0.9rem;background:none;border:none;cursor:pointer;color:rgba(0,0,0,0.3);padding:0;margin:0">&#x2661;</button></div><div class="modal-artist" id="modal-artist" title="Tap to edit"></div><div class="modal-meta" id="modal-meta"></div></div>
       </div>
       <div id="modal-rating" class="star-rating" style="margin-bottom:0.3rem"></div>
       <div id="modal-notes-section" style="margin-bottom:0.5rem">
@@ -3239,18 +3241,15 @@ async function openAlbumDetail(id){
   const art=a.user_artwork_path||a.artwork_path;
   const artEl=document.getElementById('modal-art');artEl.src=art?`/artwork/${art.split('/').pop()}?t=${Date.now()}`:'';artEl.style.display=art?'':'none';
   var titleEl=document.getElementById('modal-title');titleEl.textContent=a.title;
-  titleEl.onclick=function(){editAlbumMetadata(id,'title')};
+  titleEl.onclick=function(){window.editAlbumMetadata(id,'title')};
   var artistEl=document.getElementById('modal-artist');artistEl.textContent=a.artist;
-  artistEl.onclick=function(){editAlbumMetadata(id,'artist')};
+  artistEl.onclick=function(){window.editAlbumMetadata(id,'artist')};
   var metaEl=document.getElementById('modal-meta');
   var metaParts=[];
-  if(a.year)metaParts.push('<span class="meta-tag" data-field="year" title="Tap to edit year">'+esc(String(a.year))+'</span>');
-  if(a.genre)metaParts.push('<span class="meta-tag" data-field="genre" title="Tap to edit genre">'+esc(a.genre)+'</span>');
-  if(a.label)metaParts.push('<span class="meta-tag" data-field="label" title="Tap to edit label">'+esc(a.label)+'</span>');
+  if(a.year)metaParts.push('<span class="meta-tag" data-field="year" title="Tap to edit year" onclick="window.editAlbumMetadata('+id+',\'year\');event.stopPropagation()">'+esc(String(a.year))+'</span>');
+  if(a.genre)metaParts.push('<span class="meta-tag" data-field="genre" title="Tap to edit genre" onclick="window.editAlbumMetadata('+id+',\'genre\');event.stopPropagation()">'+esc(a.genre)+'</span>');
+  if(a.label)metaParts.push('<span class="meta-tag" data-field="label" title="Tap to edit label" onclick="window.editAlbumMetadata('+id+',\'label\');event.stopPropagation()">'+esc(a.label)+'</span>');
   metaEl.innerHTML=metaParts.join(' <span style="opacity:0.4">\xB7</span> ');
-  metaEl.querySelectorAll('.meta-tag').forEach(function(tag){
-    tag.onclick=function(){editAlbumMetadata(id,tag.dataset.field)};
-  });
   // Update favorite button
   const favBtn=document.getElementById('modal-favorite-btn');
   if(favBtn){favBtn.textContent=a.favorite?'\u2665':'\u2661';favBtn.classList.toggle('is-favorite',!!a.favorite)}
