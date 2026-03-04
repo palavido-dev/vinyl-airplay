@@ -2060,6 +2060,69 @@ async def rename_playlist(playlist_id: int, body: dict):
     return {"ok": True}
 
 
+# -- Smart Playlists ----------------------------------------------------------
+
+@app.get("/api/smart-playlists")
+async def get_smart_playlists():
+    playlists = cat.get_smart_playlists()
+    return {"ok": True, "playlists": playlists}
+
+
+@app.post("/api/smart-playlists")
+async def create_smart_playlist(body: dict):
+    name = body.get("name", "").strip()
+    rules = body.get("rules", [])
+    if not name:
+        return {"ok": False, "error": "Name is required"}
+    pid = cat.create_smart_playlist(name, rules)
+    return {"ok": True, "id": pid}
+
+
+@app.get("/api/smart-playlists/{playlist_id}/albums")
+async def get_smart_playlist_albums(playlist_id: int):
+    albums = cat.get_smart_playlist_albums(playlist_id)
+    return {"ok": True, "albums": albums}
+
+
+@app.post("/api/smart-playlists/{playlist_id}/play")
+async def play_smart_playlist(playlist_id: int, body: dict):
+    """Resolve a smart playlist and queue all matching albums for playback."""
+    albums = cat.get_smart_playlist_albums(playlist_id)
+    if not albums:
+        return {"ok": False, "error": "No matching albums"}
+
+    devices = body.get("devices", [])
+    if not state.player and not state.is_streaming:
+        return {"ok": False, "error": "No output device active"}
+
+    # Build queue from resolved albums (sides with audio)
+    queue_items = []
+    for album in albums:
+        audio_sides = cat.get_album_audio(album["id"])
+        for audio in audio_sides:
+            queue_items.append({
+                "album_id": album["id"],
+                "side": audio.get("side", "A"),
+                "title": album.get("title", ""),
+                "artist": album.get("artist", ""),
+            })
+
+    if not queue_items:
+        return {"ok": False, "error": "No recorded audio in matching albums"}
+
+    if state.player:
+        for item in queue_items:
+            state.player.add_to_queue(item["album_id"], item["side"])
+
+    return {"ok": True, "queued": len(queue_items)}
+
+
+@app.delete("/api/smart-playlists/{playlist_id}")
+async def delete_smart_playlist(playlist_id: int):
+    cat.delete_smart_playlist(playlist_id)
+    return {"ok": True}
+
+
 @app.put("/api/catalog/{album_id}/position")
 async def update_playback_position(album_id: int, body: dict):
     """Save playback position for resume. body: { side_idx: string, secs: float }"""

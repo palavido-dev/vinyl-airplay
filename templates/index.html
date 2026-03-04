@@ -1488,6 +1488,13 @@
         <button class="sort-option" id="grp-favorites" onclick="toggleGroupBy('favorites')">Favorites</button>
       </div>
     </div>
+    <div class="sort-panel-section">
+      <div class="sort-panel-label">Filter</div>
+      <div class="sort-panel-options">
+        <button class="sort-option" id="flt-not-recorded" onclick="toggleFilter('not_recorded')">Not Recorded</button>
+        <button class="sort-option" id="flt-recorded" onclick="toggleFilter('recorded')">Recorded</button>
+      </div>
+    </div>
   </div>
 </div>
 <div class="status-bar"><span class="status-dot" id="dot"></span><span id="status-text">Connecting…</span></div>
@@ -2059,7 +2066,7 @@
 </div>
 <script>
 let ws,currentAlbumId=null,_catalogAlbums=[],_playerActive=false,_playerSource=null,_isStreaming=false,_lastUsedDevice=null,_pendingAlbumId=null,_pendingTrackId=null,_currentDevices=null,_playerAlbumId=null,_learnLog=[],_learnLevelInterval=null,_audioPlayer=null,_audioPlayingId=null,_reorderMode=false,_boundaryEditMode=false,_pendingRelease=null,_recTimerInterval=null,_browserAudioCtx=null,_browserStreamReader=null,_browserStreamActive=false,_homeShelvesData={},_multiSelectMode=false,_selectedAlbums=new Set(),_smartPlaylists=[],_pendingQueue=[];
-var _viewState={sortMode:'artist',groupBy:null,view:'library'};
+var _viewState={sortMode:'artist',groupBy:null,filterMode:null,view:'library'};
 
 function esc(s){if(!s)return'';const d=document.createElement('div');d.textContent=s;return d.innerHTML}
 function fmtTime(s){return Math.floor(s/60)+':'+String(Math.floor(s%60)).padStart(2,'0')}
@@ -2287,7 +2294,7 @@ function closeSortPanel(){
 }
 function updateFilterIndicator(){
   var btn=document.getElementById('btn-sort');
-  if(_viewState.sortMode!=='artist'||_viewState.groupBy){btn.classList.add('has-filter')}else{btn.classList.remove('has-filter')}
+  if(_viewState.sortMode!=='artist'||_viewState.groupBy||_viewState.filterMode){btn.classList.add('has-filter')}else{btn.classList.remove('has-filter')}
 }
 function applySortMode(mode){
   _viewState.sortMode=mode;
@@ -2310,8 +2317,19 @@ function toggleGroupBy(field){
   filterCatalog(q);
 }
 
+function toggleFilter(mode){
+  if(_viewState.filterMode===mode){_viewState.filterMode=null}else{_viewState.filterMode=mode}
+  document.getElementById('flt-not-recorded').classList.toggle('active',_viewState.filterMode==='not_recorded');
+  document.getElementById('flt-recorded').classList.toggle('active',_viewState.filterMode==='recorded');
+  updateFilterIndicator();
+  var q=(document.getElementById('catalog-search').value||'').trim();
+  filterCatalog(q);
+}
+
 function getFilteredAlbums(){
   var albums=_catalogAlbums;
+  if(_viewState.filterMode==='not_recorded'){albums=albums.filter(function(a){return !a.audio_count||a.audio_count===0})}
+  else if(_viewState.filterMode==='recorded'){albums=albums.filter(function(a){return a.audio_count>0})}
   var q=(document.getElementById('catalog-search').value||'').trim();
   if(q){var ql=q.toLowerCase();albums=albums.filter(function(a){return (a.title||'').toLowerCase().includes(ql)||(a.artist||'').toLowerCase().includes(ql)||(a.genre||'').toLowerCase().includes(ql)})}
   return sortAlbums(albums);
