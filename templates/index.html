@@ -3645,7 +3645,7 @@ async function setAlbumRating(r){
     if(res.ok){if(album)album.rating=newRating;renderModalRating(newRating)}
   }catch(e){showToast('Failed to save rating')}
 }
-function playAlbumFromModal(){if(!currentAlbumId)return;if(_isStreaming||_playerActive){playAlbum(currentAlbumId);closeModal()}else{closeModal();_pendingAlbumId=currentAlbumId;showOutputPicker(currentAlbumId)}}
+function playAlbumFromModal(){if(!currentAlbumId)return;var aid=currentAlbumId;if(_isStreaming||_playerActive){playAlbum(aid);closeModal()}else{_pendingAlbumId=aid;closeModal();showOutputPicker(aid)}}
 
 async function playNextFromModal(){
   if(!currentAlbumId)return;
@@ -3707,7 +3707,7 @@ function renderModalTracks(tracks,reorder,boundaryEdit){
   c.innerHTML=h;if(reorder)initDragReorder();
 }
 function seekToTrack(tid){if(!_playerActive)return;fetch('/api/player/seek',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({track_id:tid})})}
-function playTrackFromModal(trackId){if(!currentAlbumId||!window._modalAlbumHasAudio)return;if(_isStreaming||_playerActive){playAlbum(currentAlbumId,trackId);closeModal()}else{closeModal();_pendingAlbumId=currentAlbumId;_pendingTrackId=trackId;showOutputPicker(currentAlbumId)}}
+function playTrackFromModal(trackId){if(!currentAlbumId||!window._modalAlbumHasAudio)return;var aid=currentAlbumId;if(_isStreaming||_playerActive){playAlbum(aid,trackId);closeModal()}else{_pendingAlbumId=aid;_pendingTrackId=trackId;closeModal();showOutputPicker(aid)}}
 async function refreshModalTracks(aid){if(currentAlbumId!==aid)return;try{const d=await fetch(`/api/catalog/${aid}/tracks`).then(r=>r.json());d.tracks.sort((a,b)=>(a.side||'').localeCompare(b.side||'')||parseInt(a.track_number||0)-parseInt(b.track_number||0));window._modalTracks=d.tracks.slice();renderModalTracks(window._modalTracks,false,false)}catch(e){}}
 
 async function loadAlbumAudio(id){
