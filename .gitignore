@@ -12,3 +12,4 @@ settings.json
 .venv/
 node_modules/
 *.plugin
+certs/
