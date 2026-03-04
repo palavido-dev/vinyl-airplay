@@ -155,7 +155,7 @@
   .np-artist-album { font-size: 0.75rem; color: rgba(245,235,216,0.6); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .np-source-badge { font-size: 0.55rem; font-weight: 700; letter-spacing: 0.06em; background: var(--amber-dk); color: var(--walnut); border-radius: 3px; padding: 0.08rem 0.35rem; vertical-align: middle; margin-left: 0.4rem; }
   .np-transport { display: flex; align-items: center; gap: 0.3rem; flex-shrink: 0; }
-  .np-btn { width: 40px; height: 40px; border-radius: 50%; background: rgba(255,255,255,0.06); border: 1px solid rgba(212,162,78,0.2); color: var(--cream); font-size: 0.9rem; cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 0; transition: background 0.12s; }
+  .np-btn { width: 40px; height: 40px; border-radius: 50%; background: rgba(255,255,255,0.06); border: 1px solid rgba(212,162,78,0.2); color: var(--amber); font-size: 0.9rem; cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 0; transition: background 0.12s; }
   .np-btn:active { background: rgba(212,162,78,0.2); }
   .np-btn.primary { width: 46px; height: 46px; font-size: 1.1rem; background: var(--amber-dk); color: var(--walnut); border-color: var(--amber); box-shadow: 0 2px 8px rgba(212,162,78,0.3); }
   .np-btn.primary:active { background: var(--amber); }
@@ -1119,133 +1119,6 @@
     z-index: 10;
   }
 
-  /* ── Full-Screen Now-Playing ── */
-  .now-playing-fullscreen {
-    display: none;
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: linear-gradient(135deg, var(--walnut) 0%, var(--walnut-lt) 100%);
-    z-index: 250;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    padding: 2rem 1rem;
-    overflow-y: auto;
-  }
-  .now-playing-fullscreen.open {
-    display: flex;
-  }
-  .now-playing-fullscreen-close {
-    position: absolute;
-    top: 1rem;
-    right: 1rem;
-    background: rgba(255,255,255,0.1);
-    border: 1px solid rgba(212,162,78,0.3);
-    color: var(--amber);
-    width: 44px;
-    height: 44px;
-    border-radius: 50%;
-    font-size: 1.3rem;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-  .now-playing-fullscreen-art {
-    width: min(300px, 80vw);
-    height: min(300px, 80vw);
-    border-radius: 12px;
-    object-fit: cover;
-    box-shadow: 0 8px 32px rgba(0,0,0,0.5);
-    margin-bottom: 2rem;
-    border: 3px solid var(--amber-dk);
-  }
-  .now-playing-fullscreen-info {
-    text-align: center;
-    margin-bottom: 2rem;
-    max-width: 500px;
-  }
-  .now-playing-fullscreen-track {
-    font-family: var(--display-font);
-    font-size: 1.5rem;
-    font-weight: 700;
-    color: var(--amber);
-    margin-bottom: 0.5rem;
-  }
-  .now-playing-fullscreen-artist {
-    font-size: 1.1rem;
-    color: rgba(245,235,216,0.8);
-    margin-bottom: 0.3rem;
-  }
-  .now-playing-fullscreen-album {
-    font-size: 0.95rem;
-    color: rgba(245,235,216,0.6);
-  }
-  .now-playing-fullscreen-progress {
-    width: 100%;
-    max-width: 400px;
-    margin-bottom: 1.5rem;
-  }
-  .now-playing-fullscreen-progress-bar {
-    width: 100%;
-    height: 6px;
-    background: rgba(255,255,255,0.1);
-    border-radius: 3px;
-    cursor: pointer;
-    margin-bottom: 0.5rem;
-  }
-  .now-playing-fullscreen-progress-fill {
-    height: 100%;
-    background: linear-gradient(90deg, var(--amber-dk), var(--amber));
-    border-radius: 3px;
-    width: 0%;
-    transition: width 0.3s linear;
-  }
-  .now-playing-fullscreen-times {
-    display: flex;
-    justify-content: space-between;
-    font-size: 0.8rem;
-    color: rgba(245,235,216,0.5);
-  }
-  .now-playing-fullscreen-controls {
-    display: flex;
-    gap: 1rem;
-    align-items: center;
-    justify-content: center;
-    margin-bottom: 1rem;
-  }
-  .now-playing-fullscreen-btn {
-    width: 56px;
-    height: 56px;
-    border-radius: 50%;
-    background: rgba(255,255,255,0.1);
-    border: 2px solid rgba(212,162,78,0.3);
-    color: var(--amber);
-    font-size: 1.4rem;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: background 0.15s;
-  }
-  .now-playing-fullscreen-btn:active {
-    background: rgba(212,162,78,0.2);
-  }
-  .now-playing-fullscreen-btn.primary {
-    width: 64px;
-    height: 64px;
-    background: var(--amber-dk);
-    border-color: var(--amber);
-    color: var(--walnut);
-    font-size: 1.6rem;
-  }
-  .now-playing-fullscreen-btn.primary:active {
-    background: var(--amber);
-  }
-
   /* ── Tablet Responsive (768px) ── */
   @media (max-width: 768px) {
     .album-grid { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 0.6rem; }
@@ -1546,7 +1419,7 @@
   </div>
 </div>
 
-<div class="np-bar hidden" id="np-footer" onclick="openNowPlayingFullscreen()" style="cursor:pointer;">
+<div class="np-bar hidden" id="np-footer">
   <div class="np-row">
     <div class="np-art-placeholder" id="np-art-wrap" style="cursor:pointer;">💿</div>
     <div class="np-text">
@@ -1583,31 +1456,6 @@
   <span style="font-size:1.2rem">&#9776;</span>
   <span class="queue-fab-badge" id="queue-fab-badge">0</span>
 </button>
-
-<!-- Full-Screen Now-Playing -->
-<div class="now-playing-fullscreen" id="np-fullscreen">
-  <button class="now-playing-fullscreen-close" onclick="closeNowPlayingFullscreen()">×</button>
-  <img class="now-playing-fullscreen-art" id="np-fs-art" src="" alt="Album artwork" onerror="this.style.display='none'">
-  <div class="now-playing-fullscreen-info">
-    <div class="now-playing-fullscreen-track" id="np-fs-track"></div>
-    <div class="now-playing-fullscreen-artist" id="np-fs-artist"></div>
-    <div class="now-playing-fullscreen-album" id="np-fs-album">—</div>
-  </div>
-  <div class="now-playing-fullscreen-progress">
-    <div class="now-playing-fullscreen-progress-bar" id="np-fs-progress-bar" onclick="playerSeekClickFullscreen(event)">
-      <div class="now-playing-fullscreen-progress-fill" id="np-fs-progress-fill"></div>
-    </div>
-    <div class="now-playing-fullscreen-times">
-      <span id="np-fs-time-cur">0:00</span>
-      <span id="np-fs-time-dur">0:00</span>
-    </div>
-  </div>
-  <div class="now-playing-fullscreen-controls">
-    <button class="now-playing-fullscreen-btn" onclick="playerPrevFullscreen()" title="Previous">⏮</button>
-    <button class="now-playing-fullscreen-btn primary" id="np-fs-play-btn" onclick="playerToggleFullscreen()" title="Play/Pause">⏸</button>
-    <button class="now-playing-fullscreen-btn" onclick="playerNextFullscreen()" title="Next">⏭</button>
-  </div>
-</div>
 
 <!-- Barcode Scanner Overlay -->
 <div class="barcode-scanner-overlay" id="barcode-scanner">
@@ -4558,80 +4406,9 @@ document.addEventListener('keydown', function(e){
     }
   });
 
-  // Full-Screen Now-Playing
-  window.openNowPlayingFullscreen=function() {
-    const fs=document.getElementById('np-fullscreen');
-    fs.classList.add('open');
-    updateNowPlayingFullscreen();
-  };
-
-  window.closeNowPlayingFullscreen=function() {
-    const fs=document.getElementById('np-fullscreen');
-    fs.classList.remove('open');
-  };
-
-  function updateNowPlayingFullscreen() {
-    const titleEl=document.getElementById('np-title');
-    const badge=titleEl.querySelector('.np-source-badge');
-    const track=badge?titleEl.textContent.replace(badge.textContent,'').trim():titleEl.textContent;
-    const artist=document.getElementById('np-artist-album').textContent;
-    const album=document.getElementById('modal-title').textContent||'';
-    document.getElementById('np-fs-track').textContent=track;
-    document.getElementById('np-fs-artist').textContent=artist.split(' - ')[0]||'—';
-    document.getElementById('np-fs-album').textContent=album;
-
-    const artEl=document.getElementById('np-art-wrap');
-    const artImg=artEl.querySelector('img');
-    const fsArt=document.getElementById('np-fs-art');
-    if(artImg && artImg.src) {
-      fsArt.src=artImg.src;
-      fsArt.style.display='';
-    } else {
-      fsArt.style.display='none';
-    }
-  }
-
-  window.playerToggleFullscreen=function() {
-    playerToggle();
-    const btn=document.getElementById('np-fs-play-btn');
-    const playBtn=document.getElementById('np-play-pause');
-    if(playBtn) btn.textContent=playBtn.textContent;
-  };
-
-  window.playerPrevFullscreen=function() {
-    playerPrev();
-  };
-
-  window.playerNextFullscreen=function() {
-    playerNext();
-  };
-
-  window.playerSeekClickFullscreen=function(e) {
-    const bar=document.getElementById('np-fs-progress-bar');
-    const rect=bar.getBoundingClientRect();
-    const pct=(e.clientX-rect.left)/rect.width;
-    playerSeekClick({clientX: rect.left+pct*rect.width, target: bar});
-  };
-
-  setInterval(() => {
-    const fs=document.getElementById('np-fullscreen');
-    if(fs && fs.classList.contains('open')) {
-      updateNowPlayingFullscreen();
-      const durEl=document.getElementById('np-time-dur');
-      const curEl=document.getElementById('np-time-cur');
-      if(durEl) document.getElementById('np-fs-time-dur').textContent=durEl.textContent;
-      if(curEl) document.getElementById('np-fs-time-cur').textContent=curEl.textContent;
-
-      const fillEl=document.getElementById('np-progress-fill');
-      if(fillEl) {
-        const width=fillEl.style.width;
-        document.getElementById('np-fs-progress-fill').style.width=width;
-      }
-
-      const playBtn=document.getElementById('np-play-pause');
-      if(playBtn) document.getElementById('np-fs-play-btn').textContent=playBtn.textContent;
-    }
-  }, 200);
+  // Stubs for removed fullscreen now-playing (referenced elsewhere)
+  window.openNowPlayingFullscreen=function(){};
+  window.closeNowPlayingFullscreen=function(){};
 
   // Barcode Scanner (using html5-qrcode library for broad mobile support)
   var _html5QrCode=null;
