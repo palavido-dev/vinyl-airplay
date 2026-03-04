@@ -1972,6 +1972,16 @@ async def reorder_tracks(album_id: int, body: dict):
     return {"ok": ok}
 
 
+@app.post("/api/catalog/{album_id}/reassign-sides")
+async def reassign_sides(album_id: int, body: dict):
+    """Reassign tracks to sides and renumber. body: { tracks: [{id, side}, ...] }"""
+    tracks = body.get("tracks", [])
+    if not tracks:
+        return {"ok": False, "error": "No track assignments provided"}
+    ok = cat.reassign_tracks_to_sides(tracks)
+    return {"ok": ok}
+
+
 @app.delete("/api/catalog/{album_id}")
 async def delete_album_route(album_id: int):
     # Use soft-delete for undo support

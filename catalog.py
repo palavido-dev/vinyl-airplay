@@ -1404,6 +1404,33 @@ def reorder_album_tracks(ordered_track_ids: list) -> bool:
         db.close()
 
 
+def reassign_tracks_to_sides(assignments: list) -> bool:
+    """
+    Update side assignments and renumber tracks in one transaction.
+    assignments: [{"id": track_id, "side": "A"}, ...]
+    Order within the list determines track_number per side.
+    """
+    db = get_db()
+    try:
+        side_counters: dict = {}
+        for entry in assignments:
+            tid = entry["id"]
+            side = entry["side"]
+            side_counters[side] = side_counters.get(side, 0) + 1
+            db.execute(
+                "UPDATE tracks SET side = ?, track_number = ? WHERE id = ?",
+                (side, str(side_counters[side]), tid)
+            )
+        db.commit()
+        print(f"[catalog] Reassigned sides for {len(assignments)} tracks")
+        return True
+    except Exception as e:
+        print(f"[catalog] reassign_tracks_to_sides failed: {e}")
+        return False
+    finally:
+        db.close()
+
+
 def get_album(album_id: int) -> Optional[dict]:
     """Get a single album by ID with play counts."""
     db = get_db()
