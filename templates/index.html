@@ -2999,56 +2999,232 @@ function plSwitchListTab(tab){
   if(!isRegular){plLoadSmartPlaylists()}else{plShowList()}
 }
 
+var _smartPlaylists=[];
 async function plLoadSmartPlaylists(){
   const r=await fetch('/api/smart-playlists').then(d=>d.json());
   const el=document.getElementById('smart-playlists-list');
   if(!r.ok||!r.playlists||!r.playlists.length){
+    _smartPlaylists=[];
     el.innerHTML='<div style="color:var(--muted);padding:1rem;text-align:center;font-size:0.82rem">No smart playlists yet</div>';
     return;
   }
+  _smartPlaylists=r.playlists;
   let html='';
   r.playlists.forEach(p=>{
     const count=p.album_count||0;
     html+=`<div class="pl-item" onclick="spShowDetail(${p.id})">`
-      +`<span class="pl-item-name">⚡ ${esc(p.name)}</span>`
+      +`<span class="pl-item-name">${esc(p.name)}</span>`
       +`<span class="pl-item-count">${count} album${count!==1?'s':''}</span>`
       +`<div class="pl-item-actions">`
-      +`<button class="pl-item-btn" onclick="event.stopPropagation();spPlay(${p.id})" title="Play">▶</button>`
-      +`<button class="pl-item-btn" onclick="event.stopPropagation();spDelete(${p.id})" title="Delete" style="color:var(--rust)">✕</button>`
+      +`<button class="pl-item-btn" onclick="event.stopPropagation();spPlay(${p.id})" title="Play">&#9654;</button>`
+      +`<button class="pl-item-btn" onclick="event.stopPropagation();spDelete(${p.id})" title="Delete" style="color:var(--rust)">&#10005;</button>`
       +`</div></div>`;
   });
   el.innerHTML=html;
 }
 
-function showSmartPlaylistBuilder(){
-  const name=prompt('Smart Playlist name:');
-  if(!name)return;
-  const rules=[{field:'rating',op:'gte',value:4}];
-  fetch('/api/smart-playlists',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,rules})}).then(r=>r.json()).then(r=>{
-    if(r.ok){showToast('Smart playlist created');plLoadSmartPlaylists()}else{showError(r.error||'Failed')}
+var _spBuilderEditId=null;
+var _spBuilderRules=[];
+var _spFieldDefs=[
+  {field:'genre',label:'Genre',type:'text',ops:['contains','eq','neq']},
+  {field:'artist',label:'Artist',type:'text',ops:['contains','eq','neq']},
+  {field:'title',label:'Title',type:'text',ops:['contains','eq','neq']},
+  {field:'label',label:'Label',type:'text',ops:['contains','eq','neq']},
+  {field:'year',label:'Year',type:'number',ops:['eq','gte','lte','gt','lt']},
+  {field:'rating',label:'Rating',type:'number',ops:['gte','lte','eq','gt','lt']},
+  {field:'audio_count',label:'Recorded',type:'recorded',ops:['gt','eq']},
+  {field:'play_count',label:'Play Count',type:'number',ops:['gte','lte','eq','gt','lt']},
+  {field:'favorite',label:'Favorite',type:'boolean',ops:['eq']}
+];
+var _spOpLabels={eq:'is',neq:'is not',contains:'contains',gt:'greater than',gte:'at least',lt:'less than',lte:'at most'};
+
+function showSmartPlaylistBuilder(editId){
+  _spBuilderEditId=editId||null;
+  _spBuilderRules=[];
+  var nameVal='';
+  if(editId){
+    var existing=(_smartPlaylists||[]).find(function(p){return p.id===editId});
+    if(existing){
+      nameVal=existing.name||'';
+      try{_spBuilderRules=JSON.parse(existing.rules||'[]')}catch(e){_spBuilderRules=[]}
+    }
+  }
+  if(!_spBuilderRules.length){_spBuilderRules=[{field:'genre',op:'contains',value:''}]}
+
+  var overlay=document.getElementById('sp-builder-overlay');
+  if(!overlay){
+    overlay=document.createElement('div');
+    overlay.id='sp-builder-overlay';
+    overlay.style.cssText='position:fixed;inset:0;z-index:600;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;padding:1rem';
+    overlay.innerHTML=`<div style="background:var(--cream);border-radius:10px;width:100%;max-width:480px;max-height:90vh;display:flex;flex-direction:column;box-shadow:0 8px 32px rgba(0,0,0,0.3);overflow:hidden">
+      <div style="padding:0.8rem 1rem;border-bottom:1px solid var(--paper-dk);display:flex;align-items:center;justify-content:space-between">
+        <span id="sp-builder-title" style="font-family:var(--display-font);font-weight:700;font-size:0.95rem;color:var(--ink)">New Smart Playlist</span>
+        <button onclick="closeSpBuilder()" style="background:none;border:none;font-size:1.2rem;cursor:pointer;color:var(--muted);padding:0 0.2rem">&#10005;</button>
+      </div>
+      <div style="flex:1;overflow-y:auto;padding:0.8rem 1rem">
+        <div style="margin-bottom:0.8rem">
+          <label style="font-size:0.75rem;color:var(--muted);display:block;margin-bottom:0.25rem">Name</label>
+          <input id="sp-builder-name" type="text" placeholder="e.g. 80s Jazz, Unplayed Favorites..." style="width:100%;padding:0.4rem 0.5rem;border:1px solid var(--paper-dk);border-radius:5px;font-size:0.85rem;background:var(--paper);color:var(--ink);box-sizing:border-box">
+        </div>
+        <div style="margin-bottom:0.6rem">
+          <label style="font-size:0.75rem;color:var(--muted);display:block;margin-bottom:0.4rem">Rules <span style="font-weight:400">(all must match)</span></label>
+          <div id="sp-builder-rules"></div>
+          <button onclick="spAddRule()" style="background:none;border:1px dashed var(--paper-dk);border-radius:5px;padding:0.35rem 0.6rem;font-size:0.75rem;color:var(--amber-dk);cursor:pointer;margin-top:0.3rem;width:100%">+ Add Rule</button>
+        </div>
+        <div style="border-top:1px solid var(--paper-dk);padding-top:0.6rem">
+          <div style="font-size:0.75rem;color:var(--muted);margin-bottom:0.3rem">Preview: <strong id="sp-builder-count">0</strong> matching albums</div>
+          <div id="sp-builder-preview" style="display:flex;flex-wrap:wrap;gap:0.3rem;max-height:120px;overflow-y:auto"></div>
+        </div>
+      </div>
+      <div style="padding:0.6rem 1rem;border-top:1px solid var(--paper-dk);display:flex;gap:0.4rem;justify-content:flex-end">
+        <button class="btn btn-ghost" onclick="closeSpBuilder()">Cancel</button>
+        <button class="btn btn-primary" onclick="saveSmartPlaylist()">Save</button>
+      </div>
+    </div>`;
+    document.body.appendChild(overlay);
+  }
+  overlay.style.display='flex';
+  document.getElementById('sp-builder-title').textContent=editId?'Edit Smart Playlist':'New Smart Playlist';
+  document.getElementById('sp-builder-name').value=nameVal;
+  spRenderRules();
+  spPreviewRules();
+}
+
+function closeSpBuilder(){
+  var overlay=document.getElementById('sp-builder-overlay');
+  if(overlay)overlay.style.display='none';
+  _spBuilderEditId=null;
+}
+
+function spRenderRules(){
+  var container=document.getElementById('sp-builder-rules');
+  var html='';
+  _spBuilderRules.forEach(function(rule,idx){
+    var fieldDef=_spFieldDefs.find(function(f){return f.field===rule.field})||_spFieldDefs[0];
+    var fieldOpts=_spFieldDefs.map(function(f){return '<option value="'+f.field+'"'+(f.field===rule.field?' selected':'')+'>'+esc(f.label)+'</option>'}).join('');
+    var opOpts=fieldDef.ops.map(function(o){return '<option value="'+o+'"'+(o===rule.op?' selected':'')+'>'+esc(_spOpLabels[o]||o)+'</option>'}).join('');
+    var valCb='spUpdateRule('+idx+',&quot;value&quot;,this.value);spPreviewRules()';
+    var opCb='spUpdateRule('+idx+',&quot;op&quot;,this.value);spPreviewRules()';
+    var ss='padding:0.35rem 0.4rem;border:1px solid var(--paper-dk);border-radius:4px;font-size:0.78rem;background:var(--paper);color:var(--ink)';
+    var valueHtml='';
+    if(fieldDef.type==='recorded'){
+      var recCb='var v=this.value;if(v==="recorded"){spUpdateRule('+idx+',&quot;op&quot;,&quot;gt&quot;);spUpdateRule('+idx+',&quot;value&quot;,0)}else{spUpdateRule('+idx+',&quot;op&quot;,&quot;eq&quot;);spUpdateRule('+idx+',&quot;value&quot;,0)};spPreviewRules()';
+      valueHtml='<select onchange="'+recCb+'" style="flex:1;'+ss+'">'
+        +'<option value="not_recorded"'+(rule.op==='eq'?' selected':'')+'>Not Recorded</option>'
+        +'<option value="recorded"'+(rule.op==='gt'?' selected':'')+'>Recorded</option>'
+        +'</select>';
+    }else if(fieldDef.type==='boolean'){
+      valueHtml='<select onchange="'+valCb+'" style="flex:1;'+ss+'">'
+        +'<option value="1"'+(String(rule.value)==='1'||rule.value===1?' selected':'')+'>Yes</option>'
+        +'<option value="0"'+(String(rule.value)==='0'||rule.value===0?' selected':'')+'>No</option>'
+        +'</select>';
+    }else{
+      var inputType=fieldDef.type==='number'?'number':'text';
+      valueHtml='<input type="'+inputType+'" value="'+esc(String(rule.value||''))+'" placeholder="value" onchange="'+valCb+'" oninput="clearTimeout(window._spPreviewTimer);window._spPreviewTimer=setTimeout(spPreviewRules,400)" style="flex:1;'+ss+';min-width:0">';
+    }
+
+    html+='<div style="display:flex;gap:0.3rem;align-items:center;margin-bottom:0.3rem">'
+      +'<select onchange="spChangeField('+idx+',this.value)" style="width:80px;'+ss+'">'+fieldOpts+'</select>'
+      +'<select onchange="'+opCb+'" style="width:80px;'+ss+'">'+opOpts+'</select>'
+      +valueHtml
+      +(_spBuilderRules.length>1?'<button onclick="spRemoveRule('+idx+')" style="background:none;border:none;color:var(--rust);cursor:pointer;font-size:1rem;padding:0 0.3rem;flex-shrink:0">&#10005;</button>':'')
+      +'</div>';
   });
+  container.innerHTML=html;
+}
+
+function spChangeField(idx,field){
+  var def=_spFieldDefs.find(function(f){return f.field===field})||_spFieldDefs[0];
+  _spBuilderRules[idx].field=field;
+  _spBuilderRules[idx].op=def.ops[0];
+  if(def.type==='recorded'){_spBuilderRules[idx].op='gt';_spBuilderRules[idx].value=0}
+  else if(def.type==='boolean'){_spBuilderRules[idx].value=1}
+  else{_spBuilderRules[idx].value=''}
+  spRenderRules();
+  spPreviewRules();
+}
+
+function spUpdateRule(idx,key,val){_spBuilderRules[idx][key]=val}
+function spAddRule(){_spBuilderRules.push({field:'genre',op:'contains',value:''});spRenderRules()}
+function spRemoveRule(idx){_spBuilderRules.splice(idx,1);spRenderRules();spPreviewRules()}
+
+async function spPreviewRules(){
+  var rules=_spBuilderRules.filter(function(r){return r.value!==''&&r.value!==undefined&&r.value!==null});
+  // Client-side preview using _catalogAlbums
+  var matching=_catalogAlbums;
+  if(rules.length>0){
+    matching=_catalogAlbums.filter(function(album){
+      for(var i=0;i<rules.length;i++){
+        var r=rules[i];
+        var val=album[r.field];
+        var target=r.value;
+        if(r.op==='eq'){
+          if(typeof val==='number'||r.field==='year'||r.field==='rating'||r.field==='favorite'||r.field==='audio_count'||r.field==='play_count'){
+            if(Number(val)!==Number(target))return false;
+          }else{if(String(val||'').toLowerCase()!==String(target).toLowerCase())return false}
+        }else if(r.op==='neq'){
+          if(String(val||'').toLowerCase()===String(target).toLowerCase())return false;
+        }else if(r.op==='contains'){
+          if(!val||String(val).toLowerCase().indexOf(String(target).toLowerCase())===-1)return false;
+        }else if(r.op==='gt'){if(!(Number(val||0)>Number(target)))return false}
+        else if(r.op==='gte'){if(!(Number(val||0)>=Number(target)))return false}
+        else if(r.op==='lt'){if(!(Number(val||0)<Number(target)))return false}
+        else if(r.op==='lte'){if(!(Number(val||0)<=Number(target)))return false}
+      }
+      return true;
+    });
+  }
+  document.getElementById('sp-builder-count').textContent=matching.length;
+  var previewEl=document.getElementById('sp-builder-preview');
+  if(!matching.length){previewEl.innerHTML='<span style="font-size:0.75rem;color:var(--muted);font-style:italic">No albums match these rules</span>';return}
+  previewEl.innerHTML=matching.slice(0,20).map(function(a){
+    var art=a.user_artwork_path||a.artwork_path;
+    var src=art?'/artwork/'+art.split('/').pop()+'?t='+a.id:'';
+    return src?'<img src="'+src+'" style="width:44px;height:44px;border-radius:4px;object-fit:cover" title="'+esc(a.title)+' - '+esc(a.artist)+'">'
+      :'<div style="width:44px;height:44px;border-radius:4px;background:var(--paper-dk);display:flex;align-items:center;justify-content:center;font-size:1.2rem" title="'+esc(a.title)+'">&#x1F4BF;</div>';
+  }).join('')+(matching.length>20?'<span style="font-size:0.72rem;color:var(--muted);align-self:center">+'+(matching.length-20)+' more</span>':'');
+}
+
+async function saveSmartPlaylist(){
+  var name=document.getElementById('sp-builder-name').value.trim();
+  if(!name){showError('Please enter a name');return}
+  var rules=_spBuilderRules.filter(function(r){return r.value!==''&&r.value!==undefined&&r.value!==null});
+  if(!rules.length){showError('Add at least one rule with a value');return}
+  // Normalize numeric values
+  rules=rules.map(function(r){
+    var def=_spFieldDefs.find(function(f){return f.field===r.field});
+    if(def&&(def.type==='number'||def.type==='recorded'||def.type==='boolean')){
+      return {field:r.field,op:r.op,value:Number(r.value)};
+    }
+    return {field:r.field,op:r.op,value:r.value};
+  });
+
+  if(_spBuilderEditId){
+    await fetch('/api/smart-playlists/'+_spBuilderEditId,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:name,rules:rules})}).then(function(r){return r.json()}).then(function(r){
+      if(r.ok){showToast('Smart playlist updated');closeSpBuilder();plLoadSmartPlaylists()}else{showError(r.error||'Update failed')}
+    });
+  }else{
+    await fetch('/api/smart-playlists',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:name,rules:rules})}).then(function(r){return r.json()}).then(function(r){
+      if(r.ok){showToast('Smart playlist created');closeSpBuilder();plLoadSmartPlaylists()}else{showError(r.error||'Create failed')}
+    });
+  }
 }
 
 async function spPlay(playlistId){
   if(!_isStreaming&&!_playerActive){showError('No output device selected');return}
-  await fetch(`/api/smart-playlists/${playlistId}/play`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({devices:_currentDevices})}).then(r=>r.json()).then(r=>{
+  await fetch('/api/smart-playlists/'+playlistId+'/play',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({devices:_currentDevices})}).then(function(r){return r.json()}).then(function(r){
     if(r.ok){showToast('Playing smart playlist')}else{showError(r.error||'Playback failed')}
   });
 }
 
 async function spDelete(playlistId){
   if(!confirm('Delete this smart playlist?'))return;
-  await fetch(`/api/smart-playlists/${playlistId}`,{method:'DELETE'});
+  await fetch('/api/smart-playlists/'+playlistId,{method:'DELETE'});
   plLoadSmartPlaylists();
 }
 
 async function spShowDetail(playlistId){
-  const r=await fetch(`/api/smart-playlists/${playlistId}/albums`).then(d=>d.json());
-  const albums=r.albums||[];
-  const pl=_smartPlaylists.find(p=>p.id===playlistId);
-  if(!pl)return;
-  const html=albums.map(a=>`<div style="display:inline-block;margin:0.3rem"><img src="/artwork/${(a.user_artwork_path||a.artwork_path||'').split('/').pop()}?t=${a.id}" style="width:60px;height:60px;border-radius:4px;cursor:pointer" onclick="openAlbumDetail(${a.id})" alt=""></div>`).join('');
-  alert(`${pl.name} (${albums.length} albums)`);
+  showSmartPlaylistBuilder(playlistId);
 }
 
 async function plShowList(){
