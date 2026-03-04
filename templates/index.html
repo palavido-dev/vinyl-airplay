@@ -559,6 +559,14 @@
   .track-fp-clear:hover { opacity:1;background:rgba(180,80,60,0.25) }
   .track-num { color: var(--muted); min-width: 1.6rem; font-size: 0.72rem; }
   .side-label { font-family: var(--display-font); font-size: 0.7rem; font-weight: 700; color: var(--leather); letter-spacing: 0.1em; padding: 0.55rem 0 0.2rem; }
+  .side-section { min-height: 8px; border-radius: 4px; transition: background 0.15s; }
+  .side-section.drag-over { background: rgba(212,162,78,0.08); }
+  .side-header { display: flex; align-items: center; gap: 0.4rem; }
+  .side-header .side-label { flex: 1; margin: 0; }
+  .side-remove-btn { background: none; border: none; color: var(--muted); font-size: 0.8rem; cursor: pointer; padding: 0 0.3rem; opacity: 0.5; }
+  .side-remove-btn:hover { color: var(--rust); opacity: 1; }
+  .add-side-btn { background: none; border: 1px dashed var(--paper-dk); border-radius: 5px; padding: 0.35rem; font-size: 0.75rem; color: var(--amber-dk); cursor: pointer; width: 100%; margin-top: 0.4rem; }
+  .add-side-btn:hover { border-color: var(--amber); background: rgba(212,162,78,0.06); }
   .modal-actions { display: flex; flex-wrap: wrap; gap: 0.4rem; padding-top: 0.6rem; border-top: 1px solid rgba(0,0,0,0.08); }
   .btn { padding: 0.45rem 0.8rem; border-radius: 6px; font-family: var(--body-font); font-size: 0.8rem; font-weight: 600; border: 1px solid rgba(0,0,0,0.12); cursor: pointer; background: var(--paper); color: var(--ink); display: inline-flex; align-items: center; gap: 0.3rem; transition: background 0.1s; min-height: 38px; }
   .btn:active { opacity: 0.8; }
@@ -3648,25 +3656,44 @@ async function playNextFromModal(){
   }catch(e){showError('Failed to insert to queue')}
 }
 
+var _reorderExtraSides=[];
 function renderModalTracks(tracks,reorder,boundaryEdit){
   const c=document.getElementById('modal-tracks');c.classList.toggle('reorder-mode',reorder);c.classList.toggle('boundary-edit-mode',boundaryEdit);
-  if(!tracks.length){c.innerHTML='<div style="color:var(--muted);font-size:0.82rem;padding:0.5rem 0">No tracks</div>';return}
-  const sides={};tracks.forEach(t=>{if(!sides[t.side])sides[t.side]=[];sides[t.side].push(t)});
-  let h='';Object.keys(sides).sort().forEach(side=>{
-    h+=`<div class="side-label">Side ${side}</div>`;
-    sides[side].forEach((t,i)=>{
-      const dur=t.duration_secs&&t.duration_secs>0?fmtTime(t.duration_secs):(t.start_secs!=null&&t.end_secs!=null?fmtTime(t.end_secs-t.start_secs):'');
-      const learned=(t.fingerprint_count||0)>0;
-      const fpBadge=learned?`<span style="color:var(--sage);font-size:0.68rem">\u2713 ${t.fingerprint_count}fp</span>`:'<span style="color:var(--muted);font-size:0.68rem">unlearned</span>';
-      const fpClear=learned?`<span class="track-fp-clear" title="Clear fingerprints for this track" onclick="event.stopPropagation();clearTrackFP(${t.id},'${esc(t.title)}')">\u2715</span>`:'';
-      const handle=reorder?'<span class="drag-handle">\u2807</span>':'';
-      const hasAudio=window._modalAlbumHasAudio;const isPlayable=hasAudio&&!reorder&&!boundaryEdit;
-      const click=t.start_secs!=null&&!reorder&&!boundaryEdit?`onclick="seekToTrack(${t.id})"`:'';
-      const trackClick=isPlayable?`onclick="playTrackFromModal(${t.id})"`:'';
-      const playIcon=isPlayable?`<span class="track-play-icon">\u25B6</span>`:'';
-      if(boundaryEdit){const stVal=t.start_secs!=null?fmtTimePrecise(t.start_secs):'0:00.0';const endVal=t.end_secs!=null?fmtTimePrecise(t.end_secs):'0:00.0';h+=`<div class="track-row" data-id="${t.id}" data-idx="${i}" style="gap:0.6rem"><span class="track-num">${esc(t.track_number||'')}</span><span style="flex:1">${esc(t.title)}</span><input type="text" class="boundary-time-input" id="boundary-start-${t.id}" value="${stVal}" placeholder="MM:SS.s"><input type="text" class="boundary-time-input" id="boundary-end-${t.id}" value="${endVal}" placeholder="MM:SS.s"><button class="btn boundary-save-btn" onclick="saveBoundary(${t.id})">Save</button></div>`}else{h+=`<div class="track-row" data-id="${t.id}" data-idx="${i}" ${trackClick} ${click}>${handle}${playIcon}<span class="track-num">${esc(t.track_number||'')}</span><span style="flex:1">${esc(t.title)}</span>${fpBadge}${fpClear}<span style="color:var(--muted);font-size:0.72rem;min-width:2.5rem;text-align:right">${dur}</span></div>`}
+  if(!reorder)_reorderExtraSides=[];
+  if(!tracks.length&&!_reorderExtraSides.length){c.innerHTML='<div style="color:var(--muted);font-size:0.82rem;padding:0.5rem 0">No tracks</div>';return}
+  const sides={};tracks.forEach(t=>{var s=t.side||'A';if(!sides[s])sides[s]=[];sides[s].push(t)});
+  _reorderExtraSides.forEach(function(s){if(!sides[s])sides[s]=[]});
+  var allSides=Object.keys(sides).sort();
+  var h='';
+  allSides.forEach(function(side){
+    var sideTracks=sides[side]||[];
+    if(reorder){
+      var removeBtn=sideTracks.length===0?'<button class="side-remove-btn" onclick="event.stopPropagation();removeSide(\''+side+'\')" title="Remove empty side">&#10005;</button>':'';
+      h+='<div class="side-section" data-side="'+side+'">';
+      h+='<div class="side-header"><div class="side-label">Side '+esc(side)+'</div>'+removeBtn+'</div>';
+    }else{
+      h+='<div class="side-label">Side '+esc(side)+'</div>';
+    }
+    sideTracks.forEach(function(t,i){
+      var dur=t.duration_secs&&t.duration_secs>0?fmtTime(t.duration_secs):(t.start_secs!=null&&t.end_secs!=null?fmtTime(t.end_secs-t.start_secs):'');
+      var learned=(t.fingerprint_count||0)>0;
+      var fpBadge=learned?'<span style="color:var(--sage);font-size:0.68rem">\u2713 '+t.fingerprint_count+'fp</span>':'<span style="color:var(--muted);font-size:0.68rem">unlearned</span>';
+      var fpClear=learned?'<span class="track-fp-clear" title="Clear fingerprints for this track" onclick="event.stopPropagation();clearTrackFP('+t.id+',\''+esc(t.title).replace(/'/g,"\\'")+'\')">\u2715</span>':'';
+      var handle=reorder?'<span class="drag-handle">\u2807</span>':'';
+      var hasAudio=window._modalAlbumHasAudio;var isPlayable=hasAudio&&!reorder&&!boundaryEdit;
+      var trackClick=isPlayable?'onclick="playTrackFromModal('+t.id+')"':'';
+      var playIcon=isPlayable?'<span class="track-play-icon">\u25B6</span>':'';
+      if(boundaryEdit){
+        var stVal=t.start_secs!=null?fmtTimePrecise(t.start_secs):'0:00.0';
+        var endVal=t.end_secs!=null?fmtTimePrecise(t.end_secs):'0:00.0';
+        h+='<div class="track-row" data-id="'+t.id+'" data-idx="'+i+'" data-side="'+side+'" style="gap:0.6rem"><span class="track-num">'+esc(t.track_number||'')+'</span><span style="flex:1">'+esc(t.title)+'</span><input type="text" class="boundary-time-input" id="boundary-start-'+t.id+'" value="'+stVal+'" placeholder="MM:SS.s"><input type="text" class="boundary-time-input" id="boundary-end-'+t.id+'" value="'+endVal+'" placeholder="MM:SS.s"><button class="btn boundary-save-btn" onclick="saveBoundary('+t.id+')">Save</button></div>';
+      }else{
+        h+='<div class="track-row" data-id="'+t.id+'" data-idx="'+i+'" data-side="'+side+'" '+trackClick+'>'+handle+playIcon+'<span class="track-num">'+esc(t.track_number||'')+'</span><span style="flex:1">'+esc(t.title)+'</span>'+fpBadge+fpClear+'<span style="color:var(--muted);font-size:0.72rem;min-width:2.5rem;text-align:right">'+dur+'</span></div>';
+      }
     });
+    if(reorder)h+='</div>';
   });
+  if(reorder)h+='<button class="add-side-btn" onclick="addSide()">+ Add Side</button>';
   c.innerHTML=h;if(reorder)initDragReorder();
 }
 function seekToTrack(tid){if(!_playerActive)return;fetch('/api/player/seek',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({track_id:tid})})}
@@ -3688,7 +3715,86 @@ async function clearTrackFP(trackId,title){if(!confirm(`Clear fingerprints for "
 async function deleteAlbum(){if(!currentAlbumId||!confirm('Delete this album and all its data?'))return;await fetch(`/api/catalog/${currentAlbumId}`,{method:'DELETE'});closeModal();loadCatalog()}
 
 function toggleReorderMode(){_reorderMode=!_reorderMode;document.getElementById('btn-reorder').classList.toggle('btn-accent',_reorderMode);renderModalTracks(window._modalTracks||[],_reorderMode)}
-function initDragReorder(){const c=document.getElementById('modal-tracks');let de=null;c.querySelectorAll('.track-row').forEach(r=>{r.draggable=true;r.addEventListener('dragstart',e=>{de=r;r.classList.add('dragging');e.dataTransfer.effectAllowed='move'});r.addEventListener('dragend',()=>{r.classList.remove('dragging');de=null});r.addEventListener('dragover',e=>{e.preventDefault();e.dataTransfer.dropEffect='move';if(de&&de!==r){const rect=r.getBoundingClientRect(),mid=rect.top+rect.height/2;if(e.clientY<mid)c.insertBefore(de,r);else c.insertBefore(de,r.nextSibling)}})});c.addEventListener('drop',async e=>{e.preventDefault();const ids=[...c.querySelectorAll('.track-row')].map(r=>parseInt(r.dataset.id));await fetch(`/api/catalog/${currentAlbumId}/reorder`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({track_ids:ids})});showToast('Track order saved');_reorderMode=false;document.getElementById('btn-reorder').classList.remove('btn-accent');openAlbumDetail(currentAlbumId)})}
+function initDragReorder(){
+  var c=document.getElementById('modal-tracks');
+  var de=null;
+  // Make track rows draggable
+  c.querySelectorAll('.track-row').forEach(function(r){
+    r.draggable=true;
+    r.addEventListener('dragstart',function(e){
+      de=r;r.classList.add('dragging');
+      e.dataTransfer.effectAllowed='move';
+    });
+    r.addEventListener('dragend',function(){
+      r.classList.remove('dragging');de=null;
+      c.querySelectorAll('.side-section').forEach(function(s){s.classList.remove('drag-over')});
+    });
+    r.addEventListener('dragover',function(e){
+      e.preventDefault();e.dataTransfer.dropEffect='move';
+      if(!de||de===r)return;
+      var rect=r.getBoundingClientRect(),mid=rect.top+rect.height/2;
+      var section=r.closest('.side-section');
+      if(section){
+        section.appendChild(de);
+        if(e.clientY<mid)section.insertBefore(de,r);
+        else section.insertBefore(de,r.nextSibling);
+      }
+    });
+  });
+  // Allow dropping on empty side sections
+  c.querySelectorAll('.side-section').forEach(function(section){
+    section.addEventListener('dragover',function(e){
+      e.preventDefault();e.dataTransfer.dropEffect='move';
+      c.querySelectorAll('.side-section').forEach(function(s){s.classList.remove('drag-over')});
+      section.classList.add('drag-over');
+      if(de&&!section.contains(de)){section.appendChild(de)}
+    });
+    section.addEventListener('dragleave',function(){section.classList.remove('drag-over')});
+    section.addEventListener('drop',function(e){
+      e.preventDefault();e.stopPropagation();
+      section.classList.remove('drag-over');
+    });
+  });
+  // Save on drop at container level
+  c.addEventListener('drop',async function(e){
+    e.preventDefault();
+    var assignments=[];
+    c.querySelectorAll('.side-section').forEach(function(section){
+      var side=section.dataset.side;
+      section.querySelectorAll('.track-row').forEach(function(row){
+        assignments.push({id:parseInt(row.dataset.id),side:side});
+      });
+    });
+    if(!assignments.length)return;
+    await fetch('/api/catalog/'+currentAlbumId+'/reassign-sides',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({tracks:assignments})
+    });
+    showToast('Track sides updated');
+    _reorderMode=false;
+    document.getElementById('btn-reorder').classList.remove('btn-accent');
+    openAlbumDetail(currentAlbumId);
+  });
+}
+function addSide(){
+  var tracks=window._modalTracks||[];
+  var existing=new Set(tracks.map(function(t){return t.side||'A'}));
+  _reorderExtraSides.forEach(function(s){existing.add(s)});
+  var letters='ABCDEFGH';
+  var next='';
+  for(var i=0;i<letters.length;i++){if(!existing.has(letters[i])){next=letters[i];break}}
+  if(!next){showError('Maximum sides reached');return}
+  _reorderExtraSides.push(next);
+  renderModalTracks(tracks,true,false);
+  showToast('Added Side '+next);
+}
+function removeSide(side){
+  var tracks=window._modalTracks||[];
+  var hasTracks=tracks.some(function(t){return t.side===side});
+  if(hasTracks){showError('Move all tracks off Side '+side+' first');return}
+  _reorderExtraSides=_reorderExtraSides.filter(function(s){return s!==side});
+  renderModalTracks(tracks,true,false);
+}
 function toggleBoundaryEdit(){_boundaryEditMode=!_boundaryEditMode;document.getElementById('btn-boundary-edit').classList.toggle('btn-accent',_boundaryEditMode);renderModalTracks(window._modalTracks||[],false,_boundaryEditMode)}
 async function saveBoundary(trackId){const stElem=document.getElementById(`boundary-start-${trackId}`);const endElem=document.getElementById(`boundary-end-${trackId}`);if(!stElem||!endElem)return;const st=parseTimeToSecs(stElem.value);const end=parseTimeToSecs(endElem.value);if(st===null||end===null){showError('Invalid time format. Use MM:SS.s');return}if(st>=end){showError('Start time must be before end time');return}const resp=await fetch(`/api/catalog/track/${trackId}/boundaries`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({start_secs:st,end_secs:end})}).then(r=>r.json());if(resp.ok){showToast('Boundary saved');if(currentAlbumId)refreshModalTracks(currentAlbumId)}else showError(resp.error||'Failed to save')}
 
