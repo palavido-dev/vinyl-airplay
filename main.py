@@ -2117,6 +2117,14 @@ async def play_smart_playlist(playlist_id: int, body: dict):
     return {"ok": True, "queued": len(queue_items)}
 
 
+@app.put("/api/smart-playlists/{playlist_id}")
+async def update_smart_playlist(playlist_id: int, body: dict):
+    name = body.get("name")
+    rules = body.get("rules")
+    cat.update_smart_playlist(playlist_id, name=name, rules=rules)
+    return {"ok": True}
+
+
 @app.delete("/api/smart-playlists/{playlist_id}")
 async def delete_smart_playlist(playlist_id: int):
     cat.delete_smart_playlist(playlist_id)
