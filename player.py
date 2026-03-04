@@ -255,15 +255,19 @@ class Player:
 
     def seek_to_track(self, track_id: int):
         """Jump to a specific track by ID."""
+        print(f"[player] seek_to_track: looking for track_id={track_id} in {len(self.playlist)} entries, current side_idx={self._side_idx}")
         for si, entry in enumerate(self.playlist):
             for t in entry.tracks:
                 if t["id"] == track_id:
+                    pos = t.get("start_secs") or 0.0
                     if si != self._side_idx:
-                        # Different side — restart on that side
-                        self._change_side(si, t.get("start_secs") or 0.0)
+                        print(f"[player] seek_to_track: found '{t.get('title')}' on side {entry.side} (idx={si}), pos={pos:.1f}s -- changing side")
+                        self._change_side(si, pos)
                     else:
-                        self.seek_to(t.get("start_secs") or 0.0)
+                        print(f"[player] seek_to_track: found '{t.get('title')}' on current side (idx={si}), seeking to {pos:.1f}s")
+                        self.seek_to(pos)
                     return
+        print(f"[player] seek_to_track: track_id={track_id} NOT FOUND in playlist")
 
     def next_track(self):
         """Skip to next track."""
@@ -647,6 +651,7 @@ class Player:
                 break
             with self._lock:
                 if self._side_change_requested:
+                    print(f"[player] Side change pending after inner loop exit, target={self._side_change_target}")
                     self._kill_ffmpeg()
                     continue
 
