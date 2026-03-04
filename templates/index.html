@@ -492,15 +492,17 @@
   .queue-tracks.open { max-height: 500px; }
   .queue-track-row {
     display: flex; align-items: center; gap: 0.4rem;
-    padding: 0.15rem 0.4rem 0.15rem 2.8rem;
-    font-size: 0.68rem; color: var(--light);
+    padding: 0.2rem 0.4rem 0.2rem 2.8rem;
+    font-size: 0.72rem; color: var(--light); cursor: pointer;
+    border-radius: 4px; transition: background 0.15s;
   }
-  .queue-track-row .qt-num { color: var(--muted); min-width: 1rem; text-align: right; }
+  .queue-track-row:hover { background: rgba(255,255,255,0.06); }
+  .queue-track-row .qt-num { color: var(--light); opacity: 0.5; min-width: 1rem; text-align: right; font-size: 0.65rem; }
   .queue-track-row .qt-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .queue-track-row .qt-dur { color: var(--muted); font-size: 0.62rem; }
+  .queue-track-row .qt-dur { color: var(--light); opacity: 0.5; font-size: 0.65rem; }
   .queue-track-row.qt-active { color: var(--amber); }
   .queue-track-row.qt-active .qt-num,
-  .queue-track-row.qt-active .qt-dur { color: var(--amber); opacity: 0.7; }
+  .queue-track-row.qt-active .qt-dur { color: var(--amber); opacity: 0.8; }
 
   .main-content { flex: 1; overflow: hidden; padding: 0.75rem; -webkit-overflow-scrolling: touch; display: flex; gap: 0.75rem; }
   .album-grid-wrap { flex-shrink: 0; overflow-y: auto; }
@@ -3053,7 +3055,7 @@ async function refreshQueueDisplay(){
       if(tracks.length){tracks.forEach((t,ti)=>{
         var isActive=isCurrent&&ti===r.current_track_idx;
         var dur=t.duration_secs!=null?fmtTime(t.duration_secs):'';
-        html+='<div class="queue-track-row'+(isActive?' qt-active':'')+'"><span class="qt-num">'+(t.track_number||ti+1)+'</span><span class="qt-title">'+esc(t.title)+'</span><span class="qt-dur">'+dur+'</span></div>';
+        html+='<div class="queue-track-row'+(isActive?' qt-active':'')+'" onclick="event.stopPropagation();seekToQueueTrack('+t.id+')"><span class="qt-num">'+(t.track_number||ti+1)+'</span><span class="qt-title">'+esc(t.title)+'</span><span class="qt-dur">'+dur+'</span></div>';
       })}else{html+='<div class="queue-track-row"><span class="qt-title" style="color:var(--muted)">No track info</span></div>'}
       html+='</div>';
     });
@@ -3080,6 +3082,9 @@ function toggleQueueExpand(el){
   el.classList.toggle('expanded',!wasExpanded);
   var tracks=el.nextElementSibling;
   if(tracks&&tracks.classList.contains('queue-tracks')){tracks.classList.toggle('open',!wasExpanded)}
+}
+async function seekToQueueTrack(trackId){
+  try{await fetch('/api/player/seek',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({track_id:trackId})});setTimeout(refreshQueueDisplay,300)}catch(e){showToast('Failed to seek')}
 }
 async function removeFromQueue(idx){try{const r=await fetch('/api/player/queue/remove',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({index:idx})}).then(d=>d.json());if(r.ok){refreshQueueDisplay()}else{showToast(r.error||'Cannot remove')}}catch(e){showToast('Failed to remove')}}
 async function reorderQueue(fromIdx,toIdx){try{const r=await fetch('/api/player/queue/reorder',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({from:fromIdx,to:toIdx})}).then(d=>d.json());if(r.ok){refreshQueueDisplay()}else{showToast(r.error||'Cannot reorder')}}catch(e){showToast('Failed to reorder')}}
