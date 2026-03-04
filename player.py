@@ -183,12 +183,21 @@ class Player:
         start_pos = 0.0
 
         if start_track_id:
+            print(f"[player] Looking for start_track_id={start_track_id} (type={type(start_track_id).__name__})")
+            found = False
             for si, entry in enumerate(playlist):
                 for t in entry.tracks:
+                    print(f"[player]   checking track id={t['id']} (type={type(t['id']).__name__}) title={t.get('title')}")
                     if t["id"] == start_track_id:
                         self._side_idx = si
                         start_pos = t.get("start_secs") or 0.0
+                        print(f"[player] Found! side_idx={si}, start_pos={start_pos}")
+                        found = True
                         break
+                if found:
+                    break
+            if not found:
+                print(f"[player] WARNING: start_track_id={start_track_id} not found in playlist")
 
         self._position = start_pos
         self._current_track_idx = -1
