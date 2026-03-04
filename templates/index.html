@@ -880,6 +880,14 @@
   }
   .settings-section { margin-bottom: 1.2rem; }
   .settings-section h3 { font-family: var(--display-font); font-size: 0.78rem; font-weight: 700; color: var(--leather); letter-spacing: 0.02em; margin-bottom: 0.5rem; }
+  .settings-group { margin-bottom: 0.6rem; border: 1px solid var(--muted-bg, rgba(128,128,128,0.15)); border-radius: 8px; overflow: hidden; }
+  .settings-group > summary { display: flex; align-items: center; gap: 0.5rem; padding: 0.6rem 0.75rem; cursor: pointer; font-family: var(--display-font); font-size: 0.82rem; font-weight: 700; color: var(--ink); background: var(--muted-bg, rgba(128,128,128,0.08)); list-style: none; user-select: none; }
+  .settings-group > summary::-webkit-details-marker { display: none; }
+  .settings-group > summary::marker { display: none; content: ""; }
+  .settings-group > summary .sg-chevron { width: 14px; height: 14px; color: var(--muted); transition: transform 0.2s; flex-shrink: 0; }
+  .settings-group[open] > summary .sg-chevron { transform: rotate(90deg); }
+  .settings-group > summary:hover { background: var(--muted-bg, rgba(128,128,128,0.12)); }
+  .settings-group-body { padding: 0.5rem 0.75rem 0.75rem; }
   .theme-grid { display: flex; gap: 0.4rem; flex-wrap: wrap; }
   .theme-swatch {
     display: flex; gap: 2px; padding: 4px; border-radius: 6px; cursor: pointer;
@@ -1830,133 +1838,162 @@
   <div class="modal" style="max-width:420px">
     <button class="modal-x" onclick="hideSettings()" title="Close">✕</button>
     <h2 style="font-family:var(--display-font);font-size:1rem;margin-bottom:0.8rem">⚙ Settings</h2>
-    <div class="settings-section"><h3>AirPlay Devices</h3><div id="settings-device-list" style="margin-bottom:0.5rem"><div style="color:var(--muted);font-size:0.82rem">Press scan to find devices</div></div><button class="btn" onclick="scanDevices()">⟳ Scan for Devices</button><div style="margin-top:0.7rem;padding-top:0.5rem;border-top:1px solid rgba(0,0,0,0.08)"><h4 style="font-size:0.78rem;color:var(--muted);margin-bottom:0.3rem">Hidden Devices</h4><div id="hidden-device-list" style="font-size:0.82rem;color:var(--muted)">Scan to manage</div></div></div>
-    <div class="settings-section"><h3>Bluetooth Speakers</h3>
-      <p style="font-size:0.72rem;color:var(--muted);margin-bottom:0.4rem;line-height:1.3">Scan for nearby Bluetooth speakers. Only one Bluetooth speaker can stream at a time.</p>
-      <div id="bt-paired-list" style="margin-bottom:0.5rem"><div style="color:var(--muted);font-size:0.82rem">No paired Bluetooth devices</div></div>
-      <div style="display:flex;gap:0.4rem">
-        <button class="btn" id="btn-bt-scan" onclick="scanBluetoothDevices()">⟳ Scan for Bluetooth</button>
-      </div>
-      <div id="bt-scan-results" style="margin-top:0.5rem"></div>
-    </div>
-    <div class="settings-section"><h3>Vinyl Streaming</h3>
-      <div style="display:flex;gap:0.4rem;margin-bottom:0.5rem"><button class="btn btn-primary" id="btn-start-stream" onclick="startStream()"><svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" stroke="none" style="vertical-align:-1px;margin-right:2px"><polygon points="6 3 20 12 6 21"/></svg>Start Streaming</button><button class="btn btn-danger" id="btn-stop-stream" onclick="stopStream()" style="display:none"><svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" stroke="none" style="vertical-align:-1px;margin-right:2px"><rect x="4" y="4" width="16" height="16" rx="2"/></svg>Stop</button></div>
-      <label class="device-item" style="border:none;padding:0.3rem 0;gap:0.5rem"><input type="checkbox" id="auto-stream-enabled" onchange="saveAutoStreamSettings()"><span style="font-size:0.82rem">Auto-stream when record plays</span></label>
-      <div class="form-row" style="margin-top:0.3rem"><label>Default device</label><div style="display:flex;gap:0.4rem;align-items:center"><select class="form-input" id="auto-stream-device-select" onchange="saveAutoStreamSettings()" style="flex:1"><option value="">— Select —</option></select><button class="btn btn-ghost" onclick="scanAutoStreamDevices()" style="padding:0.3rem 0.5rem">↺</button></div></div>
-      <div id="auto-stream-status" style="font-size:0.72rem;color:var(--muted);margin-top:0.2rem"></div>
-    </div>
-    <div class="settings-section"><h3>Audio Input</h3><select class="form-input" id="audio-select"><option value="">Loading…</option></select></div>
-    <div class="settings-section"><h3>Discogs</h3>
-      <p style="font-size:0.75rem;color:var(--muted);margin-bottom:0.4rem;line-height:1.4">Connect your Discogs account to search with cover art and sync your collection. <a href="https://www.discogs.com/settings/developers" target="_blank" style="color:var(--amber-dk)">Get token</a></p>
-      <div class="form-row"><label>Token</label><div style="display:flex;gap:0.4rem;align-items:center;flex:1"><input type="password" class="form-input" id="discogs-token" placeholder="Paste token" style="flex:1"><button class="btn btn-accent" onclick="saveDiscogsToken()">Save</button></div></div>
-      <span id="discogs-saved" style="display:none;color:var(--sage);font-size:0.75rem">✓ Saved</span>
-      <div class="form-row" style="margin-top:0.3rem"><label>Username</label><div style="display:flex;gap:0.4rem;align-items:center;flex:1"><input type="text" class="form-input" id="discogs-username" placeholder="Your Discogs username" style="flex:1"><button class="btn btn-accent" onclick="saveDiscogsUsername()">Save</button></div></div>
-      <span id="discogs-user-saved" style="display:none;color:var(--sage);font-size:0.75rem">✓ Saved</span>
-      <div style="margin-top:0.6rem;padding-top:0.5rem;border-top:1px solid var(--muted-bg,rgba(128,128,128,0.15))">
-        <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.4rem">
-          <button class="btn btn-accent" id="discogs-sync-btn" onclick="startDiscogsSync()">Sync collection from Discogs</button>
-        </div>
-        <p style="font-size:0.72rem;color:var(--muted);line-height:1.4;margin-bottom:0.3rem">Imports albums from your Discogs collection that aren't already in the catalog.</p>
-        <div id="discogs-sync-progress" style="display:none">
-          <div style="background:var(--muted-bg,rgba(128,128,128,0.15));border-radius:4px;overflow:hidden;height:6px;margin:0.4rem 0">
-            <div id="discogs-sync-bar" style="height:100%;background:var(--amber);width:0%;transition:width 0.3s"></div>
+
+    <!-- Audio group -->
+    <details class="settings-group" open>
+      <summary><svg class="sg-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 6 15 12 9 18"/></svg> Audio</summary>
+      <div class="settings-group-body">
+        <div class="settings-section"><h3>AirPlay Devices</h3><div id="settings-device-list" style="margin-bottom:0.5rem"><div style="color:var(--muted);font-size:0.82rem">Press scan to find devices</div></div><button class="btn" onclick="scanDevices()">⟳ Scan for Devices</button><div style="margin-top:0.7rem;padding-top:0.5rem;border-top:1px solid rgba(0,0,0,0.08)"><h4 style="font-size:0.78rem;color:var(--muted);margin-bottom:0.3rem">Hidden Devices</h4><div id="hidden-device-list" style="font-size:0.82rem;color:var(--muted)">Scan to manage</div></div></div>
+        <div class="settings-section"><h3>Bluetooth Speakers</h3>
+          <p style="font-size:0.72rem;color:var(--muted);margin-bottom:0.4rem;line-height:1.3">Scan for nearby Bluetooth speakers. Only one Bluetooth speaker can stream at a time.</p>
+          <div id="bt-paired-list" style="margin-bottom:0.5rem"><div style="color:var(--muted);font-size:0.82rem">No paired Bluetooth devices</div></div>
+          <div style="display:flex;gap:0.4rem">
+            <button class="btn" id="btn-bt-scan" onclick="scanBluetoothDevices()">⟳ Scan for Bluetooth</button>
           </div>
-          <div id="discogs-sync-label" style="font-size:0.72rem;color:var(--cream)"></div>
+          <div id="bt-scan-results" style="margin-top:0.5rem"></div>
         </div>
-        <div id="discogs-sync-result" style="display:none;font-size:0.75rem;margin-top:0.3rem;line-height:1.4"></div>
-      </div>
-    </div>
-    <div class="settings-section"><h3>Storage</h3>
-      <div style="font-size:0.82rem;margin-bottom:0.3rem">Location: <strong id="storage-path">—</strong></div>
-      <div style="font-size:0.75rem;color:var(--muted);margin-bottom:0.5rem">Free: <span id="storage-free">—</span> GB of <span id="storage-total">—</span> GB</div>
-      <div style="display:flex;gap:0.4rem;align-items:center"><input type="text" class="form-input" id="new-storage-path" placeholder="/mnt/ssd/vinyl-audio" style="flex:1;font-size:0.85rem"><button class="btn" onclick="openDirPicker()">📂 Browse</button><button class="btn btn-accent" onclick="changeStoragePath()">Move</button></div>
-      <div id="storage-status" style="display:none;font-size:0.75rem;margin-top:0.3rem"></div>
-      <!-- dir picker moved outside settings overlay -->
-    </div>
-    <div class="settings-section"><h3>Export Library</h3>
-      <p style="font-size:0.75rem;color:var(--muted);margin-bottom:0.5rem;line-height:1.4">Download your catalog and metadata for backup. Use the manifest JSON with rsync or scp to backup your FLAC files.</p>
-      <div style="display:flex;gap:0.4rem;flex-direction:column">
-        <button class="btn" onclick="downloadCatalog()" style="text-align:left">📥 Download Catalog Database</button>
-        <button class="btn" onclick="downloadManifest()" style="text-align:left">📋 Download Manifest JSON</button>
-      </div>
-      <div id="export-status" style="display:none;font-size:0.75rem;margin-top:0.3rem"></div>
-    </div>
-    <div class="settings-section"><h3>Playback</h3>
-      <div class="form-row"><label>Crossfade</label>
-        <div style="display:flex;align-items:center;gap:0.5rem">
-          <input type="range" id="crossfade-slider" min="0" max="2" step="0.1" value="0" oninput="updateCrossfadeLabel()" onchange="saveCrossfade()" style="flex:1">
-          <span id="crossfade-label" style="font-size:0.78rem;color:var(--muted);min-width:2.5rem;text-align:right">Off</span>
+        <div class="settings-section"><h3>Vinyl Streaming</h3>
+          <div style="display:flex;gap:0.4rem;margin-bottom:0.5rem"><button class="btn btn-primary" id="btn-start-stream" onclick="startStream()"><svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" stroke="none" style="vertical-align:-1px;margin-right:2px"><polygon points="6 3 20 12 6 21"/></svg>Start Streaming</button><button class="btn btn-danger" id="btn-stop-stream" onclick="stopStream()" style="display:none"><svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" stroke="none" style="vertical-align:-1px;margin-right:2px"><rect x="4" y="4" width="16" height="16" rx="2"/></svg>Stop</button></div>
+          <label class="device-item" style="border:none;padding:0.3rem 0;gap:0.5rem"><input type="checkbox" id="auto-stream-enabled" onchange="saveAutoStreamSettings()"><span style="font-size:0.82rem">Auto-stream when record plays</span></label>
+          <div class="form-row" style="margin-top:0.3rem"><label>Default device</label><div style="display:flex;gap:0.4rem;align-items:center"><select class="form-input" id="auto-stream-device-select" onchange="saveAutoStreamSettings()" style="flex:1"><option value="">— Select —</option></select><button class="btn btn-ghost" onclick="scanAutoStreamDevices()" style="padding:0.3rem 0.5rem">↺</button></div></div>
+          <div id="auto-stream-status" style="font-size:0.72rem;color:var(--muted);margin-top:0.2rem"></div>
+        </div>
+        <div class="settings-section"><h3>Audio Input</h3><select class="form-input" id="audio-select"><option value="">Loading…</option></select></div>
+        <div class="settings-section"><h3>Playback</h3>
+          <div class="form-row"><label>Crossfade</label>
+            <div style="display:flex;align-items:center;gap:0.5rem">
+              <input type="range" id="crossfade-slider" min="0" max="2" step="0.1" value="0" oninput="updateCrossfadeLabel()" onchange="saveCrossfade()" style="flex:1">
+              <span id="crossfade-label" style="font-size:0.78rem;color:var(--muted);min-width:2.5rem;text-align:right">Off</span>
+            </div>
+          </div>
+          <p style="font-size:0.68rem;color:var(--muted);margin-top:0.2rem;line-height:1.3">Blend between album sides with a smooth crossfade. Set to 0 for gapless playback.</p>
         </div>
       </div>
-      <p style="font-size:0.68rem;color:var(--muted);margin-top:0.2rem;line-height:1.3">Blend between album sides with a smooth crossfade. Set to 0 for gapless playback.</p>
-    </div>
-    <div class="settings-section"><h3>Backup and Restore</h3>
-      <p style="font-size:0.75rem;color:var(--muted);margin-bottom:0.5rem;line-height:1.4">Back up your settings and EQ adjustments, or restore from a previous backup.</p>
-      <div style="display:flex;gap:0.4rem;flex-direction:column">
-        <button class="btn" onclick="downloadSettingsBackup()" style="text-align:left">💾 Backup Settings</button>
-        <button class="btn" onclick="selectBackupFile()" style="text-align:left">📂 Restore Settings</button>
-        <input type="file" id="backup-file-input" accept=".json" style="display:none" onchange="restoreSettingsFromFile()">
-      </div>
-      <div id="backup-status" style="display:none;font-size:0.75rem;margin-top:0.3rem"></div>
-    </div>
-    <div class="settings-section"><h3>Updates</h3>
-      <p style="font-size:0.75rem;color:var(--muted);margin-bottom:0.5rem;line-height:1.4">Check for and install updates. The app will restart during update. This page will reload automatically.</p>
-      <button class="btn" id="btn-check-update" onclick="checkForUpdates()" style="width:100%;margin-bottom:0.5rem">Check for Updates</button>
-      <div id="update-status" style="font-size:0.75rem;color:var(--muted);margin-bottom:0.5rem">—</div>
-      <div id="update-progress" style="display:none;margin-bottom:0.5rem">
-        <div style="background:rgba(0,0,0,0.1);border-radius:4px;height:6px;overflow:hidden;margin-bottom:0.3rem">
-          <div id="update-progress-bar" style="background:var(--sage);height:100%;width:0%;transition:width 0.3s"></div>
+    </details>
+
+    <!-- Library group -->
+    <details class="settings-group">
+      <summary><svg class="sg-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 6 15 12 9 18"/></svg> Library</summary>
+      <div class="settings-group-body">
+        <div class="settings-section"><h3>Discogs</h3>
+          <p style="font-size:0.75rem;color:var(--muted);margin-bottom:0.4rem;line-height:1.4">Connect your Discogs account to search with cover art and sync your collection. <a href="https://www.discogs.com/settings/developers" target="_blank" style="color:var(--amber-dk)">Get token</a></p>
+          <div class="form-row"><label>Token</label><div style="display:flex;gap:0.4rem;align-items:center;flex:1"><input type="password" class="form-input" id="discogs-token" placeholder="Paste token" style="flex:1"><button class="btn btn-accent" onclick="saveDiscogsToken()">Save</button></div></div>
+          <span id="discogs-saved" style="display:none;color:var(--sage);font-size:0.75rem">✓ Saved</span>
+          <div class="form-row" style="margin-top:0.3rem"><label>Username</label><div style="display:flex;gap:0.4rem;align-items:center;flex:1"><input type="text" class="form-input" id="discogs-username" placeholder="Your Discogs username" style="flex:1"><button class="btn btn-accent" onclick="saveDiscogsUsername()">Save</button></div></div>
+          <span id="discogs-user-saved" style="display:none;color:var(--sage);font-size:0.75rem">✓ Saved</span>
+          <div style="margin-top:0.6rem;padding-top:0.5rem;border-top:1px solid var(--muted-bg,rgba(128,128,128,0.15))">
+            <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.4rem">
+              <button class="btn btn-accent" id="discogs-sync-btn" onclick="startDiscogsSync()">Sync collection from Discogs</button>
+            </div>
+            <p style="font-size:0.72rem;color:var(--muted);line-height:1.4;margin-bottom:0.3rem">Imports albums from your Discogs collection that aren't already in the catalog.</p>
+            <div id="discogs-sync-progress" style="display:none">
+              <div style="background:var(--muted-bg,rgba(128,128,128,0.15));border-radius:4px;overflow:hidden;height:6px;margin:0.4rem 0">
+                <div id="discogs-sync-bar" style="height:100%;background:var(--amber);width:0%;transition:width 0.3s"></div>
+              </div>
+              <div id="discogs-sync-label" style="font-size:0.72rem;color:var(--cream)"></div>
+            </div>
+            <div id="discogs-sync-result" style="display:none;font-size:0.75rem;margin-top:0.3rem;line-height:1.4"></div>
+          </div>
         </div>
-        <div id="update-message" style="font-size:0.72rem;color:var(--muted)">Updating...</div>
-      </div>
-      <button class="btn btn-accent" id="btn-update-now" onclick="performUpdate()" style="width:100%;display:none">Update Now</button>
-    </div>
-    <div class="settings-section"><h3>Mobile Access</h3>
-      <p style="font-size:0.78rem;color:var(--muted);margin-bottom:0.5rem;line-height:1.4">To use the barcode scanner or camera features on your phone, your phone needs to trust this device's certificate. Install it once and you're set.</p>
-      <div id="cert-info" style="font-size:0.72rem;color:var(--muted);margin-bottom:0.5rem"></div>
-      <a class="btn btn-accent" href="/api/system/cert" style="display:inline-block;font-size:0.75rem;text-decoration:none;margin-bottom:0.5rem"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:3px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Download Certificate</a>
-      <details style="font-size:0.72rem;color:var(--muted);margin-top:0.3rem">
-        <summary style="cursor:pointer;color:var(--amber)">Setup instructions</summary>
-        <div style="margin-top:0.4rem;line-height:1.5">
-          <strong style="color:var(--cream)">iPhone / iPad:</strong><br>
-          1. Tap "Download Certificate" above<br>
-          2. Go to Settings > General > VPN and Device Management<br>
-          3. Tap the Vinyl Streamer profile and install it<br>
-          4. Go to Settings > General > About > Certificate Trust Settings<br>
-          5. Enable full trust for the Vinyl Streamer certificate<br><br>
-          <strong style="color:var(--cream)">Android:</strong><br>
-          1. Tap "Download Certificate" above<br>
-          2. Go to Settings > Security > Encryption and Credentials<br>
-          3. Tap "Install a certificate" > "CA certificate"<br>
-          4. Select the downloaded file<br><br>
-          Then access the app at <strong id="cert-https-url" style="color:var(--amber)">https://vinyl.local:8443</strong>
+        <div class="settings-section"><h3>Storage</h3>
+          <div style="font-size:0.82rem;margin-bottom:0.3rem">Location: <strong id="storage-path">—</strong></div>
+          <div style="font-size:0.75rem;color:var(--muted);margin-bottom:0.5rem">Free: <span id="storage-free">—</span> GB of <span id="storage-total">—</span> GB</div>
+          <div style="display:flex;gap:0.4rem;align-items:center"><input type="text" class="form-input" id="new-storage-path" placeholder="/mnt/ssd/vinyl-audio" style="flex:1;font-size:0.85rem"><button class="btn" onclick="openDirPicker()">📂 Browse</button><button class="btn btn-accent" onclick="changeStoragePath()">Move</button></div>
+          <div id="storage-status" style="display:none;font-size:0.75rem;margin-top:0.3rem"></div>
+          <!-- dir picker moved outside settings overlay -->
         </div>
-      </details>
-      <div style="margin-top:0.5rem"><button class="btn btn-ghost" onclick="regenerateCerts()" style="font-size:0.68rem">Regenerate certificates</button></div>
-    </div>
-    <div class="settings-section"><h3>Personalization</h3>
-      <div class="form-row"><label>App Name</label>
-        <div style="display:flex;gap:0.4rem">
-          <input type="text" id="setting-app-name" class="form-input" placeholder="The Listening Room" style="flex:1;font-size:0.78rem" maxlength="40">
-          <button class="btn btn-accent" onclick="saveAppName()" style="font-size:0.75rem;padding:0.3rem 0.6rem">Save</button>
+        <div class="settings-section"><h3>Export Library</h3>
+          <p style="font-size:0.75rem;color:var(--muted);margin-bottom:0.5rem;line-height:1.4">Download your catalog and metadata for backup. Use the manifest JSON with rsync or scp to backup your FLAC files.</p>
+          <div style="display:flex;gap:0.4rem;flex-direction:column">
+            <button class="btn" onclick="downloadCatalog()" style="text-align:left">📥 Download Catalog Database</button>
+            <button class="btn" onclick="downloadManifest()" style="text-align:left">📋 Download Manifest JSON</button>
+          </div>
+          <div id="export-status" style="display:none;font-size:0.75rem;margin-top:0.3rem"></div>
+        </div>
+        <div class="settings-section"><h3>Backup and Restore</h3>
+          <p style="font-size:0.75rem;color:var(--muted);margin-bottom:0.5rem;line-height:1.4">Back up your settings and EQ adjustments, or restore from a previous backup.</p>
+          <div style="display:flex;gap:0.4rem;flex-direction:column">
+            <button class="btn" onclick="downloadSettingsBackup()" style="text-align:left">💾 Backup Settings</button>
+            <button class="btn" onclick="selectBackupFile()" style="text-align:left">📂 Restore Settings</button>
+            <input type="file" id="backup-file-input" accept=".json" style="display:none" onchange="restoreSettingsFromFile()">
+          </div>
+          <div id="backup-status" style="display:none;font-size:0.75rem;margin-top:0.3rem"></div>
         </div>
       </div>
-      <div class="form-row" style="margin-top:0.5rem"><label>Theme</label>
-        <div class="theme-grid" id="theme-grid">
-          <button class="theme-swatch active" data-theme="classic" onclick="setTheme('classic')" title="Classic (default)"><span style="background:#3E2723"></span><span style="background:#D4A24E"></span><span style="background:#F5EBD8"></span></button>
-          <button class="theme-swatch" data-theme="midnight" onclick="setTheme('midnight')" title="Midnight"><span style="background:#1a1a2e"></span><span style="background:#e94560"></span><span style="background:#eaeaea"></span></button>
-          <button class="theme-swatch" data-theme="slate" onclick="setTheme('slate')" title="Warm Slate"><span style="background:#2d2d2d"></span><span style="background:#e8a87c"></span><span style="background:#f0ece3"></span></button>
-          <button class="theme-swatch" data-theme="evergreen" onclick="setTheme('evergreen')" title="Evergreen"><span style="background:#1b2e1b"></span><span style="background:#c9a959"></span><span style="background:#f0eee4"></span></button>
-          <button class="theme-swatch" data-theme="noir" onclick="setTheme('noir')" title="Noir"><span style="background:#111111"></span><span style="background:#ffffff"></span><span style="background:#e0e0e0"></span></button>
-          <button class="theme-swatch" data-theme="desert" onclick="setTheme('desert')" title="Desert"><span style="background:#4a3423"></span><span style="background:#d4956b"></span><span style="background:#faf3e8"></span></button>
+    </details>
+
+    <!-- Personalization group -->
+    <details class="settings-group">
+      <summary><svg class="sg-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 6 15 12 9 18"/></svg> Personalization</summary>
+      <div class="settings-group-body">
+        <div class="settings-section">
+          <div class="form-row"><label>App Name</label>
+            <div style="display:flex;gap:0.4rem">
+              <input type="text" id="setting-app-name" class="form-input" placeholder="The Listening Room" style="flex:1;font-size:0.78rem" maxlength="40">
+              <button class="btn btn-accent" onclick="saveAppName()" style="font-size:0.75rem;padding:0.3rem 0.6rem">Save</button>
+            </div>
+          </div>
+          <div class="form-row" style="margin-top:0.5rem"><label>Theme</label>
+            <div class="theme-grid" id="theme-grid">
+              <button class="theme-swatch active" data-theme="classic" onclick="setTheme('classic')" title="Classic (default)"><span style="background:#3E2723"></span><span style="background:#D4A24E"></span><span style="background:#F5EBD8"></span></button>
+              <button class="theme-swatch" data-theme="midnight" onclick="setTheme('midnight')" title="Midnight"><span style="background:#1a1a2e"></span><span style="background:#e94560"></span><span style="background:#eaeaea"></span></button>
+              <button class="theme-swatch" data-theme="slate" onclick="setTheme('slate')" title="Warm Slate"><span style="background:#2d2d2d"></span><span style="background:#e8a87c"></span><span style="background:#f0ece3"></span></button>
+              <button class="theme-swatch" data-theme="evergreen" onclick="setTheme('evergreen')" title="Evergreen"><span style="background:#1b2e1b"></span><span style="background:#c9a959"></span><span style="background:#f0eee4"></span></button>
+              <button class="theme-swatch" data-theme="noir" onclick="setTheme('noir')" title="Noir"><span style="background:#111111"></span><span style="background:#ffffff"></span><span style="background:#e0e0e0"></span></button>
+              <button class="theme-swatch" data-theme="desert" onclick="setTheme('desert')" title="Desert"><span style="background:#4a3423"></span><span style="background:#d4956b"></span><span style="background:#faf3e8"></span></button>
+            </div>
+          </div>
         </div>
       </div>
-    </div>
-    <div class="settings-section"><h3>WiFi</h3>
-      <p style="font-size:0.75rem;color:var(--muted);margin-bottom:0.5rem;line-height:1.4">Launch the WiFi setup portal to connect to a different network or reconfigure your connection.</p>
-      <button class="btn" onclick="reconfigureWiFi()" style="width:100%">Reconfigure WiFi</button>
-      <div id="wifi-status" style="display:none;font-size:0.75rem;color:var(--sage);margin-top:0.3rem">Portal started</div>
-    </div>
+    </details>
+
+    <!-- System group -->
+    <details class="settings-group">
+      <summary><svg class="sg-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 6 15 12 9 18"/></svg> System</summary>
+      <div class="settings-group-body">
+        <div class="settings-section"><h3>Updates</h3>
+          <p style="font-size:0.75rem;color:var(--muted);margin-bottom:0.5rem;line-height:1.4">Check for and install updates. The app will restart during update. This page will reload automatically.</p>
+          <button class="btn" id="btn-check-update" onclick="checkForUpdates()" style="width:100%;margin-bottom:0.5rem">Check for Updates</button>
+          <div id="update-status" style="font-size:0.75rem;color:var(--muted);margin-bottom:0.5rem">—</div>
+          <div id="update-progress" style="display:none;margin-bottom:0.5rem">
+            <div style="background:rgba(0,0,0,0.1);border-radius:4px;height:6px;overflow:hidden;margin-bottom:0.3rem">
+              <div id="update-progress-bar" style="background:var(--sage);height:100%;width:0%;transition:width 0.3s"></div>
+            </div>
+            <div id="update-message" style="font-size:0.72rem;color:var(--muted)">Updating...</div>
+          </div>
+          <button class="btn btn-accent" id="btn-update-now" onclick="performUpdate()" style="width:100%;display:none">Update Now</button>
+        </div>
+        <div class="settings-section"><h3>Mobile Access</h3>
+          <p style="font-size:0.78rem;color:var(--muted);margin-bottom:0.5rem;line-height:1.4">To use the barcode scanner or camera features on your phone, your phone needs to trust this device's certificate. Install it once and you're set.</p>
+          <div id="cert-info" style="font-size:0.72rem;color:var(--muted);margin-bottom:0.5rem"></div>
+          <a class="btn btn-accent" href="/api/system/cert" style="display:inline-block;font-size:0.75rem;text-decoration:none;margin-bottom:0.5rem"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:3px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Download Certificate</a>
+          <details style="font-size:0.72rem;color:var(--muted);margin-top:0.3rem">
+            <summary style="cursor:pointer;color:var(--amber)">Setup instructions</summary>
+            <div style="margin-top:0.4rem;line-height:1.5">
+              <strong style="color:var(--cream)">iPhone / iPad:</strong><br>
+              1. Tap "Download Certificate" above<br>
+              2. Go to Settings > General > VPN and Device Management<br>
+              3. Tap the Vinyl Streamer profile and install it<br>
+              4. Go to Settings > General > About > Certificate Trust Settings<br>
+              5. Enable full trust for the Vinyl Streamer certificate<br><br>
+              <strong style="color:var(--cream)">Android:</strong><br>
+              1. Tap "Download Certificate" above<br>
+              2. Go to Settings > Security > Encryption and Credentials<br>
+              3. Tap "Install a certificate" > "CA certificate"<br>
+              4. Select the downloaded file<br><br>
+              Then access the app at <strong id="cert-https-url" style="color:var(--amber)">https://vinyl.local:8443</strong>
+            </div>
+          </details>
+          <div style="margin-top:0.5rem"><button class="btn btn-ghost" onclick="regenerateCerts()" style="font-size:0.68rem">Regenerate certificates</button></div>
+        </div>
+        <div class="settings-section"><h3>WiFi</h3>
+          <p style="font-size:0.75rem;color:var(--muted);margin-bottom:0.5rem;line-height:1.4">Launch the WiFi setup portal to connect to a different network or reconfigure your connection.</p>
+          <button class="btn" onclick="reconfigureWiFi()" style="width:100%">Reconfigure WiFi</button>
+          <div id="wifi-status" style="display:none;font-size:0.75rem;color:var(--sage);margin-top:0.3rem">Portal started</div>
+        </div>
+      </div>
+    </details>
+
     <button class="btn btn-ghost" onclick="hideSettings()" style="width:100%;margin-top:0.5rem">Close</button>
   </div>
 </div>
