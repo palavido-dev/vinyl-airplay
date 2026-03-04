@@ -27,7 +27,7 @@ from pyatv.interface import MediaMetadata
 import sounddevice as sd
 import uvicorn
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect, UploadFile, File, Body
-from fastapi.responses import HTMLResponse, FileResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, FileResponse, StreamingResponse, Response, JSONResponse
 from fastapi.templating import Jinja2Templates
 
 import catalog as cat
@@ -1582,6 +1582,30 @@ async def backup_settings():
         "backup_version": 1,
     }
     return backup_data
+
+
+@app.get("/api/settings/backup/download")
+async def download_settings_backup():
+    """Serve settings backup as a downloadable JSON file."""
+    import datetime
+    backup_data = {
+        "settings": state.settings,
+        "eq": {
+            "bass": state.eq.values[0],
+            "treble": state.eq.values[1],
+        },
+        "backup_timestamp": time.time(),
+        "backup_version": 1,
+    }
+    date_str = datetime.date.today().isoformat()
+    content = json.dumps(backup_data, indent=2)
+    return Response(
+        content=content,
+        media_type="application/json",
+        headers={
+            "Content-Disposition": f'attachment; filename="vinyl-settings-{date_str}.json"'
+        }
+    )
 
 
 @app.post("/api/settings/restore")
@@ -4096,7 +4120,7 @@ def _get_git_commit() -> str:
             ["git", "rev-parse", "HEAD"],
             capture_output=True,
             text=True,
-            cwd="/opt/vinyl-streamer",
+            cwd=os.path.dirname(os.path.abspath(__file__)),
             timeout=5
         )
         return result.stdout.strip() if result.returncode == 0 else "unknown"
@@ -4110,13 +4134,13 @@ def _count_commits_behind() -> int:
             ["git", "fetch", "origin"],
             capture_output=True,
             timeout=15,
-            cwd="/opt/vinyl-streamer"
+            cwd=os.path.dirname(os.path.abspath(__file__))
         )
         result = subprocess.run(
             ["git", "rev-list", "--count", "HEAD..origin/main"],
             capture_output=True,
             text=True,
-            cwd="/opt/vinyl-streamer",
+            cwd=os.path.dirname(os.path.abspath(__file__)),
             timeout=5
         )
         if result.returncode == 0:
@@ -4144,7 +4168,7 @@ async def check_update():
             ["git", "rev-parse", "origin/main"],
             capture_output=True,
             text=True,
-            cwd="/opt/vinyl-streamer",
+            cwd=os.path.dirname(os.path.abspath(__file__)),
             timeout=5
         )
         latest = result.stdout.strip() if result.returncode == 0 else current
@@ -4176,7 +4200,7 @@ async def perform_update(background_tasks):
             ["git", "pull", "origin", "main"],
             capture_output=True,
             text=True,
-            cwd="/opt/vinyl-streamer",
+            cwd=os.path.dirname(os.path.abspath(__file__)),
             timeout=30
         )
         if result.returncode != 0:
@@ -4188,10 +4212,10 @@ async def perform_update(background_tasks):
         })
 
         result = subprocess.run(
-            ["/opt/vinyl-streamer/venv/bin/pip", "install", "-r", "requirements.txt"],
+            ["pip3", "install", "-r", "requirements.txt"],
             capture_output=True,
             text=True,
-            cwd="/opt/vinyl-streamer",
+            cwd=os.path.dirname(os.path.abspath(__file__)),
             timeout=60
         )
         if result.returncode != 0:
@@ -4220,7 +4244,7 @@ async def perform_update(background_tasks):
             try:
                 subprocess.run(
                     ["git", "reset", "--hard", _update_rollback_hash],
-                    cwd="/opt/vinyl-streamer",
+                    cwd=os.path.dirname(os.path.abspath(__file__)),
                     timeout=10
                 )
                 await broadcast("update_status", {
