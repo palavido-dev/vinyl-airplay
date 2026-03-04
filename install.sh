@@ -119,6 +119,52 @@ chmod 755 /opt/vinyl-streamer/data
 
 success "Directories configured"
 
+# Set up HTTPS certificates with mkcert
+info "Setting up HTTPS certificates for mobile access..."
+MKCERT_BIN="/usr/local/bin/mkcert"
+CERT_DIR="/opt/vinyl-streamer/certs"
+mkdir -p "$CERT_DIR"
+
+if [[ ! -f "$MKCERT_BIN" ]]; then
+  MKCERT_VERSION="v1.4.4"
+  ARCH=$(uname -m)
+  if [[ "$ARCH" == "aarch64" ]]; then
+    MKCERT_ARCH="arm64"
+  elif [[ "$ARCH" == "x86_64" ]]; then
+    MKCERT_ARCH="amd64"
+  else
+    MKCERT_ARCH="arm"
+  fi
+  MKCERT_URL="https://dl.filippo.io/mkcert/latest?for=linux/${MKCERT_ARCH}"
+  info "Downloading mkcert for ${MKCERT_ARCH}..."
+  curl -sSL "$MKCERT_URL" -o "$MKCERT_BIN" || error "Failed to download mkcert"
+  chmod +x "$MKCERT_BIN"
+  success "mkcert installed"
+else
+  success "mkcert already installed"
+fi
+
+# Generate CA and server certificate
+export CAROOT="$CERT_DIR"
+if [[ ! -f "$CERT_DIR/rootCA.pem" ]]; then
+  info "Creating local Certificate Authority..."
+  sudo -u listen CAROOT="$CERT_DIR" "$MKCERT_BIN" -install 2>/dev/null || true
+  success "Local CA created"
+fi
+
+PI_HOSTNAME=$(hostname)
+PI_IP=$(hostname -I | awk '{print $1}')
+info "Generating HTTPS certificate for ${PI_HOSTNAME}.local / ${PI_IP}..."
+sudo -u listen CAROOT="$CERT_DIR" "$MKCERT_BIN" \
+  -cert-file "$CERT_DIR/cert.pem" \
+  -key-file "$CERT_DIR/key.pem" \
+  "${PI_HOSTNAME}.local" "$PI_HOSTNAME" "$PI_IP" localhost 127.0.0.1 \
+  || error "Failed to generate certificate"
+chown listen:listen "$CERT_DIR"/*.pem
+chmod 644 "$CERT_DIR/cert.pem" "$CERT_DIR/rootCA.pem" 2>/dev/null || true
+chmod 600 "$CERT_DIR/key.pem"
+success "HTTPS certificates generated"
+
 # Create systemd service for main application
 info "Creating systemd service for Vinyl Streamer..."
 cat > /etc/systemd/system/vinyl-airplay.service <<'EOF'
@@ -218,6 +264,7 @@ echo ""
 echo "Vinyl Streamer is ready to use."
 echo ""
 echo "Web UI:    http://<your-pi-ip>:8080"
+echo "Mobile:    https://<your-pi-ip>:8443  (install CA cert from Settings for barcode scanning)"
 echo "Kiosk:     Enable with: sudo systemctl start vinyl-kiosk.service"
 echo ""
 echo "Services:"
