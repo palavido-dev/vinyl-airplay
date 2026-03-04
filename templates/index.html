@@ -1059,12 +1059,7 @@
   .barcode-scanner-overlay.open {
     display: flex;
   }
-  .barcode-scanner-video {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-  }
-  .barcode-scanner-overlay { background: rgba(0,0,0,0.9); }
+  .barcode-scanner-overlay { background: rgba(0,0,0,0.95); }
   .barcode-scanner-container {
     position: relative;
     width: 100%;
@@ -1073,19 +1068,12 @@
     align-items: center;
     justify-content: center;
   }
-  .barcode-viewfinder {
-    position: absolute;
-    width: 200px;
-    height: 200px;
-    border: 3px solid var(--amber);
-    border-radius: 12px;
-    box-shadow: inset 0 0 20px rgba(212,162,78,0.3);
-    animation: barcode-scan 2s ease-in-out infinite;
-  }
-  @keyframes barcode-scan {
-    0%, 100% { box-shadow: inset 0 0 20px rgba(212,162,78,0.3); }
-    50% { box-shadow: inset 0 0 40px rgba(212,162,78,0.6); }
-  }
+  #barcode-reader { max-width: 500px; margin: 0 auto; }
+  #barcode-reader video { border-radius: 8px; }
+  #html5-qrcode-button-camera-permission,
+  #html5-qrcode-button-camera-start,
+  #html5-qrcode-button-camera-stop { display: none !important; }
+  #html5-qrcode-anchor-scan-type-change { display: none !important; }
   .barcode-scanner-close {
     position: absolute;
     top: 2rem;
@@ -1256,10 +1244,14 @@
   /* ── Mobile Responsive (<480px) ── */
   @media (max-width: 480px) {
     .frame { margin: 2px; border: 2px solid var(--walnut-lt); border-radius: 6px; }
-    .app-header { flex-wrap: wrap; gap: 0.3rem; padding: 0.35rem 0.5rem; }
+    .app-header { flex-wrap: wrap; gap: 0.25rem; padding: 0.3rem 0.4rem; }
     .brand { display: none; }
-    .search-bar { order: 2; flex-basis: 100%; width: 100%; padding: 0.45rem 0.6rem; font-size: 0.8rem; }
-    .app-header > .header-btn { min-height: 44px; min-width: 44px; font-size: 0.9rem; }
+    .view-toggle { order: 1; flex-basis: 100%; gap: 0; }
+    .view-toggle-btn { flex: 1; padding: 0.45rem; font-size: 0.8rem; border-radius: 0; }
+    .view-toggle-btn:first-child { border-radius: 4px 0 0 4px; }
+    .view-toggle-btn:last-child { border-radius: 0 4px 4px 0; }
+    .app-header > .header-btn { order: 2; min-height: 40px; min-width: 40px; font-size: 0.9rem; }
+    .search-bar { order: 3; flex-basis: 100%; width: 100%; padding: 0.45rem 0.6rem; font-size: 0.8rem; }
     .album-grid { grid-template-columns: repeat(1, 1fr); gap: 0.4rem; }
     .album-card { border-radius: 6px; }
     .album-card .album-meta { padding: 0.25rem 0.3rem; }
@@ -1292,16 +1284,37 @@
   @media (max-width: 600px) {
     .frame { margin: 4px; border: 2px solid var(--walnut-lt); border-radius: 8px; }
 
-    /* Header: Wrap so search drops to second row */
+    /* Header: Wrap into rows */
     .app-header {
-      flex-wrap: wrap; gap: 0.4rem;
+      flex-wrap: wrap; gap: 0.3rem;
       padding: 0.4rem 0.6rem;
     }
     .brand { display: none; }
-    .search-bar { order: 2; flex-basis: 100%; width: 100%; }
 
-    /* Header buttons: inline row, touch-friendly */
-    .app-header > .header-btn { min-height: 44px; min-width: 44px; }
+    /* Row 1: View toggle spans full width */
+    .view-toggle {
+      order: 1;
+      flex-basis: 100%;
+      display: flex;
+      gap: 0;
+    }
+    .view-toggle-btn {
+      flex: 1;
+      padding: 0.5rem;
+      font-size: 0.85rem;
+      border-radius: 0;
+    }
+    .view-toggle-btn:first-child { border-radius: 4px 0 0 4px; }
+    .view-toggle-btn:last-child { border-radius: 0 4px 4px 0; }
+
+    /* Row 2: Action buttons centered */
+    .app-header > .header-btn {
+      order: 2;
+      min-height: 40px; min-width: 40px;
+    }
+
+    /* Row 3: Search bar full width */
+    .search-bar { order: 3; flex-basis: 100%; width: 100%; }
 
     /* Album Grid: Smaller columns, 3 fit on mobile */
     .album-grid {
@@ -1427,6 +1440,7 @@
     #toast-msg { font-size: 0.75rem; padding: 0.4rem 0.8rem; bottom: 4rem; }
   }
 </style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"></script>
 </head>
 <body>
 <div id="error-msg"></div>
@@ -1576,9 +1590,8 @@
 <div class="barcode-scanner-overlay" id="barcode-scanner">
   <div class="barcode-scanner-container">
     <button class="barcode-scanner-close" onclick="closeBarcodeScanner()">×</button>
-    <video class="barcode-scanner-video" id="barcode-video"></video>
-    <div class="barcode-viewfinder"></div>
-    <div class="barcode-scanner-status" id="barcode-status">Scanning for barcode...</div>
+    <div id="barcode-reader" style="width:100%;height:100%"></div>
+    <div class="barcode-scanner-status" id="barcode-status">Point camera at barcode...</div>
   </div>
 </div>
 
@@ -4171,79 +4184,62 @@ document.addEventListener('keydown', function(e){
     }
   }, 200);
 
-  // Barcode Scanner
-  let _barcodeDetector=null;
-  if('BarcodeDetector' in window) {
-    try {
-      _barcodeDetector=new window.BarcodeDetector({formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e']});
-    } catch(e) {
-      console.log('BarcodeDetector not available:', e);
-    }
-  }
+  // Barcode Scanner (using html5-qrcode library for broad mobile support)
+  var _html5QrCode=null;
 
   window.openBarcodeScanner=function() {
-    if(!_barcodeDetector) {
-      showError('Barcode scanner not supported on this device');
+    if(typeof Html5Qrcode === 'undefined') {
+      showError('Barcode scanner library failed to load. Check your connection.');
       return;
     }
 
-    const scanner=document.getElementById('barcode-scanner');
+    var scanner=document.getElementById('barcode-scanner');
     scanner.classList.add('open');
+    document.getElementById('barcode-status').textContent='Starting camera...';
 
-    navigator.mediaDevices.getUserMedia({video: {facingMode: 'environment'}})
-      .then(stream => {
-        const video=document.getElementById('barcode-video');
-        video.srcObject=stream;
-        video.play();
-        scanForBarcode(video, stream);
-      })
-      .catch(err => {
-        showError('Camera permission denied or not available');
-        closeBarcodeScanner();
-      });
+    _html5QrCode=new Html5Qrcode('barcode-reader');
+    _html5QrCode.start(
+      {facingMode: 'environment'},
+      {fps: 10, qrbox: {width: 250, height: 150}, formatsToSupport: [
+        Html5QrcodeSupportedFormats.EAN_13,
+        Html5QrcodeSupportedFormats.EAN_8,
+        Html5QrcodeSupportedFormats.UPC_A,
+        Html5QrcodeSupportedFormats.UPC_E,
+        Html5QrcodeSupportedFormats.CODE_128,
+        Html5QrcodeSupportedFormats.CODE_39
+      ]},
+      function onScanSuccess(decodedText) {
+        handleBarcodeDetected(decodedText);
+      },
+      function onScanFailure() {
+        // Scan miss, keep trying
+      }
+    ).then(function() {
+      document.getElementById('barcode-status').textContent='Point camera at barcode...';
+    }).catch(function(err) {
+      console.log('Camera error:', err);
+      showError('Camera permission denied or not available');
+      closeBarcodeScanner();
+    });
   };
-
-  function scanForBarcode(video, stream) {
-    const scanLoop=async () => {
-      const scanner=document.getElementById('barcode-scanner');
-      if(!scanner || !scanner.classList.contains('open')) {
-        stream.getTracks().forEach(t=>t.stop());
-        return;
-      }
-
-      try {
-        if(_barcodeDetector && video.srcObject) {
-          const barcodes=await _barcodeDetector.detect(video);
-          if(barcodes.length > 0) {
-            const barcode=barcodes[0].rawValue;
-            handleBarcodeDetected(barcode);
-            stream.getTracks().forEach(t=>t.stop());
-            closeBarcodeScanner();
-            return;
-          }
-        }
-      } catch(e) {
-        console.log('Barcode scan error:', e);
-      }
-
-      requestAnimationFrame(scanLoop);
-    };
-    scanLoop();
-  }
 
   function handleBarcodeDetected(barcode) {
     showToast('Barcode detected: '+barcode);
     document.getElementById('s-barcode').value=barcode;
+    closeBarcodeScanner();
     doSearch();
   }
 
   window.closeBarcodeScanner=function() {
-    const scanner=document.getElementById('barcode-scanner');
+    var scanner=document.getElementById('barcode-scanner');
     scanner.classList.remove('open');
-    const video=document.getElementById('barcode-video');
-    if(video && video.srcObject) {
-      video.srcObject.getTracks().forEach(t=>t.stop());
-      video.srcObject=null;
+    if(_html5QrCode) {
+      _html5QrCode.stop().then(function() {
+        _html5QrCode.clear();
+        _html5QrCode=null;
+      }).catch(function() {
+        _html5QrCode=null;
+      });
     }
   };
   }
