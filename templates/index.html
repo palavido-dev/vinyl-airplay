@@ -4995,20 +4995,15 @@ function smoothHideModal(modalEl) {
 // Feature 6: Settings Backup and Restore
 async function downloadSettingsBackup() {
   try {
-    const response = await fetch('/api/settings/backup', { method: 'POST' }).then(r => r.json());
-
-    const dataStr = JSON.stringify(response, null, 2);
-    const dataBlob = new Blob([dataStr], { type: 'application/json' });
-    const url = URL.createObjectURL(dataBlob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = 'vinyl-settings-' + new Date().toISOString().split('T')[0] + '.json';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-
-    showToast('Settings backed up successfully');
+    // Save backup to server and also offer download
+    var r = await fetch('/api/settings/backup', { method: 'POST' }).then(function(d){return d.json()});
+    if(r.backup_version) {
+      showToast('Settings backed up. Timestamp: ' + new Date(r.backup_timestamp * 1000).toLocaleString());
+      // Try opening download in new tab (works on mobile, may be blocked in kiosk)
+      window.open('/api/settings/backup/download', '_blank');
+    } else {
+      showError('Backup failed');
+    }
   } catch (err) {
     console.error('Backup failed:', err);
     showError('Failed to backup settings');
@@ -5054,24 +5049,33 @@ async function checkForUpdates() {
   const updateBtn = document.getElementById('btn-update-now');
 
   btn.disabled = true;
-  status.textContent = 'Checking...';
+  btn.textContent = 'Checking...';
+  status.textContent = '';
+  status.style.color = 'var(--muted)';
 
   try {
     const response = await fetch('/api/system/check-update');
     const data = await response.json();
 
     if (data.available) {
+      status.style.color = 'var(--amber-dk)';
       status.textContent = 'Update available (' + data.commits_behind + ' commits behind)';
       updateBtn.style.display = 'block';
+      showToast('Update available!');
     } else {
-      status.textContent = 'Up to date';
+      status.style.color = 'var(--sage)';
+      status.textContent = 'You are up to date';
       updateBtn.style.display = 'none';
+      showToast('Already up to date');
     }
   } catch (err) {
     console.error('Check failed:', err);
-    status.textContent = 'Failed to check updates';
+    status.style.color = 'var(--rust)';
+    status.textContent = 'Failed to check for updates';
+    showError('Could not reach update server');
   } finally {
     btn.disabled = false;
+    btn.textContent = 'Check for Updates';
   }
 }
 
@@ -5121,22 +5125,27 @@ async function performUpdate() {
 }
 
 async function reconfigureWiFi() {
-  const status = document.getElementById('wifi-status');
+  var btn = event.target.closest('button');
+  var status = document.getElementById('wifi-status');
   status.style.display = 'none';
+  if(btn){btn.disabled=true;btn.textContent='Starting portal...';}
 
   try {
-    const response = await fetch('/api/wifi/reconfigure', { method: 'POST' });
-    const data = await response.json();
+    var response = await fetch('/api/wifi/reconfigure', { method: 'POST' });
+    var data = await response.json();
 
     if (data.status === 'portal_started') {
       status.style.display = 'block';
-      showToast('WiFi portal started. Open a web browser to the WiFi network VinylStreamer-Setup');
+      status.textContent = 'Portal started. Connect to "VinylStreamer-Setup" WiFi network to configure.';
+      showToast('WiFi portal started');
     } else {
-      showError('Failed to start WiFi portal');
+      showError(data.message || 'Failed to start WiFi portal');
     }
   } catch (err) {
     console.error('WiFi reconfigure failed:', err);
     showError('Failed to reconfigure WiFi');
+  } finally {
+    if(btn){btn.disabled=false;btn.textContent='Reconfigure WiFi';}
   }
 }
 </script>
