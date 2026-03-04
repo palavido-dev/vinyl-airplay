@@ -1503,13 +1503,7 @@
     <div class="pull-to-refresh-indicator" id="pull-indicator">🔄</div>
     <div id="home-view" class="home-view" style="display:none"></div>
     <div id="library-view">
-      <div id="recently-played-container" style="display:none">
-        <div class="recently-played-section">
-          <div class="recently-played-label">Recently Played</div>
-          <div class="recently-played-scroll" id="recently-played-scroll"></div>
-        </div>
-      </div>
-      <div class="album-grid" id="album-grid"><div class="catalog-empty">Loading catalog…</div></div>
+      <div class="album-grid" id="album-grid"><div class="catalog-empty">Loading catalog...</div></div>
     </div>
   </div>
   <div class="np-hero" id="np-hero">
@@ -2121,7 +2115,7 @@ function showNPFooter(){const f=document.getElementById('np-footer');f.classList
 function hideNPFooter(){const f=document.getElementById('np-footer');f.classList.add('hidden');f.style.display='none';_playerSource=null;document.getElementById('np-hero').classList.remove('visible');document.getElementById('main-content').classList.remove('has-hero')}
 
 async function loadCatalog(){
-  try{const d=await fetch('/api/catalog').then(r=>r.json());_catalogAlbums=d.albums||[];renderCatalog(_catalogAlbums);renderRecentlyPlayed(_catalogAlbums);updateAlbumCount();if(_viewState.view==='shelves')renderHomeView()}
+  try{const d=await fetch('/api/catalog').then(r=>r.json());_catalogAlbums=d.albums||[];renderCatalog(getFilteredAlbums());updateAlbumCount();if(_viewState.view==='shelves')renderHomeView()}
   catch(e){showError('Failed to load catalog')}
 }
 
@@ -2209,9 +2203,7 @@ function renderCatalog(albums){
 }
 
 function filterCatalog(q){
-  var albums=_catalogAlbums;
-  if(q){var ql=q.toLowerCase();albums=albums.filter(function(a){return (a.title||'').toLowerCase().includes(ql)||(a.artist||'').toLowerCase().includes(ql)||(a.genre||'').toLowerCase().includes(ql)||(a.label||'').toLowerCase().includes(ql)||(a.notes||'').toLowerCase().includes(ql)||String(a.year||'').includes(ql)})}
-  renderCatalog(albums);
+  renderCatalog(getFilteredAlbums());
 }
 
 // ── Multi-Select Mode ──
@@ -2331,7 +2323,7 @@ function getFilteredAlbums(){
   if(_viewState.filterMode==='not_recorded'){albums=albums.filter(function(a){return !a.audio_count||a.audio_count===0})}
   else if(_viewState.filterMode==='recorded'){albums=albums.filter(function(a){return a.audio_count>0})}
   var q=(document.getElementById('catalog-search').value||'').trim();
-  if(q){var ql=q.toLowerCase();albums=albums.filter(function(a){return (a.title||'').toLowerCase().includes(ql)||(a.artist||'').toLowerCase().includes(ql)||(a.genre||'').toLowerCase().includes(ql)})}
+  if(q){var ql=q.toLowerCase();albums=albums.filter(function(a){return (a.title||'').toLowerCase().includes(ql)||(a.artist||'').toLowerCase().includes(ql)||(a.genre||'').toLowerCase().includes(ql)||(a.label||'').toLowerCase().includes(ql)||(a.notes||'').toLowerCase().includes(ql)||String(a.year||'').includes(ql)})}
   return sortAlbums(albums);
 }
 
@@ -2342,18 +2334,6 @@ function updateAlbumCount(){
   if(el)el.textContent=`${count} album${count!==1?'s':''}${recorded>0?', '+recorded+' recorded':''}`;
 }
 
-function renderRecentlyPlayed(albums){
-  const recent=albums.filter(a=>a.last_played&&a.audio_count>0).sort((a,b)=>(b.last_played||'').localeCompare(a.last_played||'')).slice(0,8);
-  const container=document.getElementById('recently-played-container');
-  const scroll=document.getElementById('recently-played-scroll');
-  if(recent.length===0){container.style.display='none';return}
-  container.style.display='';
-  scroll.innerHTML=recent.map(a=>{
-    const art=a.user_artwork_path||a.artwork_path;
-    const artH=art?`<img class="recently-played-art" src="/artwork/${art.split('/').pop()}?t=${a.id}" alt="" loading="lazy" onclick="event.stopPropagation();openAlbumDetail(${a.id})">`:('<div class="recently-played-art" style="display:flex;align-items:center;justify-content:center;background:var(--paper-dk);font-size:1.8rem" onclick="event.stopPropagation();openAlbumDetail('+a.id+')">💿</div>');
-    return `<div class="recently-played-item" onclick="openAlbumDetail(${a.id})">${artH}<div class="recently-played-title">${esc(a.title)}</div></div>`;
-  }).join('');
-}
 
 function onAlbumTap(id,has){if(!has){openAlbumDetail(id);return}if(_isStreaming||_playerActive){playAlbum(id)}else{_pendingAlbumId=id;showOutputPicker(id)}}
 async function playAlbum(id,trackId){
