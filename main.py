@@ -2106,17 +2106,40 @@ async def start_discogs_sync():
     def _run_sync():
         global _discogs_sync_status
         try:
-            def on_progress(info):
+            # Phase 1: Pull from Discogs into local catalog
+            def on_pull_progress(info):
                 global _discogs_sync_status
-                _discogs_sync_status = info
+                _discogs_sync_status = {**info, "phase": "pull"}
                 asyncio.run_coroutine_threadsafe(
-                    broadcast("sync_progress", info), loop
+                    broadcast("sync_progress", _discogs_sync_status), loop
                 )
 
-            result = cat.sync_from_discogs(username, token, on_progress=on_progress)
-            _discogs_sync_status = result
+            pull_result = cat.sync_from_discogs(username, token, on_progress=on_pull_progress)
+
+            # Phase 2: Push local albums to Discogs
+            def on_push_progress(info):
+                global _discogs_sync_status
+                _discogs_sync_status = {**info, "phase": "push"}
+                asyncio.run_coroutine_threadsafe(
+                    broadcast("sync_progress", _discogs_sync_status), loop
+                )
+
+            push_result = cat.push_to_discogs(username, token, on_progress=on_push_progress)
+
+            # Combined summary
+            combined = {
+                "state": "complete",
+                "phase": "done",
+                "pulled": pull_result.get("imported", 0),
+                "pull_skipped": pull_result.get("skipped", 0),
+                "pushed": push_result.get("pushed", 0),
+                "push_skipped": push_result.get("skipped", 0),
+                "failed": pull_result.get("failed", 0) + push_result.get("failed", 0),
+                "errors": pull_result.get("errors", []) + push_result.get("errors", []),
+            }
+            _discogs_sync_status = combined
             asyncio.run_coroutine_threadsafe(
-                broadcast("sync_progress", result), loop
+                broadcast("sync_progress", combined), loop
             )
         except Exception as e:
             _discogs_sync_status = {"state": "error", "errors": [str(e)]}
@@ -2232,6 +2255,15 @@ async def save_release(body: dict):
         )
         if art:
             cat.update_album_artwork(album_id, art, user=False)
+    # Push to Discogs collection if configured
+    username = state.settings.get("discogs_username", "").strip()
+    token = state.settings.get("discogs_token", "")
+    release_id = release_data.get("id", "") or release_data.get("mb_release_id", "")
+    discogs_id = release_id.replace("discogs:", "") if release_id else ""
+    if username and token and discogs_id:
+        await loop.run_in_executor(
+            None, lambda: cat.add_to_discogs_collection(username, token, discogs_id)
+        )
     return {"ok": True, "album_id": album_id}
 
 

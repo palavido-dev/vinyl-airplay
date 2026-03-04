@@ -3254,6 +3254,114 @@ def sync_from_discogs(username: str, token: str,
     return summary
 
 
+def add_to_discogs_collection(username: str, token: str, discogs_id: str) -> dict:
+    """
+    Add a single release to the user's Discogs collection (folder 1 = Uncategorized).
+    Returns {"ok": True} on success or {"ok": False, "error": ...} on failure.
+    """
+    import urllib.request
+    url = (f"https://api.discogs.com/users/{urllib.parse.quote(username)}"
+           f"/collection/folders/1/releases/{discogs_id}")
+    headers = {"User-Agent": USER_AGENT, "Content-Type": "application/json"}
+    if token:
+        headers["Authorization"] = f"Discogs token={token}"
+    try:
+        req = urllib.request.Request(url, data=b"{}", headers=headers, method="POST")
+        with urllib.request.urlopen(req, timeout=15) as r:
+            code = r.getcode()
+        return {"ok": True, "status": code}
+    except urllib.error.HTTPError as e:
+        if e.code == 409:
+            # Already in collection
+            return {"ok": True, "already_exists": True}
+        return {"ok": False, "error": f"HTTP {e.code}: {e.reason}"}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+def push_to_discogs(username: str, token: str, on_progress=None) -> dict:
+    """
+    Push local catalog albums to the user's Discogs collection.
+
+    Finds albums with a Discogs release ID, checks if they're already
+    in the user's collection, and adds missing ones.
+    """
+    summary = {
+        "state": "running", "total": 0, "checked": 0,
+        "pushed": 0, "skipped": 0, "failed": 0, "errors": [],
+    }
+
+    def _progress(label=""):
+        if on_progress:
+            on_progress({**summary, "current_album": label})
+
+    try:
+        # Get local albums with Discogs IDs
+        db = get_db()
+        try:
+            rows = db.execute(
+                "SELECT id, title, artist, musicbrainz_release_id FROM albums "
+                "WHERE musicbrainz_release_id IS NOT NULL "
+                "AND musicbrainz_release_id != '' "
+                "AND deleted_at IS NULL"
+            ).fetchall()
+        finally:
+            db.close()
+
+        if not rows:
+            summary["state"] = "complete"
+            _progress()
+            return summary
+
+        # Build set of Discogs release IDs already in collection
+        existing_ids = set()
+        first = get_discogs_collection_page(username, token, page=1)
+        total_pages = first["pages"]
+        for rel in first["releases"]:
+            existing_ids.add(str(rel.get("basic_information", {}).get("id", "")))
+        for pg in range(2, total_pages + 1):
+            time.sleep(1)
+            page_data = get_discogs_collection_page(username, token, page=pg)
+            for rel in page_data["releases"]:
+                existing_ids.add(str(rel.get("basic_information", {}).get("id", "")))
+
+        summary["total"] = len(rows)
+        _progress()
+
+        for row in rows:
+            release_id_raw = row["musicbrainz_release_id"]
+            discogs_id = release_id_raw.replace("discogs:", "")
+            label = f"{row['artist']} - {row['title']}"
+            summary["checked"] += 1
+
+            if discogs_id in existing_ids:
+                summary["skipped"] += 1
+                _progress(label)
+                continue
+
+            time.sleep(1)  # rate limit
+            result = add_to_discogs_collection(username, token, discogs_id)
+            if result.get("ok"):
+                summary["pushed"] += 1
+                existing_ids.add(discogs_id)
+            else:
+                summary["failed"] += 1
+                summary["errors"].append(f"{label}: {result.get('error', 'unknown')}")
+
+            _progress(label)
+
+    except Exception as e:
+        summary["state"] = "error"
+        summary["errors"] = [str(e)]
+        if on_progress:
+            on_progress(summary)
+        return summary
+
+    summary["state"] = "complete"
+    _progress()
+    return summary
+
+
 def backfill_discogs_ids(username: str, token: str, on_progress=None) -> dict:
     """
     One-time migration: match local albums to Discogs collection entries
