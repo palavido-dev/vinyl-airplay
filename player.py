@@ -522,6 +522,7 @@ class Player:
             self._check_track_boundary()
 
             # Real-time feed loop
+            side_changed = False
             t_start   = time.monotonic()
             pos_start = self._position
             bytes_fed = 0
@@ -546,6 +547,7 @@ class Player:
                         self._position = new_pos
                         self._current_track_idx = -1
                         self._kill_ffmpeg()
+                        side_changed = True
                         break  # restart outer loop on new side
 
                 # Handle seek within current side
@@ -637,6 +639,13 @@ class Player:
                 sleep_needed = target_time - actual_time
                 if sleep_needed > 0.001:
                     time.sleep(sleep_needed)
+
+            # If side was changed via seek_to_track, skip auto-advance
+            if side_changed:
+                self._kill_ffmpeg()
+                self._kill_next_ffmpeg()
+                print(f"[player] Side changed to idx={self._side_idx}, skipping auto-advance")
+                continue
 
             # Don't kill ffmpeg yet if we have a pre-started next side
             # (we only kill it if stopping or changing sides)
