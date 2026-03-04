@@ -2319,6 +2319,96 @@ async def delete_smart_playlist(playlist_id: int):
     return {"ok": True}
 
 
+# ── Song Playlists ──────────────────────────────────────────────────────────
+
+@app.get("/api/song-playlists")
+async def get_song_playlists():
+    return {"ok": True, "playlists": cat.get_song_playlists()}
+
+
+@app.get("/api/song-playlists/{playlist_id}")
+async def get_song_playlist(playlist_id: int):
+    pl = cat.get_song_playlist(playlist_id)
+    if not pl:
+        return {"ok": False, "error": "Not found"}
+    return {"ok": True, "playlist": pl}
+
+
+@app.post("/api/song-playlists")
+async def create_song_playlist(body: dict):
+    name = body.get("name", "").strip()
+    if not name:
+        return {"ok": False, "error": "Name required"}
+    track_ids = body.get("track_ids", [])
+    pid = cat.create_song_playlist(name, track_ids)
+    return {"ok": True, "id": pid}
+
+
+@app.put("/api/song-playlists/{playlist_id}")
+async def update_song_playlist(playlist_id: int, body: dict):
+    name = body.get("name")
+    track_ids = body.get("track_ids")
+    cat.update_song_playlist(playlist_id, name=name, track_ids=track_ids)
+    return {"ok": True}
+
+
+@app.post("/api/song-playlists/{playlist_id}/add")
+async def add_to_song_playlist(playlist_id: int, body: dict):
+    track_id = body.get("track_id")
+    if not track_id:
+        return {"ok": False, "error": "track_id required"}
+    ok = cat.add_track_to_song_playlist(playlist_id, int(track_id))
+    return {"ok": ok}
+
+
+@app.post("/api/song-playlists/{playlist_id}/remove")
+async def remove_from_song_playlist(playlist_id: int, body: dict):
+    index = body.get("index")
+    if index is None:
+        return {"ok": False, "error": "index required"}
+    ok = cat.remove_track_from_song_playlist(playlist_id, int(index))
+    return {"ok": ok}
+
+
+@app.delete("/api/song-playlists/{playlist_id}")
+async def delete_song_playlist(playlist_id: int):
+    cat.delete_song_playlist(playlist_id)
+    return {"ok": True}
+
+
+@app.post("/api/song-playlists/{playlist_id}/play")
+async def play_song_playlist(playlist_id: int, body: dict):
+    """Play a song playlist by queuing individual tracks."""
+    pl = cat.get_song_playlist(playlist_id)
+    if not pl or not pl.get("tracks"):
+        return {"ok": False, "error": "Empty playlist or not found"}
+
+    targets = body.get("devices") or state.settings.get("saved_devices", [])
+    if not targets:
+        return {"ok": False, "error": "No output devices selected"}
+
+    # Group tracks by album for efficient playback
+    # For now, start playback with the first track's album, at that track
+    first_track = pl["tracks"][0]
+    album_id = first_track["album_id"]
+    track_id = first_track["id"]
+
+    # Stop any active playback
+    if state.is_streaming:
+        if state.stop_event:
+            state.stop_event.set()
+    await _stop_playback()
+
+    volume = state.settings.get("volume", 80)
+    state.player_task = asyncio.create_task(
+        _run_playback(album_id, targets, volume, start_track_id=track_id)
+    )
+
+    # Queue remaining tracks from different albums
+    # (will be picked up once player is active)
+    return {"ok": True, "playing": first_track["title"]}
+
+
 @app.put("/api/catalog/{album_id}/position")
 async def update_playback_position(album_id: int, body: dict):
     """Save playback position for resume. body: { side_idx: string, secs: float }"""

@@ -135,6 +135,14 @@ CREATE TABLE IF NOT EXISTS smart_playlists (
     updated_at  TEXT DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS song_playlists (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    name        TEXT NOT NULL,
+    track_ids   TEXT NOT NULL DEFAULT '[]',   -- JSON array of track IDs
+    created_at  TEXT DEFAULT (datetime('now')),
+    updated_at  TEXT DEFAULT (datetime('now'))
+);
+
 CREATE INDEX IF NOT EXISTS idx_plays_album  ON plays(album_id);
 CREATE INDEX IF NOT EXISTS idx_plays_track  ON plays(track_id);
 CREATE INDEX IF NOT EXISTS idx_tracks_album ON tracks(album_id);
@@ -2985,5 +2993,128 @@ def restore_album(album_id: int) -> bool:
         """, (album_id,))
         db.commit()
         return True
+    finally:
+        db.close()
+
+
+# ── Song Playlists ──────────────────────────────────────────────────────────
+
+def get_song_playlists() -> list[dict]:
+    """Return all song playlists with track details."""
+    db = get_db()
+    try:
+        rows = db.execute("SELECT * FROM song_playlists ORDER BY updated_at DESC").fetchall()
+        result = []
+        for r in rows:
+            d = dict(r)
+            track_ids = json.loads(d["track_ids"])
+            d["track_ids"] = track_ids
+            d["track_count"] = len(track_ids)
+            result.append(d)
+        return result
+    finally:
+        db.close()
+
+
+def get_song_playlist(playlist_id: int) -> Optional[dict]:
+    """Get a single song playlist with full track details."""
+    db = get_db()
+    try:
+        row = db.execute("SELECT * FROM song_playlists WHERE id = ?", (playlist_id,)).fetchone()
+        if not row:
+            return None
+        d = dict(row)
+        track_ids = json.loads(d["track_ids"])
+        # Fetch full track info
+        tracks = []
+        for tid in track_ids:
+            t = db.execute("""
+                SELECT t.id, t.title, t.side, t.track_number, t.duration_secs, t.artist as track_artist,
+                       a.id as album_id, a.title as album_title, a.artist,
+                       a.user_artwork_path, a.artwork_path, a.year
+                FROM tracks t JOIN albums a ON a.id = t.album_id
+                WHERE t.id = ?
+            """, (tid,)).fetchone()
+            if t:
+                tracks.append(dict(t))
+        d["tracks"] = tracks
+        d["track_ids"] = track_ids
+        return d
+    finally:
+        db.close()
+
+
+def create_song_playlist(name: str, track_ids: list[int] = None) -> int:
+    """Create a new song playlist. Returns the playlist ID."""
+    db = get_db()
+    try:
+        cur = db.execute(
+            "INSERT INTO song_playlists (name, track_ids) VALUES (?, ?)",
+            (name, json.dumps(track_ids or []))
+        )
+        db.commit()
+        return cur.lastrowid
+    finally:
+        db.close()
+
+
+def update_song_playlist(playlist_id: int, name: str = None, track_ids: list[int] = None) -> bool:
+    """Update a song playlist name and/or tracks."""
+    db = get_db()
+    try:
+        if name is not None:
+            db.execute("UPDATE song_playlists SET name = ?, updated_at = datetime('now') WHERE id = ?",
+                       (name.strip(), playlist_id))
+        if track_ids is not None:
+            db.execute("UPDATE song_playlists SET track_ids = ?, updated_at = datetime('now') WHERE id = ?",
+                       (json.dumps(track_ids), playlist_id))
+        db.commit()
+        return True
+    finally:
+        db.close()
+
+
+def add_track_to_song_playlist(playlist_id: int, track_id: int) -> bool:
+    """Add a track to a song playlist."""
+    db = get_db()
+    try:
+        row = db.execute("SELECT track_ids FROM song_playlists WHERE id = ?", (playlist_id,)).fetchone()
+        if not row:
+            return False
+        ids = json.loads(row[0])
+        ids.append(track_id)
+        db.execute("UPDATE song_playlists SET track_ids = ?, updated_at = datetime('now') WHERE id = ?",
+                   (json.dumps(ids), playlist_id))
+        db.commit()
+        return True
+    finally:
+        db.close()
+
+
+def remove_track_from_song_playlist(playlist_id: int, index: int) -> bool:
+    """Remove a track by index from a song playlist."""
+    db = get_db()
+    try:
+        row = db.execute("SELECT track_ids FROM song_playlists WHERE id = ?", (playlist_id,)).fetchone()
+        if not row:
+            return False
+        ids = json.loads(row[0])
+        if index < 0 or index >= len(ids):
+            return False
+        ids.pop(index)
+        db.execute("UPDATE song_playlists SET track_ids = ?, updated_at = datetime('now') WHERE id = ?",
+                   (json.dumps(ids), playlist_id))
+        db.commit()
+        return True
+    finally:
+        db.close()
+
+
+def delete_song_playlist(playlist_id: int):
+    """Delete a song playlist."""
+    db = get_db()
+    try:
+        db.execute("DELETE FROM song_playlists WHERE id = ?", (playlist_id,))
+        db.commit()
     finally:
         db.close()
