@@ -4808,11 +4808,11 @@ if ('serviceWorker' in navigator) {
 }
 
 // Feature 5: Browser Stream Recovery
-let _browserStreamActive = false;
-let _browserStreamId = null;
-let _browserAudioContext = null;
-let _browserAudioSource = null;
-let _browserStreamRetrying = false;
+// _browserStreamActive already declared in main script block
+var _browserStreamId = null;
+var _browserAudioContext = null;
+var _browserAudioSource = null;
+var _browserStreamRetrying = false;
 
 async function recoverBrowserStream() {
   if (_browserStreamRetrying || !_browserStreamActive) return;
