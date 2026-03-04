@@ -19,6 +19,7 @@ import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional
+from datetime import datetime
 
 import numpy as np
 import pyatv
@@ -3967,6 +3968,154 @@ async def learn_status():
         "remaining_in_album": len(s.pending_tracks),
         "next_track":        s.next_track_name() if s.pending_tracks else None,
     }
+
+
+# System and updates
+
+def _get_git_commit() -> str:
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+            cwd="/opt/vinyl-streamer",
+            timeout=5
+        )
+        return result.stdout.strip() if result.returncode == 0 else "unknown"
+    except Exception:
+        return "unknown"
+
+
+def _count_commits_behind() -> int:
+    try:
+        subprocess.run(
+            ["git", "fetch", "origin"],
+            capture_output=True,
+            timeout=15,
+            cwd="/opt/vinyl-streamer"
+        )
+        result = subprocess.run(
+            ["git", "rev-list", "--count", "HEAD..origin/main"],
+            capture_output=True,
+            text=True,
+            cwd="/opt/vinyl-streamer",
+            timeout=5
+        )
+        if result.returncode == 0:
+            return int(result.stdout.strip())
+        return 0
+    except Exception:
+        return 0
+
+
+@app.get("/api/system/check-update")
+async def check_update():
+    current = _get_git_commit()
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "origin/main"],
+            capture_output=True,
+            text=True,
+            cwd="/opt/vinyl-streamer",
+            timeout=5
+        )
+        latest = result.stdout.strip() if result.returncode == 0 else current
+    except Exception:
+        latest = current
+
+    behind = _count_commits_behind() if latest != current else 0
+    return {
+        "available": latest != current,
+        "current_commit": current,
+        "latest_commit": latest,
+        "commits_behind": behind,
+    }
+
+
+_update_rollback_hash = None
+
+@app.post("/api/system/update")
+async def perform_update(background_tasks):
+    global _update_rollback_hash
+    try:
+        _update_rollback_hash = _get_git_commit()
+        await broadcast("update_status", {
+            "status": "pulling",
+            "message": "Fetching latest code..."
+        })
+
+        result = subprocess.run(
+            ["git", "pull", "origin", "main"],
+            capture_output=True,
+            text=True,
+            cwd="/opt/vinyl-streamer",
+            timeout=30
+        )
+        if result.returncode != 0:
+            raise Exception(f"git pull failed: {result.stderr}")
+
+        await broadcast("update_status", {
+            "status": "installing",
+            "message": "Installing dependencies..."
+        })
+
+        result = subprocess.run(
+            ["/opt/vinyl-streamer/venv/bin/pip", "install", "-r", "requirements.txt"],
+            capture_output=True,
+            text=True,
+            cwd="/opt/vinyl-streamer",
+            timeout=60
+        )
+        if result.returncode != 0:
+            raise Exception(f"pip install failed: {result.stderr}")
+
+        await broadcast("update_status", {
+            "status": "restarting",
+            "message": "Restarting application..."
+        })
+
+        subprocess.run(
+            ["systemctl", "restart", "vinyl-airplay"],
+            timeout=5
+        )
+
+        return {"status": "success", "message": "Update complete. Application restarting..."}
+
+    except Exception as e:
+        error_msg = str(e)
+        await broadcast("update_status", {
+            "status": "error",
+            "message": f"Update failed: {error_msg}"
+        })
+
+        if _update_rollback_hash and _update_rollback_hash != _get_git_commit():
+            try:
+                subprocess.run(
+                    ["git", "reset", "--hard", _update_rollback_hash],
+                    cwd="/opt/vinyl-streamer",
+                    timeout=10
+                )
+                await broadcast("update_status", {
+                    "status": "rolled_back",
+                    "message": "Rolled back to previous version"
+                })
+            except Exception:
+                pass
+
+        return {"status": "error", "message": error_msg}
+
+
+@app.post("/api/wifi/reconfigure")
+async def wifi_reconfigure():
+    try:
+        subprocess.run(
+            ["systemctl", "start", "vinyl-wifi-setup"],
+            timeout=5
+        )
+        return {"status": "portal_started"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
 
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket):
