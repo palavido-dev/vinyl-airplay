@@ -255,6 +255,43 @@
   .eq-slider { flex: 1; height: 4px; -webkit-appearance: none; appearance: none; background: rgba(255,255,255,0.1); border-radius: 2px; outline: none; }
   .eq-slider::-webkit-slider-thumb { -webkit-appearance: none; width: 18px; height: 18px; border-radius: 50%; background: linear-gradient(135deg, var(--amber) 0%, var(--amber-dk) 100%); border: 2px solid var(--walnut); cursor: pointer; box-shadow: 0 1px 4px rgba(0,0,0,0.4); }
 
+  /* ── Advanced EQ Panel ── */
+  .eq-expand-btn {
+    background: none; border: none; color: var(--amber); cursor: pointer;
+    padding: 0.2rem; border-radius: 4px; opacity: 0.7; transition: opacity 0.15s;
+    flex-shrink: 0; display: flex; align-items: center;
+  }
+  .eq-expand-btn:hover { opacity: 1; }
+  .eq-presets { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-bottom: 0.8rem; }
+  .eq-preset-btn {
+    padding: 0.3rem 0.55rem; border-radius: 5px; font-size: 0.7rem;
+    background: rgba(255,255,255,0.06); border: 1px solid rgba(212,162,78,0.15);
+    color: var(--muted); cursor: pointer; transition: all 0.15s;
+    font-family: var(--body-font);
+  }
+  .eq-preset-btn:hover { border-color: var(--amber); color: var(--cream); }
+  .eq-preset-btn.active { background: var(--amber-dk); color: var(--walnut); border-color: var(--amber); font-weight: 600; }
+  .eq-bands-container {
+    display: flex; justify-content: space-around; align-items: flex-end;
+    gap: 0.4rem; padding: 0.6rem 0; min-height: 180px;
+  }
+  .eq-band {
+    display: flex; flex-direction: column; align-items: center; gap: 0.3rem; flex: 1;
+  }
+  .eq-band-slider {
+    writing-mode: vertical-lr; direction: rtl;
+    width: 28px; height: 130px;
+    -webkit-appearance: none; appearance: none;
+    background: rgba(255,255,255,0.08); border-radius: 3px; outline: none;
+  }
+  .eq-band-slider::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 20px; height: 12px; border-radius: 3px;
+    background: linear-gradient(135deg, var(--amber) 0%, var(--amber-dk) 100%);
+    border: 1px solid var(--walnut); cursor: pointer; box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+  }
+  .eq-band-val { font-size: 0.62rem; color: var(--amber); font-weight: 600; min-height: 1em; }
+  .eq-band-label { font-size: 0.58rem; color: var(--muted); }
+
   /* ── Queue Panel ── */
   .queue-panel {
     position: fixed; right: -320px; top: 0; width: 320px; height: 100vh;
@@ -1544,12 +1581,43 @@
     <div class="eq-group"><span class="eq-label">Bass</span><input type="range" class="eq-slider" id="eq-bass" min="-12" max="12" value="0" step="1" oninput="sendEQ()"></div>
     <div class="eq-group"><span class="eq-label">Treble</span><input type="range" class="eq-slider" id="eq-treble" min="-12" max="12" value="0" step="1" oninput="sendEQ()"></div>
     <div class="eq-group"><span class="eq-label">Vol</span><input type="range" class="eq-slider" id="eq-volume" min="0" max="100" value="80" step="1" oninput="sendVolume()"></div>
+    <button class="eq-expand-btn" onclick="showEQPanel()" title="Advanced EQ"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><circle cx="4" cy="12" r="2"/><circle cx="12" cy="10" r="2"/><circle cx="20" cy="14" r="2"/></svg></button>
   </div>
 </div>
 </div>
 
 <!-- Toast Container -->
 <div id="toast-container"></div>
+<!-- Advanced EQ Panel -->
+<div class="modal-overlay" id="eq-modal" onclick="if(event.target===this)hideEQPanel()">
+  <div class="modal" style="max-width:380px">
+    <button class="modal-x" onclick="hideEQPanel()" title="Close">&#10005;</button>
+    <h2 style="font-family:var(--display-font);font-size:1rem;margin-bottom:0.6rem">Equalizer</h2>
+    <div class="eq-presets" id="eq-presets">
+      <button class="eq-preset-btn active" data-preset="flat" onclick="applyPreset('flat')">Flat</button>
+      <button class="eq-preset-btn" data-preset="jazz" onclick="applyPreset('jazz')">Jazz</button>
+      <button class="eq-preset-btn" data-preset="rock" onclick="applyPreset('rock')">Rock</button>
+      <button class="eq-preset-btn" data-preset="hip_hop" onclick="applyPreset('hip_hop')">Hip Hop</button>
+      <button class="eq-preset-btn" data-preset="electronic" onclick="applyPreset('electronic')">Electronic</button>
+      <button class="eq-preset-btn" data-preset="vocal" onclick="applyPreset('vocal')">Vocal</button>
+      <button class="eq-preset-btn" data-preset="classical" onclick="applyPreset('classical')">Classical</button>
+      <button class="eq-preset-btn" data-preset="bass_boost" onclick="applyPreset('bass_boost')">Bass Boost</button>
+      <button class="eq-preset-btn" data-preset="warm" onclick="applyPreset('warm')">Warm</button>
+      <button class="eq-preset-btn" data-preset="bright" onclick="applyPreset('bright')">Bright</button>
+    </div>
+    <div class="eq-bands-container">
+      <div class="eq-band"><input type="range" class="eq-band-slider" id="eq-band-0" min="-12" max="12" value="0" step="1" orient="vertical" oninput="sendBands()"><span class="eq-band-val" id="eq-band-val-0">0</span><span class="eq-band-label">60</span></div>
+      <div class="eq-band"><input type="range" class="eq-band-slider" id="eq-band-1" min="-12" max="12" value="0" step="1" orient="vertical" oninput="sendBands()"><span class="eq-band-val" id="eq-band-val-1">0</span><span class="eq-band-label">250</span></div>
+      <div class="eq-band"><input type="range" class="eq-band-slider" id="eq-band-2" min="-12" max="12" value="0" step="1" orient="vertical" oninput="sendBands()"><span class="eq-band-val" id="eq-band-val-2">0</span><span class="eq-band-label">1k</span></div>
+      <div class="eq-band"><input type="range" class="eq-band-slider" id="eq-band-3" min="-12" max="12" value="0" step="1" orient="vertical" oninput="sendBands()"><span class="eq-band-val" id="eq-band-val-3">0</span><span class="eq-band-label">3.5k</span></div>
+      <div class="eq-band"><input type="range" class="eq-band-slider" id="eq-band-4" min="-12" max="12" value="0" step="1" orient="vertical" oninput="sendBands()"><span class="eq-band-val" id="eq-band-val-4">0</span><span class="eq-band-label">10k</span></div>
+    </div>
+    <div style="display:flex;gap:0.5rem;margin-top:0.6rem">
+      <div class="eq-group" style="flex:1"><span class="eq-label">Bass</span><input type="range" class="eq-slider" id="eq-bass-adv" min="-12" max="12" value="0" step="1" oninput="sendEQFromAdv()"></div>
+      <div class="eq-group" style="flex:1"><span class="eq-label">Treble</span><input type="range" class="eq-slider" id="eq-treble-adv" min="-12" max="12" value="0" step="1" oninput="sendEQFromAdv()"></div>
+    </div>
+  </div>
+</div>
 <button class="queue-fab" id="queue-fab" onclick="toggleQueue()" style="display:none" title="View queue">
   <span style="font-size:1.2rem">&#9776;</span>
   <span class="queue-fab-badge" id="queue-fab-badge">0</span>
@@ -3580,7 +3648,41 @@ async function addToNewPlaylistFromModal(){
 let _eqT=null;
 function sendEQ(){clearTimeout(_eqT);_eqT=setTimeout(()=>{fetch('/api/eq',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({bass:parseInt(document.getElementById('eq-bass').value),treble:parseInt(document.getElementById('eq-treble').value)})})},150)}
 function sendVolume(){clearTimeout(_eqT);_eqT=setTimeout(()=>{const vol=parseInt(document.getElementById('eq-volume').value);fetch('/api/volume',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({volume:vol})}).then(r=>r.json()).catch(()=>{});if(_currentDevices&&_currentDevices[0]){const dev=_currentDevices[0];fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({device_volumes:{...(window._deviceVolumes||{}), [dev.id]:vol}})}).catch(()=>{})}},150)}
-function applyEQValues(b,t,v){document.getElementById('eq-bass').value=b;document.getElementById('eq-treble').value=t;document.getElementById('eq-volume').value=v}
+function applyEQValues(b,t,v){document.getElementById('eq-bass').value=b;document.getElementById('eq-treble').value=t;document.getElementById('eq-volume').value=v;var ba=document.getElementById('eq-bass-adv');if(ba)ba.value=b;var ta=document.getElementById('eq-treble-adv');if(ta)ta.value=t}
+function showEQPanel(){document.getElementById('eq-modal').classList.add('open');syncAdvEQ()}
+function hideEQPanel(){document.getElementById('eq-modal').classList.remove('open')}
+function syncAdvEQ(){document.getElementById('eq-bass-adv').value=document.getElementById('eq-bass').value;document.getElementById('eq-treble-adv').value=document.getElementById('eq-treble').value}
+var _bandT=null;
+function sendBands(){
+  clearTimeout(_bandT);
+  for(var i=0;i<5;i++){document.getElementById('eq-band-val-'+i).textContent=document.getElementById('eq-band-'+i).value}
+  clearActivePreset();
+  _bandT=setTimeout(function(){
+    var bands=[];for(var i=0;i<5;i++)bands.push(parseInt(document.getElementById('eq-band-'+i).value));
+    fetch('/api/eq/bands',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({bands:bands})});
+  },150);
+}
+function sendEQFromAdv(){
+  var b=parseInt(document.getElementById('eq-bass-adv').value);
+  var t=parseInt(document.getElementById('eq-treble-adv').value);
+  document.getElementById('eq-bass').value=b;document.getElementById('eq-treble').value=t;
+  clearActivePreset();sendEQ();
+}
+function applyPreset(name){
+  fetch('/api/eq/preset/'+name,{method:'POST'}).then(function(r){return r.json()}).then(function(d){
+    if(!d.ok)return;
+    document.getElementById('eq-bass').value=d.bass;document.getElementById('eq-treble').value=d.treble;
+    document.getElementById('eq-bass-adv').value=d.bass;document.getElementById('eq-treble-adv').value=d.treble;
+    for(var i=0;i<5;i++){document.getElementById('eq-band-'+i).value=d.bands[i];document.getElementById('eq-band-val-'+i).textContent=d.bands[i]}
+    document.querySelectorAll('.eq-preset-btn').forEach(function(b){b.classList.toggle('active',b.dataset.preset===name)});
+  });
+}
+function clearActivePreset(){document.querySelectorAll('.eq-preset-btn').forEach(function(b){b.classList.remove('active')})}
+function applyBandValues(bands,preset){
+  if(!bands)return;
+  for(var i=0;i<5;i++){var el=document.getElementById('eq-band-'+i);if(el){el.value=bands[i]||0;document.getElementById('eq-band-val-'+i).textContent=bands[i]||0}}
+  if(preset)document.querySelectorAll('.eq-preset-btn').forEach(function(b){b.classList.toggle('active',b.dataset.preset===preset)});
+}
 function updateCrossfadeLabel(){var v=parseFloat(document.getElementById('crossfade-slider').value);document.getElementById('crossfade-label').textContent=v===0?'Off':v.toFixed(1)+'s'}
 function saveCrossfade(){var v=parseFloat(document.getElementById('crossfade-slider').value);fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({crossfade_secs:v})})}
 
@@ -4197,7 +4299,7 @@ async function init(){
   connectWS();await loadAudioDevices();
   const d=await fetch('/api/status').then(r=>r.json());
   setStatus(d);
-  if(d.eq)applyEQValues(d.eq.bass,d.eq.treble,d.eq.volume);
+  if(d.eq){applyEQValues(d.eq.bass,d.eq.treble,d.eq.volume);if(d.eq.bands)applyBandValues(d.eq.bands,d.eq.preset)}
   if(d.now_playing&&d.now_playing.track_title)renderNowPlaying(d.now_playing);
   if(d.player&&d.player.state!=='stopped')onPlayerStatus(d.player);
   if(d.settings){
