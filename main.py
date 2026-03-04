@@ -9,6 +9,7 @@ import collections
 import json
 import math
 import shutil
+import socket
 import struct
 import subprocess
 import threading
@@ -4420,12 +4421,96 @@ def _count_commits_behind() -> int:
 
 @app.get("/api/system/cert")
 async def download_cert():
-    """Serve the self-signed cert for iOS/mobile trust installation."""
-    cert_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "certs", "cert.pem")
-    if not os.path.exists(cert_path):
-        return JSONResponse({"error": "No certificate found"}, status_code=404)
-    return FileResponse(cert_path, media_type="application/x-pem-file",
-                        filename="vinyl-streamer.pem")
+    """Serve the CA root certificate for mobile trust installation."""
+    base = os.path.dirname(os.path.abspath(__file__))
+    # Prefer CA root (mkcert) over server cert (legacy self-signed)
+    ca_path = os.path.join(base, "certs", "rootCA.pem")
+    if os.path.exists(ca_path):
+        return FileResponse(ca_path, media_type="application/x-pem-file",
+                            filename="vinyl-streamer-ca.pem")
+    cert_path = os.path.join(base, "certs", "cert.pem")
+    if os.path.exists(cert_path):
+        return FileResponse(cert_path, media_type="application/x-pem-file",
+                            filename="vinyl-streamer.pem")
+    return JSONResponse({"error": "No certificate found"}, status_code=404)
+
+
+@app.get("/api/system/cert-info")
+async def cert_info():
+    """Get certificate status info for the settings UI."""
+    base = os.path.dirname(os.path.abspath(__file__))
+    cert_path = os.path.join(base, "certs", "cert.pem")
+    ca_path = os.path.join(base, "certs", "rootCA.pem")
+    info = {
+        "has_cert": os.path.exists(cert_path),
+        "has_ca": os.path.exists(ca_path),
+        "hostname": socket.gethostname(),
+        "ip": None,
+        "expiry": None,
+        "sans": [],
+    }
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        info["ip"] = s.getsockname()[0]
+        s.close()
+    except Exception:
+        pass
+    if info["has_cert"]:
+        try:
+            out = subprocess.run(
+                ["openssl", "x509", "-in", cert_path, "-noout", "-enddate", "-ext", "subjectAltName"],
+                capture_output=True, text=True, timeout=5
+            ).stdout
+            for line in out.splitlines():
+                if "notAfter" in line:
+                    info["expiry"] = line.split("=", 1)[-1].strip()
+                if "DNS:" in line or "IP:" in line:
+                    info["sans"] = [s.strip() for s in line.split(",") if "DNS:" in s or "IP:" in s]
+        except Exception:
+            pass
+    return info
+
+
+@app.post("/api/system/generate-certs")
+async def generate_certs():
+    """Regenerate HTTPS certificates with current hostname and IP."""
+    base = os.path.dirname(os.path.abspath(__file__))
+    cert_dir = os.path.join(base, "certs")
+    os.makedirs(cert_dir, exist_ok=True)
+
+    mkcert = shutil.which("mkcert")
+    if not mkcert:
+        return JSONResponse({"error": "mkcert not installed. Run the install script first."}, status_code=500)
+
+    hostname = socket.gethostname()
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+    except Exception:
+        ip = "127.0.0.1"
+
+    env = os.environ.copy()
+    env["CAROOT"] = cert_dir
+
+    # Create CA if it doesn't exist
+    if not os.path.exists(os.path.join(cert_dir, "rootCA.pem")):
+        subprocess.run([mkcert, "-install"], env=env, capture_output=True, timeout=30)
+
+    # Generate server cert
+    result = subprocess.run(
+        [mkcert, "-cert-file", os.path.join(cert_dir, "cert.pem"),
+         "-key-file", os.path.join(cert_dir, "key.pem"),
+         f"{hostname}.local", hostname, ip, "localhost", "127.0.0.1"],
+        env=env, capture_output=True, text=True, timeout=30
+    )
+
+    if result.returncode != 0:
+        return JSONResponse({"error": f"mkcert failed: {result.stderr}"}, status_code=500)
+
+    return {"ok": True, "message": f"Certificates generated for {hostname}.local, {ip}. Restart the app to use them."}
 
 
 @app.get("/api/system/check-update")

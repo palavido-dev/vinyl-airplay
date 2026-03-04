@@ -169,6 +169,24 @@ The update system shows your current version, how many commits behind you are, a
 
 ---
 
+## Mobile Access and HTTPS
+
+The web UI is available over plain HTTP on port 8080 for the local touchscreen and desktop browsers. For mobile features that require camera access (like the barcode scanner), browsers require HTTPS. Vinyl Streamer runs an HTTPS server on port 8443 for this purpose.
+
+The install script automatically sets up [mkcert](https://github.com/FiloSottile/mkcert) to generate a local Certificate Authority and trusted certificates. To use HTTPS on your phone, you just need to install the CA certificate once:
+
+1. Open the app on your phone at `http://<your-pi-ip>:8080`
+2. Go to Settings and find the "Mobile Access" section
+3. Tap "Download Certificate"
+4. **iPhone/iPad:** Install the profile in Settings > General > VPN and Device Management, then enable trust in Settings > General > About > Certificate Trust Settings
+5. **Android:** Install via Settings > Security > Encryption and Credentials > Install a certificate > CA certificate
+
+After installing the CA, access the app at `https://<your-pi-ip>:8443` and camera-dependent features like the barcode scanner will work.
+
+If your Pi's IP address changes, you can regenerate the certificates from the Mobile Access section in Settings.
+
+---
+
 ## How to Use
 
 1. **Connect your hardware** -Plug your turntable (via preamp if needed) into your USB audio interface, and plug the interface into the Pi.

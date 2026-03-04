@@ -1892,6 +1892,29 @@
       </div>
       <button class="btn btn-accent" id="btn-update-now" onclick="performUpdate()" style="width:100%;display:none">Update Now</button>
     </div>
+    <div class="settings-section"><h3>Mobile Access</h3>
+      <p style="font-size:0.78rem;color:var(--muted);margin-bottom:0.5rem;line-height:1.4">To use the barcode scanner or camera features on your phone, your phone needs to trust this device's certificate. Install it once and you're set.</p>
+      <div id="cert-info" style="font-size:0.72rem;color:var(--muted);margin-bottom:0.5rem"></div>
+      <a class="btn btn-accent" href="/api/system/cert" style="display:inline-block;font-size:0.75rem;text-decoration:none;margin-bottom:0.5rem"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:3px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Download Certificate</a>
+      <details style="font-size:0.72rem;color:var(--muted);margin-top:0.3rem">
+        <summary style="cursor:pointer;color:var(--amber)">Setup instructions</summary>
+        <div style="margin-top:0.4rem;line-height:1.5">
+          <strong style="color:var(--cream)">iPhone / iPad:</strong><br>
+          1. Tap "Download Certificate" above<br>
+          2. Go to Settings > General > VPN and Device Management<br>
+          3. Tap the Vinyl Streamer profile and install it<br>
+          4. Go to Settings > General > About > Certificate Trust Settings<br>
+          5. Enable full trust for the Vinyl Streamer certificate<br><br>
+          <strong style="color:var(--cream)">Android:</strong><br>
+          1. Tap "Download Certificate" above<br>
+          2. Go to Settings > Security > Encryption and Credentials<br>
+          3. Tap "Install a certificate" > "CA certificate"<br>
+          4. Select the downloaded file<br><br>
+          Then access the app at <strong id="cert-https-url" style="color:var(--amber)">https://vinyl.local:8443</strong>
+        </div>
+      </details>
+      <div style="margin-top:0.5rem"><button class="btn btn-ghost" onclick="regenerateCerts()" style="font-size:0.68rem">Regenerate certificates</button></div>
+    </div>
     <div class="settings-section"><h3>Personalization</h3>
       <div class="form-row"><label>App Name</label>
         <div style="display:flex;gap:0.4rem">
@@ -4384,6 +4407,24 @@ async function saveRelease(){if(!_pendingRelease)return;const r=await fetch('/ap
 async function submitManual(){const t=document.getElementById('m-album-title').value.trim(),a=document.getElementById('m-artist').value.trim();if(!t||!a){showError('Album title and artist required');return}const ta=document.getElementById('m-tracks-a').value.split('\n').map(s=>s.trim()).filter(Boolean).map((x,i)=>({title:x,side:'A',track_number:String(i+1)}));const tb=document.getElementById('m-tracks-b').value.split('\n').map(s=>s.trim()).filter(Boolean).map((x,i)=>({title:x,side:'B',track_number:String(i+1)}));const tracks=[...ta,...tb];if(!tracks.length){showError('Enter at least one track');return}const r=await fetch('/api/catalog/manual',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({album_title:t,album_artist:a,year:parseInt(document.getElementById('m-year').value)||null,genre:document.getElementById('m-genre').value.trim()||null,label:document.getElementById('m-label').value.trim()||null,notes:document.getElementById('m-notes').value.trim()||null,tracks})}).then(r=>r.json());if(r.ok){hideAddForm();loadCatalog()}else showError(r.error||'Failed')}
 
 function showSettings(){document.getElementById('settings-modal').classList.add('open');loadBluetoothPaired();document.getElementById('setting-app-name').value=document.getElementById('app-name').textContent}
+async function loadCertInfo(){
+  try{var r=await fetch('/api/system/cert-info').then(d=>d.json());
+  var el=document.getElementById('cert-info');
+  if(!el)return;
+  var parts=[];
+  if(r.hostname)parts.push('Host: '+r.hostname+'.local');
+  if(r.ip)parts.push('IP: '+r.ip);
+  if(r.expiry)parts.push('Expires: '+r.expiry);
+  parts.push(r.has_ca?'CA: installed (mkcert)':'CA: not found (legacy self-signed)');
+  el.textContent=parts.join(' \u00b7 ');
+  var urlEl=document.getElementById('cert-https-url');
+  if(urlEl&&r.ip)urlEl.textContent='https://'+r.hostname+'.local:8443';
+  }catch(e){}}
+async function regenerateCerts(){
+  if(!confirm('Regenerate HTTPS certificates? You will need to reinstall the CA on your phone and restart the app.'))return;
+  try{var r=await fetch('/api/system/generate-certs',{method:'POST'}).then(d=>d.json());
+  if(r.ok){showToast(r.message);loadCertInfo()}else{showToast(r.error||'Failed')}}catch(e){showToast('Failed to regenerate')}
+}
 function saveAppName(){var n=document.getElementById('setting-app-name').value.trim()||'The Listening Room';document.getElementById('app-name').textContent=n;document.title=n;fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({app_name:n})});showToast('Name updated')}
 function setTheme(t){
   if(t==='classic'){document.documentElement.removeAttribute('data-theme')}else{document.documentElement.setAttribute('data-theme',t)}
@@ -4598,6 +4639,7 @@ async function init(){
   if(d.storage)updateStorageInfo(d.storage);
   if(d.album_recording){_recAlbumId=d.album_recording.album_id;_recSide=d.album_recording.side;if(!_recStartTime)_recStartTime=Date.now()}
   initSwipeGestures();
+  loadCertInfo();
   await loadCatalog();
   switchView('library');
 }
