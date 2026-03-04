@@ -565,6 +565,8 @@
   .side-header .side-label { flex: 1; margin: 0; }
   .side-remove-btn { background: none; border: none; color: var(--muted); font-size: 0.8rem; cursor: pointer; padding: 0 0.3rem; opacity: 0.5; }
   .side-remove-btn:hover { color: var(--rust); opacity: 1; }
+  .track-delete-btn { background: none; border: none; color: var(--muted); font-size: 0.7rem; cursor: pointer; padding: 0.1rem 0.3rem; opacity: 0.4; margin-left: 0.3rem; border-radius: 3px; }
+  .track-delete-btn:hover { color: var(--rust); opacity: 1; background: rgba(255,80,80,0.1); }
   .add-side-btn { background: none; border: 1px dashed var(--paper-dk); border-radius: 5px; padding: 0.35rem; font-size: 0.75rem; color: var(--amber-dk); cursor: pointer; width: 100%; margin-top: 0.4rem; }
   .add-side-btn:hover { border-color: var(--amber); background: rgba(212,162,78,0.06); }
   .modal-actions { display: flex; flex-wrap: wrap; gap: 0.4rem; padding-top: 0.6rem; border-top: 1px solid rgba(0,0,0,0.08); }
@@ -2787,7 +2789,7 @@ function renderNowPlaying(d){
 var _lastPositionSave=0;
 function onPlayerStatus(d){
   if(typeof ssOnPlayerStatus==='function')ssOnPlayerStatus(d);
-  if(d.state==='stopped'){_playerActive=false;_playerAlbumId=null;document.getElementById('np-transport').style.display='none';document.getElementById('np-progress-row').style.display='none';updateRepeatButton('off');if(_playerSource==='player')hideNPFooter();updateQueueFab();return}
+  if(d.state==='stopped'){_playerActive=false;_playerAlbumId=null;document.getElementById('np-transport').style.display='none';document.getElementById('np-progress-row').style.display='none';updateRepeatButton('off');if(_playerSource==='player')hideNPFooter();closeNowPlayingFullscreen();updateQueueFab();return}
   _playerActive=true;_playerSource='player';showNPFooter();updateQueueFab();
   document.getElementById('np-transport').style.display='flex';document.getElementById('np-progress-row').style.display='flex';
   document.getElementById('np-play-pause').textContent=d.state==='paused'?'\u25B6':'\u23F8';
@@ -2807,6 +2809,7 @@ function onPlayerStatus(d){
 async function playerToggle(){await fetch('/api/player/pause',{method:'POST'})}
 async function playerStop(){
   stopBrowserAudioStream();
+  closeNowPlayingFullscreen();
   await fetch('/api/player/stop',{method:'POST'})
 }
 var _resumeInfo=null;
@@ -3680,6 +3683,7 @@ function renderModalTracks(tracks,reorder,boundaryEdit){
       var fpBadge=learned?'<span style="color:var(--sage);font-size:0.68rem">\u2713 '+t.fingerprint_count+'fp</span>':'<span style="color:var(--muted);font-size:0.68rem">unlearned</span>';
       var fpClear=learned?'<span class="track-fp-clear" title="Clear fingerprints for this track" onclick="event.stopPropagation();clearTrackFP('+t.id+',\''+esc(t.title).replace(/'/g,"\\'")+'\')">\u2715</span>':'';
       var handle=reorder?'<span class="drag-handle">\u2807</span>':'';
+      var delBtn=reorder?'<button class="track-delete-btn" onclick="event.stopPropagation();deleteTrack('+t.id+',\''+esc(t.title).replace(/'/g,"\\'")+'\')\" title="Delete track">\u2715</button>':'';
       var hasAudio=window._modalAlbumHasAudio;var isPlayable=hasAudio&&!reorder&&!boundaryEdit;
       var trackClick=isPlayable?'onclick="playTrackFromModal('+t.id+')"':'';
       var playIcon=isPlayable?'<span class="track-play-icon">\u25B6</span>':'';
@@ -3688,12 +3692,21 @@ function renderModalTracks(tracks,reorder,boundaryEdit){
         var endVal=t.end_secs!=null?fmtTimePrecise(t.end_secs):'0:00.0';
         h+='<div class="track-row" data-id="'+t.id+'" data-idx="'+i+'" data-side="'+side+'" style="gap:0.6rem"><span class="track-num">'+esc(t.track_number||'')+'</span><span style="flex:1">'+esc(t.title)+'</span><input type="text" class="boundary-time-input" id="boundary-start-'+t.id+'" value="'+stVal+'" placeholder="MM:SS.s"><input type="text" class="boundary-time-input" id="boundary-end-'+t.id+'" value="'+endVal+'" placeholder="MM:SS.s"><button class="btn boundary-save-btn" onclick="saveBoundary('+t.id+')">Save</button></div>';
       }else{
-        h+='<div class="track-row" data-id="'+t.id+'" data-idx="'+i+'" data-side="'+side+'" '+trackClick+'>'+handle+playIcon+'<span class="track-num">'+esc(t.track_number||'')+'</span><span style="flex:1">'+esc(t.title)+'</span>'+fpBadge+fpClear+'<span style="color:var(--muted);font-size:0.72rem;min-width:2.5rem;text-align:right">'+dur+'</span></div>';
+        h+='<div class="track-row" data-id="'+t.id+'" data-idx="'+i+'" data-side="'+side+'" '+trackClick+'>'+handle+playIcon+'<span class="track-num">'+esc(t.track_number||'')+'</span><span style="flex:1">'+esc(t.title)+'</span>'+fpBadge+fpClear+'<span style="color:var(--muted);font-size:0.72rem;min-width:2.5rem;text-align:right">'+dur+'</span>'+delBtn+'</div>';
       }
     });
     if(reorder)h+='</div>';
   });
-  if(reorder)h+='<button class="add-side-btn" onclick="addSide()">+ Add Side</button>';
+  if(reorder)h+='<div style="display:flex;gap:0.5rem;margin-top:0.5rem;flex-wrap:wrap"><button class="add-side-btn" onclick="addSide()">+ Add Side</button><button class="add-side-btn" onclick="showAddTrackForm()">+ Add Track</button></div>';
+  h+='<div id="add-track-form" style="display:none;margin-top:0.5rem;padding:0.6rem;background:rgba(0,0,0,0.04);border:1px solid rgba(0,0,0,0.08);border-radius:6px">';
+  h+='<div style="font-size:0.78rem;font-weight:600;margin-bottom:0.4rem;color:var(--leather)">Add a track</div>';
+  h+='<div style="display:flex;gap:0.4rem;flex-wrap:wrap;align-items:end">';
+  h+='<div style="flex:1;min-width:120px"><label style="font-size:0.68rem;color:var(--muted)">Title</label><input type="text" id="add-track-title" style="width:100%;padding:0.3rem 0.4rem;border:1px solid rgba(0,0,0,0.15);border-radius:4px;font-size:0.78rem" placeholder="Track title"></div>';
+  h+='<div style="width:50px"><label style="font-size:0.68rem;color:var(--muted)">Side</label><input type="text" id="add-track-side" style="width:100%;padding:0.3rem 0.4rem;border:1px solid rgba(0,0,0,0.15);border-radius:4px;font-size:0.78rem" value="A" maxlength="2"></div>';
+  h+='<div style="width:40px"><label style="font-size:0.68rem;color:var(--muted)">#</label><input type="text" id="add-track-num" style="width:100%;padding:0.3rem 0.4rem;border:1px solid rgba(0,0,0,0.15);border-radius:4px;font-size:0.78rem" placeholder="auto"></div>';
+  h+='<button class="btn btn-accent" onclick="submitAddTrack()" style="font-size:0.75rem;padding:0.3rem 0.7rem">Add</button>';
+  h+='<button class="btn btn-ghost" onclick="hideAddTrackForm()" style="font-size:0.75rem;padding:0.3rem 0.5rem">Cancel</button>';
+  h+='</div></div>';
   c.innerHTML=h;if(reorder)initDragReorder();
 }
 function seekToTrack(tid){if(!_playerActive)return;fetch('/api/player/seek',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({track_id:tid})})}
@@ -3794,6 +3807,21 @@ function removeSide(side){
   if(hasTracks){showError('Move all tracks off Side '+side+' first');return}
   _reorderExtraSides=_reorderExtraSides.filter(function(s){return s!==side});
   renderModalTracks(tracks,true,false);
+}
+function showAddTrackForm(){var f=document.getElementById('add-track-form');if(f){f.style.display='block';var ti=document.getElementById('add-track-title');if(ti)ti.focus()}}
+function hideAddTrackForm(){var f=document.getElementById('add-track-form');if(f)f.style.display='none'}
+async function submitAddTrack(){
+  var title=(document.getElementById('add-track-title').value||'').trim();
+  if(!title){showError('Enter a track title');return}
+  var side=(document.getElementById('add-track-side').value||'A').trim().toUpperCase();
+  var num=(document.getElementById('add-track-num').value||'').trim()||null;
+  var r=await fetch('/api/catalog/'+currentAlbumId+'/tracks',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:title,side:side,track_number:num})}).then(function(d){return d.json()});
+  if(r.ok){showToast('Added "'+title+'"');hideAddTrackForm();openAlbumDetail(currentAlbumId)}else{showError(r.error||'Failed to add track')}
+}
+async function deleteTrack(tid,title){
+  if(!confirm('Delete track "'+title+'"?'))return;
+  var r=await fetch('/api/catalog/track/'+tid,{method:'DELETE'}).then(function(d){return d.json()});
+  if(r.ok){showToast('Deleted "'+title+'"');openAlbumDetail(currentAlbumId)}else{showError('Failed to delete track')}
 }
 function toggleBoundaryEdit(){_boundaryEditMode=!_boundaryEditMode;document.getElementById('btn-boundary-edit').classList.toggle('btn-accent',_boundaryEditMode);renderModalTracks(window._modalTracks||[],false,_boundaryEditMode)}
 async function saveBoundary(trackId){const stElem=document.getElementById(`boundary-start-${trackId}`);const endElem=document.getElementById(`boundary-end-${trackId}`);if(!stElem||!endElem)return;const st=parseTimeToSecs(stElem.value);const end=parseTimeToSecs(endElem.value);if(st===null||end===null){showError('Invalid time format. Use MM:SS.s');return}if(st>=end){showError('Start time must be before end time');return}const resp=await fetch(`/api/catalog/track/${trackId}/boundaries`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({start_secs:st,end_secs:end})}).then(r=>r.json());if(resp.ok){showToast('Boundary saved');if(currentAlbumId)refreshModalTracks(currentAlbumId)}else showError(resp.error||'Failed to save')}
@@ -4543,7 +4571,9 @@ document.addEventListener('keydown', function(e){
   };
 
   function updateNowPlayingFullscreen() {
-    const track=document.getElementById('np-title').textContent;
+    const titleEl=document.getElementById('np-title');
+    const badge=titleEl.querySelector('.np-source-badge');
+    const track=badge?titleEl.textContent.replace(badge.textContent,'').trim():titleEl.textContent;
     const artist=document.getElementById('np-artist-album').textContent;
     const album=document.getElementById('modal-title').textContent||'';
     document.getElementById('np-fs-track').textContent=track;

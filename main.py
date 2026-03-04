@@ -1802,6 +1802,38 @@ async def get_tracks(album_id: int):
     return {"tracks": cat.get_album_tracks(album_id)}
 
 
+@app.post("/api/catalog/{album_id}/tracks")
+async def add_track(album_id: int, body: dict = Body(...)):
+    title = body.get("title", "").strip()
+    if not title:
+        return {"ok": False, "error": "Title is required"}
+    side = body.get("side", "A")
+    track_number = body.get("track_number")
+    artist = body.get("artist")
+    tid = cat.add_track(album_id, title, side, track_number, artist)
+    if tid:
+        return {"ok": True, "track_id": tid}
+    return {"ok": False, "error": "Failed to add track"}
+
+
+@app.delete("/api/catalog/track/{track_id}")
+async def delete_track(track_id: int):
+    ok = cat.delete_track(track_id)
+    return {"ok": ok}
+
+
+@app.put("/api/catalog/track/{track_id}")
+async def update_track(track_id: int, body: dict = Body(...)):
+    ok = cat.update_track(
+        track_id,
+        title=body.get("title"),
+        artist=body.get("artist"),
+        track_number=body.get("track_number"),
+        side=body.get("side"),
+    )
+    return {"ok": ok}
+
+
 @app.put("/api/catalog/track/{track_id}/boundaries")
 async def update_boundaries(track_id: int, body: dict = Body(...)):
     start = body.get("start_secs")
