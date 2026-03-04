@@ -666,16 +666,41 @@ def get_discogs_release(discogs_id: str, token: str = "") -> dict:
                 continue
 
             # For index tracks (medleys) with no position, infer from
-            # the previous track's side and assign the next number
-            if not pos and is_playable_index and tracks:
-                prev = tracks[-1]
-                side = prev["side"]
-                num = str(int(prev["track_number"]) + 1) if prev["track_number"].isdigit() else str(len([x for x in tracks if x["side"]==side])+1)
+            # sub_tracks if available, otherwise from the previous track
+            if not pos and is_playable_index:
+                sub_tracks = t.get("sub_tracks") or []
+                first_sub_pos = sub_tracks[0].get("position", "") if sub_tracks else ""
+                if first_sub_pos:
+                    # Parse side/number from first sub-track position
+                    # Formats: "B-1.1" (alpha-dash-dot) or "1-7.1" (num-dash-dot)
+                    # Strip everything after the dot to get the parent position
+                    parent_pos = first_sub_pos.split(".")[0]  # "B-1" or "1-7"
+                    if parent_pos and parent_pos[0].isalpha():
+                        # Alpha format: "B-1" -> side B, track 1
+                        side = parent_pos[0].upper()
+                        rest = parent_pos[1:].lstrip("-")
+                        num = rest if rest else str(len([x for x in tracks if x["side"]==side])+1)
+                    elif "-" in parent_pos and parent_pos.split("-")[0].isdigit():
+                        # Numeric dash format: "1-7" -> disc 1 = side A, track 7
+                        parts = parent_pos.split("-", 1)
+                        side_num = int(parts[0]) - 1
+                        side = side_labels[side_num] if side_num < len(side_labels) else "A"
+                        num = parts[1] if parts[1] else str(len([x for x in tracks if x["side"]==side])+1)
+                    else:
+                        side = tracks[-1]["side"] if tracks else "A"
+                        num = str(len([x for x in tracks if x["side"]==side])+1)
+                elif tracks:
+                    prev = tracks[-1]
+                    side = prev["side"]
+                    num = str(int(prev["track_number"]) + 1) if prev["track_number"].isdigit() else str(len([x for x in tracks if x["side"]==side])+1)
+                else:
+                    side = "A"
+                    num = "1"
             # Parse side from position
             elif pos and pos[0].isalpha():
-                # Standard format: A1, B2, C1, etc.
+                # Standard format: A1, B2, A-1, B-2, C-1, etc.
                 side = pos[0].upper()
-                num  = pos[1:] or str(len([x for x in tracks if x["side"]==side])+1)
+                num  = pos[1:].lstrip("-") or str(len([x for x in tracks if x["side"]==side])+1)
             elif "-" in pos and pos.split("-")[0].isdigit():
                 # Dash format: 1-1, 1-2, 2-1, 2-2 (first number is side)
                 parts = pos.split("-", 1)
@@ -701,8 +726,17 @@ def get_discogs_release(discogs_id: str, token: str = "") -> dict:
                 except Exception:
                     pass
 
+            # For medleys/index tracks, append sub-track titles
+            track_title = t.get("title", "")
+            if is_playable_index:
+                sub_tracks = t.get("sub_tracks") or []
+                if sub_tracks:
+                    sub_names = [st.get("title", "") for st in sub_tracks if st.get("title")]
+                    if sub_names:
+                        track_title += " (" + " / ".join(sub_names) + ")"
+
             tracks.append({
-                "title":         t.get("title", ""),
+                "title":         track_title,
                 "track_number":  num,
                 "side":          side,
                 "duration_secs": dur_secs,
