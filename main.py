@@ -645,6 +645,41 @@ class BluetoothManager:
 
         return devices
 
+    @staticmethod
+    def get_bt_codec_info() -> dict:
+        """Get active Bluetooth codec info from bluealsa-cli."""
+        try:
+            pcms = subprocess.run(
+                ["bluealsa-cli", "list-pcms"],
+                capture_output=True, text=True, timeout=3
+            ).stdout.strip()
+            if not pcms:
+                return {"codec": None, "pcms": []}
+            result = {"pcms": [], "codec": None}
+            for pcm_path in pcms.splitlines():
+                pcm_path = pcm_path.strip()
+                if not pcm_path:
+                    continue
+                try:
+                    info = subprocess.run(
+                        ["bluealsa-cli", "info", pcm_path],
+                        capture_output=True, text=True, timeout=3
+                    ).stdout
+                    codec = None
+                    for line in info.splitlines():
+                        if "Codec" in line:
+                            codec = line.split(":", 1)[-1].strip()
+                            break
+                    result["pcms"].append({"path": pcm_path, "codec": codec})
+                    if codec and not result["codec"]:
+                        result["codec"] = codec
+                except Exception:
+                    pass
+            return result
+        except Exception as e:
+            print(f"[bluetooth] Failed to get codec info: {e}")
+            return {"codec": None, "pcms": []}
+
 
 # Initialize BluetoothManager now that the class is defined
 state.bluetooth_manager = BluetoothManager()
@@ -1517,6 +1552,14 @@ async def bluetooth_remove(device_id: str):
         save_settings(state.settings)
     state.settings.get("device_names", {}).pop(device_id, None)
     return result
+
+
+@app.get("/api/bluetooth/codec")
+async def bluetooth_codec():
+    """Get active Bluetooth codec info."""
+    loop = asyncio.get_event_loop()
+    info = await loop.run_in_executor(None, BluetoothManager.get_bt_codec_info)
+    return info
 
 
 @app.get("/api/status")
