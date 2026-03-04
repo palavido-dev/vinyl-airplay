@@ -1846,7 +1846,26 @@
       <div id="auto-stream-status" style="font-size:0.72rem;color:var(--muted);margin-top:0.2rem"></div>
     </div>
     <div class="settings-section"><h3>Audio Input</h3><select class="form-input" id="audio-select"><option value="">Loading…</option></select></div>
-    <div class="settings-section"><h3>Discogs Token</h3><p style="font-size:0.75rem;color:var(--muted);margin-bottom:0.4rem;line-height:1.4">Optional — increases rate limits and enables cover art. <a href="https://www.discogs.com/settings/developers" target="_blank" style="color:var(--amber-dk)">Get token</a></p><div style="display:flex;gap:0.4rem;align-items:center"><input type="password" class="form-input" id="discogs-token" placeholder="Paste token" style="flex:1"><button class="btn btn-accent" onclick="saveDiscogsToken()">Save</button></div><span id="discogs-saved" style="display:none;color:var(--sage);font-size:0.75rem">✓ Saved</span></div>
+    <div class="settings-section"><h3>Discogs</h3>
+      <p style="font-size:0.75rem;color:var(--muted);margin-bottom:0.4rem;line-height:1.4">Connect your Discogs account to search with cover art and sync your collection. <a href="https://www.discogs.com/settings/developers" target="_blank" style="color:var(--amber-dk)">Get token</a></p>
+      <div class="form-row"><label>Token</label><div style="display:flex;gap:0.4rem;align-items:center;flex:1"><input type="password" class="form-input" id="discogs-token" placeholder="Paste token" style="flex:1"><button class="btn btn-accent" onclick="saveDiscogsToken()">Save</button></div></div>
+      <span id="discogs-saved" style="display:none;color:var(--sage);font-size:0.75rem">✓ Saved</span>
+      <div class="form-row" style="margin-top:0.3rem"><label>Username</label><div style="display:flex;gap:0.4rem;align-items:center;flex:1"><input type="text" class="form-input" id="discogs-username" placeholder="Your Discogs username" style="flex:1"><button class="btn btn-accent" onclick="saveDiscogsUsername()">Save</button></div></div>
+      <span id="discogs-user-saved" style="display:none;color:var(--sage);font-size:0.75rem">✓ Saved</span>
+      <div style="margin-top:0.6rem;padding-top:0.5rem;border-top:1px solid var(--muted-bg,rgba(128,128,128,0.15))">
+        <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.4rem">
+          <button class="btn btn-accent" id="discogs-sync-btn" onclick="startDiscogsSync()">Sync collection from Discogs</button>
+        </div>
+        <p style="font-size:0.72rem;color:var(--muted);line-height:1.4;margin-bottom:0.3rem">Imports albums from your Discogs collection that aren't already in the catalog.</p>
+        <div id="discogs-sync-progress" style="display:none">
+          <div style="background:var(--muted-bg,rgba(128,128,128,0.15));border-radius:4px;overflow:hidden;height:6px;margin:0.4rem 0">
+            <div id="discogs-sync-bar" style="height:100%;background:var(--amber);width:0%;transition:width 0.3s"></div>
+          </div>
+          <div id="discogs-sync-label" style="font-size:0.72rem;color:var(--cream)"></div>
+        </div>
+        <div id="discogs-sync-result" style="display:none;font-size:0.75rem;margin-top:0.3rem;line-height:1.4"></div>
+      </div>
+    </div>
     <div class="settings-section"><h3>Storage</h3>
       <div style="font-size:0.82rem;margin-bottom:0.3rem">Location: <strong id="storage-path">—</strong></div>
       <div style="font-size:0.75rem;color:var(--muted);margin-bottom:0.5rem">Free: <span id="storage-free">—</span> GB of <span id="storage-total">—</span> GB</div>
@@ -2225,6 +2244,7 @@ function handleEvent(d){
   if(d.event==='album_recording_side_saved')onAlbumRecSideSaved(d);
   if(d.event==='auto_stream_starting')showToast('\uD83D\uDCFB '+(d.message||'Auto-streaming\u2026'));
   if(d.event==='level')onLevel(d);
+  if(d.event==='sync_progress')onSyncProgress(d);
   if(d.eq)applyEQValues(d.eq.bass,d.eq.treble,d.eq.volume);
 }
 
@@ -4450,6 +4470,9 @@ async function toggleHidden(did,hide){await fetch('/api/device/hide',{method:'PO
 async function saveAutoStreamSettings(){const en=document.getElementById('auto-stream-enabled').checked,sel=document.getElementById('auto-stream-device-select'),opt=sel.options[sel.selectedIndex],dev=opt&&opt.value?{id:opt.value,name:opt.textContent}:null;await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({auto_stream_enabled:en,auto_stream_device:dev})});document.getElementById('auto-stream-status').textContent=en&&dev?`Auto-streaming to: ${dev.name}`:''}
 async function scanAutoStreamDevices(){const sel=document.getElementById('auto-stream-device-select');sel.innerHTML='<option value="">Scanning\u2026</option>';try{const d=await fetch('/api/scan').then(r=>r.json());sel.innerHTML='<option value="">\u2014 Select \u2014</option>';(d.devices||[]).filter(d=>!d.hidden).forEach(d=>{const o=document.createElement('option');o.value=d.id;o.textContent=d.name;sel.appendChild(o)});if(window._savedAutoStreamDevice)sel.value=window._savedAutoStreamDevice.id}catch(e){sel.innerHTML='<option value="">Scan failed</option>'}}
 async function saveDiscogsToken(){const t=document.getElementById('discogs-token').value.trim();await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({discogs_token:t})});const el=document.getElementById('discogs-saved');el.style.display='inline';setTimeout(()=>el.style.display='none',2000)}
+async function saveDiscogsUsername(){const u=document.getElementById('discogs-username').value.trim();await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({discogs_username:u})});const el=document.getElementById('discogs-user-saved');el.style.display='inline';setTimeout(()=>el.style.display='none',2000)}
+async function startDiscogsSync(){const btn=document.getElementById('discogs-sync-btn');btn.disabled=true;btn.textContent='Syncing...';document.getElementById('discogs-sync-progress').style.display='block';document.getElementById('discogs-sync-result').style.display='none';try{const r=await fetch('/api/catalog/sync/discogs',{method:'POST'}).then(r=>r.json());if(!r.ok){showError(r.error||'Sync failed');btn.disabled=false;btn.textContent='Sync collection from Discogs';document.getElementById('discogs-sync-progress').style.display='none'}}catch(e){showError('Sync failed: '+e.message);btn.disabled=false;btn.textContent='Sync collection from Discogs';document.getElementById('discogs-sync-progress').style.display='none'}}
+function onSyncProgress(d){const bar=document.getElementById('discogs-sync-bar');const label=document.getElementById('discogs-sync-label');const pct=d.total>0?Math.round((d.checked/d.total)*100):0;bar.style.width=pct+'%';if(d.state==='running'||d.state==='starting'){label.textContent='Checking '+d.checked+' of '+d.total+(d.current_album?' \u2014 '+d.current_album:'');label.style.color='var(--cream)'}if(d.state==='complete'){document.getElementById('discogs-sync-progress').style.display='none';const res=document.getElementById('discogs-sync-result');res.style.display='block';res.style.color='var(--sage)';res.innerHTML='Imported <strong>'+d.imported+'</strong> new album'+(d.imported!==1?'s':'')+', '+d.skipped+' already in catalog'+(d.failed>0?', <span style="color:var(--rust)">'+d.failed+' failed</span>':'');const btn=document.getElementById('discogs-sync-btn');btn.disabled=false;btn.textContent='Sync collection from Discogs';loadCatalog()}if(d.state==='error'){document.getElementById('discogs-sync-progress').style.display='none';const res=document.getElementById('discogs-sync-result');res.style.display='block';res.style.color='var(--rust)';res.textContent='Sync error: '+(d.errors&&d.errors[0]||'unknown');const btn=document.getElementById('discogs-sync-btn');btn.disabled=false;btn.textContent='Sync collection from Discogs'}}
 function updateStorageInfo(storage){if(!storage)return;document.getElementById('storage-path').textContent=storage.path||'—';document.getElementById('storage-free').textContent=storage.free_gb||'—';document.getElementById('storage-total').textContent=storage.total_gb||'—'}
 async function changeStoragePath(){const p=document.getElementById('new-storage-path').value.trim();if(!p){alert('Enter a path');return}if(!confirm('Move all recordings to '+p+'?'))return;const st=document.getElementById('storage-status');st.style.display='block';st.style.color='var(--muted)';st.textContent='Moving files…';try{const r=await fetch('/api/settings/storage',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path:p})}).then(r=>r.json());if(r.ok){st.style.color='var(--sage)';st.textContent=r.message;document.getElementById('new-storage-path').value='';const d=await fetch('/api/status').then(r=>r.json());if(d.storage)updateStorageInfo(d.storage)}else{st.style.color='var(--rust)';st.textContent=r.error||'Failed'}}catch(e){st.style.color='var(--rust)';st.textContent='Error: '+e.message}}
 var _dirPickerPath='/';
@@ -4629,6 +4652,7 @@ async function init(){
   if(d.player&&d.player.state!=='stopped')onPlayerStatus(d.player);
   if(d.settings){
     if(d.settings.discogs_token)document.getElementById('discogs-token').value=d.settings.discogs_token;
+    if(d.settings.discogs_username)document.getElementById('discogs-username').value=d.settings.discogs_username;
     if(d.settings.saved_devices&&d.settings.saved_devices.length)_lastUsedDevice=d.settings.saved_devices[0].id;
     if(d.settings.auto_stream_enabled!==undefined){document.getElementById('auto-stream-enabled').checked=d.settings.auto_stream_enabled;if(d.settings.auto_stream_device){window._savedAutoStreamDevice=d.settings.auto_stream_device;scanAutoStreamDevices()}const st=document.getElementById('auto-stream-status');if(d.settings.auto_stream_enabled&&d.settings.auto_stream_device)st.textContent=`Auto-streaming to: ${d.settings.auto_stream_device.name}`}
     if(d.settings.crossfade_secs!==undefined){document.getElementById('crossfade-slider').value=d.settings.crossfade_secs;updateCrossfadeLabel()}
