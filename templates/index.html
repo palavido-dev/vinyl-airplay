@@ -1570,6 +1570,7 @@
       <button class="np-btn" id="np-repeat" onclick="playerRepeat()" title="Repeat" style="opacity:0.4"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg></button>
       <button class="np-btn" onclick="toggleQueue()" title="Queue">☰</button>
       <button class="np-btn" onclick="switchOutput()" title="Switch output"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg></button>
+      <button class="np-btn" id="sleep-timer-btn" onclick="toggleSleepTimer()" title="Sleep timer" style="opacity:0.4"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg></button>
     </div>
   </div>
   <div class="np-progress-row" id="np-progress-row" style="display:none">
@@ -3868,6 +3869,44 @@ function applyBandValues(bands,preset){
 }
 function updateCrossfadeLabel(){var v=parseFloat(document.getElementById('crossfade-slider').value);document.getElementById('crossfade-label').textContent=v===0?'Off':v.toFixed(1)+'s'}
 function saveCrossfade(){var v=parseFloat(document.getElementById('crossfade-slider').value);fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({crossfade_secs:v})})}
+
+// --- Sleep Timer ---
+var _sleepTimerInterval=null;
+var _sleepTimerEnd=null;
+var _sleepTimerOptions=[15,30,45,60,90];
+var _sleepTimerIdx=-1;
+function toggleSleepTimer(){
+  _sleepTimerIdx++;
+  if(_sleepTimerIdx>=_sleepTimerOptions.length){
+    // Cancel timer
+    clearInterval(_sleepTimerInterval);_sleepTimerInterval=null;_sleepTimerEnd=null;_sleepTimerIdx=-1;
+    document.getElementById('sleep-timer-btn').style.opacity='0.4';
+    document.getElementById('sleep-timer-btn').title='Sleep timer';
+    showToast('Sleep timer off');
+    return;
+  }
+  var mins=_sleepTimerOptions[_sleepTimerIdx];
+  _sleepTimerEnd=Date.now()+mins*60000;
+  clearInterval(_sleepTimerInterval);
+  _sleepTimerInterval=setInterval(function(){
+    if(!_sleepTimerEnd){clearInterval(_sleepTimerInterval);return}
+    var remaining=Math.max(0,_sleepTimerEnd-Date.now());
+    if(remaining<=0){
+      // Time's up - stop playback
+      clearInterval(_sleepTimerInterval);_sleepTimerInterval=null;_sleepTimerEnd=null;_sleepTimerIdx=-1;
+      document.getElementById('sleep-timer-btn').style.opacity='0.4';
+      document.getElementById('sleep-timer-btn').title='Sleep timer';
+      if(_playerActive)playerStop();
+      showToast('Sleep timer: playback stopped');
+      return;
+    }
+    var m=Math.ceil(remaining/60000);
+    document.getElementById('sleep-timer-btn').title='Sleep: '+m+'m remaining (tap to change)';
+  },10000);
+  document.getElementById('sleep-timer-btn').style.opacity='1';
+  document.getElementById('sleep-timer-btn').title='Sleep: '+mins+'m (tap to change, tap past 90m to cancel)';
+  showToast('Sleep timer: '+mins+' minutes');
+}
 
 async function openAlbumDetail(id){
   currentAlbumId=id;
