@@ -445,6 +445,9 @@
   .shelf { margin-bottom: 1.5rem; }
   .shelf-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.6rem; padding: 0 0.5rem; }
   .shelf-title { font-family: var(--display-font); font-size: 0.85rem; font-weight: 700; color: var(--ink); letter-spacing: 0.01em; }
+  .shelf-header-actions { display: flex; align-items: center; gap: 0.4rem; }
+  .shelf-play-btn { background: none; border: 1px solid var(--amber); color: var(--amber-dk); width: 26px; height: 26px; border-radius: 50%; cursor: pointer; font-size: 0.7rem; display: flex; align-items: center; justify-content: center; padding: 0; transition: background 0.15s; }
+  .shelf-play-btn:hover { background: var(--amber); color: #fff; }
   .shelf-see-all { font-size: 0.7rem; color: var(--amber); cursor: pointer; text-decoration: underline; }
   .shelf-scroll { display: flex; gap: 0.6rem; overflow-x: auto; padding: 0 0.5rem; -webkit-overflow-scrolling: touch; }
   .shelf-scroll::-webkit-scrollbar { height: 4px; }
@@ -2132,18 +2135,80 @@ async function switchView(view){
   if(view==='shelves'){await renderHomeView()}
 }
 
+var _shelfData={};
 async function renderHomeView(){
-  try{const resp=await fetch('/api/catalog/shelves').then(r=>r.json());_homeShelvesData=resp;let html='';const shelves=[{title:'Recently Played',items:resp.recently_played},{title:'Recently Added',items:resp.recently_added},{title:'Most Played',items:resp.most_played},{title:'Unplayed',items:resp.unplayed},{title:'Favorites',items:resp.favorites},{title:'Top Rated',items:resp.top_rated}];shelves.forEach(s=>{if(s.items.length>0){html+=renderShelf(s.title,s.items)}});Object.entries(resp.decades||{}).forEach(([title,items])=>{if(items.length>0){html+=renderShelf(title,items)}});Object.entries(resp.genres||{}).forEach(([title,items])=>{if(items.length>0){html+=renderShelf(title,items)}});document.getElementById('home-view').innerHTML=html}catch(e){showError('Failed to load home shelves')}}
+  try{
+    const resp=await fetch('/api/catalog/shelves').then(r=>r.json());
+    _homeShelvesData=resp;
+    _shelfData={};
+    let html='';
+    const shelves=[
+      {title:'Recently Played',items:resp.recently_played},
+      {title:'Recently Added',items:resp.recently_added},
+      {title:'Most Played',items:resp.most_played},
+      {title:'Unplayed',items:resp.unplayed},
+      {title:'Favorites',items:resp.favorites},
+      {title:'Top Rated',items:resp.top_rated}
+    ];
+    shelves.forEach(s=>{if(s.items.length>0){_shelfData[s.title]=s.items;html+=renderShelf(s.title,s.items)}});
+    Object.entries(resp.decades||{}).forEach(([title,items])=>{if(items.length>0){_shelfData[title]=items;html+=renderShelf(title,items)}});
+    Object.entries(resp.genres||{}).forEach(([title,items])=>{if(items.length>0){_shelfData[title]=items;html+=renderShelf(title,items)}});
+    document.getElementById('home-view').innerHTML=html;
+  }catch(e){showError('Failed to load home shelves')}
+}
 
 function renderShelf(title,items){
+  const hasAny=items.some(a=>a.audio_count>0);
   const itemsHtml=items.map(a=>{const art=a.user_artwork_path||a.artwork_path;const src=art?'/artwork/'+art.split('/').pop()+'?t='+a.id:'';const artEl=src?`<img src="${src}" class="shelf-item-art" alt="" loading="lazy" onerror="this.nextElementSibling.style.display='flex';this.style.display='none'">`:'';const fallbackStyle=src?'display:none':'display:flex';return `<div class="shelf-item" onclick="openAlbumDetail(${a.id})" title="${esc(a.title)}">${artEl}<div style="width:80px;height:80px;border-radius:4px;${fallbackStyle};align-items:center;justify-content:center;background:var(--paper-dk);font-size:1.8rem">&#x1F4BF;</div></div>`}).join('');
-  return `<div class="shelf"><div class="shelf-header"><span class="shelf-title">${esc(title)}</span><span class="shelf-see-all" onclick="filterByShelf('${esc(title)}')">See All</span></div><div class="shelf-scroll">${itemsHtml}</div></div>`
+  const safeTitle=esc(title).replace(/'/g,"\\'");
+  const playBtns=hasAny?`<button class="shelf-play-btn" onclick="event.stopPropagation();playShelf('${safeTitle}')" title="Play">&#9654;</button><button class="shelf-play-btn" onclick="event.stopPropagation();shuffleShelf('${safeTitle}')" title="Shuffle">&#8645;</button>`:'';
+  return `<div class="shelf"><div class="shelf-header"><span class="shelf-title">${esc(title)}</span><span class="shelf-header-actions">${playBtns}<span class="shelf-see-all" onclick="filterByShelf('${safeTitle}')">See All</span></span></div><div class="shelf-scroll">${itemsHtml}</div></div>`
 }
 
 function filterByShelf(shelf){
   switchView('library');
   document.getElementById('catalog-search').value=shelf;
   filterCatalog(shelf)
+}
+
+async function playShelf(title){
+  var items=_shelfData[title];
+  if(!items||!items.length){showError('No albums in this shelf');return}
+  var playable=items.filter(a=>a.audio_count>0);
+  if(!playable.length){showError('No recorded albums in this shelf');return}
+  if(!_isStreaming&&!_playerActive){_pendingAlbumId=playable[0].id;showOutputPicker();return}
+  var queue=[];
+  for(var i=0;i<playable.length;i++){
+    var a=playable[i];
+    var sides=await fetch('/api/catalog/'+a.id+'/tracks').then(function(r){return r.json()}).then(function(d){
+      var s=new Map();(d.tracks||[]).forEach(function(t){var side=t.side||'A';if(!s.has(side))s.set(side,[]);s.get(side).push(t)});
+      return Array.from(s.keys()).sort().map(function(side){return {album_id:a.id,album_title:a.title,album_artist:a.artist,side:side,tracks:s.get(side)}});
+    });
+    queue.push.apply(queue,sides);
+  }
+  await fetch('/api/player/play',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({queue:queue,devices:_currentDevices})}).catch(function(e){showError('Playback failed')});
+  showToast('Playing '+title);
+}
+
+async function shuffleShelf(title){
+  var items=_shelfData[title];
+  if(!items||!items.length){showError('No albums in this shelf');return}
+  var playable=items.filter(a=>a.audio_count>0);
+  if(!playable.length){showError('No recorded albums in this shelf');return}
+  // Shuffle the album order
+  for(var i=playable.length-1;i>0;i--){var j=Math.floor(Math.random()*(i+1));var tmp=playable[i];playable[i]=playable[j];playable[j]=tmp}
+  if(!_isStreaming&&!_playerActive){_pendingAlbumId=playable[0].id;showOutputPicker();return}
+  var queue=[];
+  for(var i=0;i<playable.length;i++){
+    var a=playable[i];
+    var sides=await fetch('/api/catalog/'+a.id+'/tracks').then(function(r){return r.json()}).then(function(d){
+      var s=new Map();(d.tracks||[]).forEach(function(t){var side=t.side||'A';if(!s.has(side))s.set(side,[]);s.get(side).push(t)});
+      return Array.from(s.keys()).sort().map(function(side){return {album_id:a.id,album_title:a.title,album_artist:a.artist,side:side,tracks:s.get(side)}});
+    });
+    queue.push.apply(queue,sides);
+  }
+  await fetch('/api/player/play',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({queue:queue,devices:_currentDevices})}).catch(function(e){showError('Playback failed')});
+  showToast('Shuffling '+title);
 }
 
 // ── Sort comparators ──
@@ -2179,7 +2244,11 @@ function renderAlbumCard(a){
 
 function renderCatalog(albums){
   var g=document.getElementById('album-grid');
-  if(!albums.length){g.innerHTML='<div class="catalog-empty">No albums yet.<br>Tap + to add your first record.</div>';return}
+  if(!albums.length){
+    if(_catalogAlbums.length===0){g.innerHTML='<div class="catalog-empty">No albums yet.<br>Tap + to add your first record.</div>'}
+    else{g.innerHTML='<div class="catalog-empty">No matching albums.<br>Try adjusting your search or filters.</div>'}
+    return;
+  }
   var sorted=sortAlbums(albums);
   if(_viewState.groupBy){
     var groups={},order=[];
