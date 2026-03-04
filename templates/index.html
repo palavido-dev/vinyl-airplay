@@ -4503,12 +4503,16 @@ async function loadBluetoothPaired(){
     var d=await fetch('/api/devices').then(r=>r.json());
     var btDevs=(d.devices||[]).filter(dev=>dev.type==='bluetooth');
     if(!btDevs.length){list.innerHTML='<div style="color:var(--muted);font-size:0.82rem">No paired Bluetooth devices</div>';return}
+    var codecInfo=null;try{codecInfo=await fetch('/api/bluetooth/codec').then(r=>r.json())}catch(e){}
+    var activeCodec=codecInfo&&codecInfo.codec?codecInfo.codec:null;
     list.innerHTML=btDevs.map(dev=>{
       var addr=dev.address||dev.id.replace('bt:','');
       var name=dev.custom_name||dev.name||addr;
       var conn=dev.connected;
+      var codecBadge=conn&&activeCodec?'<span style="font-size:0.6rem;background:var(--amber);color:var(--bg);padding:0.05rem 0.3rem;border-radius:3px;font-weight:700;letter-spacing:0.02em">'+esc(activeCodec)+'</span>':'';
       return '<div class="bt-device-item">'
         +'<span style="font-size:0.82rem;flex:1">'+esc(name)+'</span>'
+        +codecBadge
         +'<span class="bt-status '+(conn?'connected':'paired')+'">'+(conn?'Connected':'Paired')+'</span>'
         +(conn
           ?'<button class="btn btn-ghost" style="padding:0.15rem 0.4rem;font-size:0.68rem" onclick="disconnectBluetoothDevice(\''+addr+'\',\''+esc(name).replace(/'/g,"\\'")+'\')">Disconnect</button>'
