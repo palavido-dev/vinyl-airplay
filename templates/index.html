@@ -175,7 +175,7 @@
     background: var(--walnut);
     border-left: 2px solid var(--walnut-lt);
     box-shadow: -2px 0 12px rgba(0,0,0,0.3);
-    z-index: 200;
+    z-index: 300;
     display: flex; flex-direction: column;
     transition: right 0.3s ease-out;
     overflow: hidden;
@@ -1390,7 +1390,7 @@
       border-left: none; border-top: 2px solid var(--amber-dk);
       border-radius: 12px 12px 0 0;
       transition: bottom 0.3s ease-out;
-      z-index: 200;
+      z-index: 300;
     }
     .queue-panel.open { bottom: 0; }
     .queue-clear-btn { min-width: 44px; min-height: 44px; }
@@ -2047,7 +2047,7 @@
 </div>
 
 <!-- Queue Backdrop (mobile) -->
-<div id="queue-backdrop" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:199" onclick="toggleQueue()"></div>
+<div id="queue-backdrop" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:299" onclick="toggleQueue()"></div>
 <!-- Queue Panel -->
 <div class="queue-panel" id="queue-panel">
   <div class="queue-header">
