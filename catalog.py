@@ -638,7 +638,9 @@ def get_discogs_release(discogs_id: str, token: str = "") -> dict:
         for t in tracklist_raw:
             pos = t.get("position", "")
             ttype = t.get("type_", "track")
-            if ttype == "heading" or ttype == "index":
+            # An "index" with a duration is a playable track (e.g. medley),
+            # not a structural heading -- skip it in heading detection
+            if ttype == "heading" or (ttype == "index" and not t.get("duration")):
                 # Assign this heading a side letter (A, B, C, ...)
                 if heading_idx < len(side_labels):
                     current_heading_side = side_labels[heading_idx]
@@ -654,14 +656,23 @@ def get_discogs_release(discogs_id: str, token: str = "") -> dict:
         tracks = []
         for t in tracklist_raw:
             ttype = t.get("type_", "track")
-            if ttype != "track":
+            # Include regular tracks and "index" entries that have a duration
+            # (medleys, overtures, etc. that are playable as a single track)
+            is_playable_index = (ttype == "index" and t.get("duration") and t.get("title"))
+            if ttype != "track" and not is_playable_index:
                 continue
             pos = t.get("position", "")
             if not pos and not t.get("title"):
                 continue
 
+            # For index tracks (medleys) with no position, infer from
+            # the previous track's side and assign the next number
+            if not pos and is_playable_index and tracks:
+                prev = tracks[-1]
+                side = prev["side"]
+                num = str(int(prev["track_number"]) + 1) if prev["track_number"].isdigit() else str(len([x for x in tracks if x["side"]==side])+1)
             # Parse side from position
-            if pos and pos[0].isalpha():
+            elif pos and pos[0].isalpha():
                 # Standard format: A1, B2, C1, etc.
                 side = pos[0].upper()
                 num  = pos[1:] or str(len([x for x in tracks if x["side"]==side])+1)
