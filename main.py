@@ -1714,6 +1714,9 @@ async def update_settings(body: dict):
     if "discogs_token" in body:
         state.settings["discogs_token"] = str(body["discogs_token"])
         save_settings(state.settings)
+    if "discogs_username" in body:
+        state.settings["discogs_username"] = str(body["discogs_username"]).strip()
+        save_settings(state.settings)
     if "crossfade_secs" in body:
         cf = max(0, min(2.0, float(body["crossfade_secs"])))
         state.settings["crossfade_secs"] = cf
@@ -2073,6 +2076,64 @@ async def discogs_release(discogs_id: str):
     return data
 
 
+
+
+# -- Discogs Collection Sync --------------------------------------------------
+
+_discogs_sync_status = {"state": "idle"}
+_discogs_sync_lock = threading.Lock()
+
+
+@app.post("/api/catalog/sync/discogs")
+async def start_discogs_sync():
+    """Import the user's Discogs collection into the local catalog."""
+    username = state.settings.get("discogs_username", "").strip()
+    token = state.settings.get("discogs_token", "")
+    if not username:
+        return JSONResponse({"ok": False, "error": "Discogs username not set"}, status_code=400)
+    if not token:
+        return JSONResponse({"ok": False, "error": "Discogs token not set"}, status_code=400)
+
+    if not _discogs_sync_lock.acquire(blocking=False):
+        return JSONResponse({"ok": False, "error": "Sync already running"}, status_code=409)
+
+    global _discogs_sync_status
+    _discogs_sync_status = {"state": "starting", "total": 0, "checked": 0,
+                            "imported": 0, "skipped": 0, "failed": 0}
+
+    loop = asyncio.get_event_loop()
+
+    def _run_sync():
+        global _discogs_sync_status
+        try:
+            def on_progress(info):
+                global _discogs_sync_status
+                _discogs_sync_status = info
+                asyncio.run_coroutine_threadsafe(
+                    broadcast("sync_progress", info), loop
+                )
+
+            result = cat.sync_from_discogs(username, token, on_progress=on_progress)
+            _discogs_sync_status = result
+            asyncio.run_coroutine_threadsafe(
+                broadcast("sync_progress", result), loop
+            )
+        except Exception as e:
+            _discogs_sync_status = {"state": "error", "errors": [str(e)]}
+            asyncio.run_coroutine_threadsafe(
+                broadcast("sync_progress", _discogs_sync_status), loop
+            )
+        finally:
+            _discogs_sync_lock.release()
+
+    threading.Thread(target=_run_sync, daemon=True).start()
+    return {"ok": True, "message": "Sync started"}
+
+
+@app.get("/api/catalog/sync/discogs/status")
+async def discogs_sync_status():
+    """Return current Discogs sync status."""
+    return _discogs_sync_status
 
 
 @app.post("/api/catalog/release")

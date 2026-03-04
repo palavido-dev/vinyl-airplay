@@ -3118,3 +3118,129 @@ def delete_song_playlist(playlist_id: int):
         db.commit()
     finally:
         db.close()
+
+
+# -- Discogs Collection Sync -------------------------------------------------
+
+def get_discogs_collection_page(username: str, token: str, page: int = 1,
+                                per_page: int = 100) -> dict:
+    """
+    Fetch one page of releases from a user's Discogs collection (folder 0 = all).
+    Returns {"releases": [...], "pages": int, "total": int} or raises on error.
+    """
+    import urllib.request
+    params = urllib.parse.urlencode({
+        "page": page, "per_page": per_page,
+        "sort": "artist", "sort_order": "asc",
+    })
+    url = f"https://api.discogs.com/users/{urllib.parse.quote(username)}/collection/folders/0/releases?{params}"
+    headers = {"User-Agent": USER_AGENT}
+    if token:
+        headers["Authorization"] = f"Discogs token={token}"
+    req = urllib.request.Request(url, headers=headers)
+    with urllib.request.urlopen(req, timeout=15) as r:
+        data = json.loads(r.read())
+    pagination = data.get("pagination", {})
+    return {
+        "releases": data.get("releases", []),
+        "pages":    pagination.get("pages", 1),
+        "total":    pagination.get("items", 0),
+    }
+
+
+def sync_from_discogs(username: str, token: str,
+                      on_progress=None) -> dict:
+    """
+    Import a Discogs collection into the local catalog.
+
+    Paginates through the user's collection, skips albums already present
+    (matched by discogs:{release_id} in musicbrainz_release_id), and
+    imports new ones using get_discogs_release + save_release_to_catalog.
+
+    on_progress(info: dict) is called after each album is processed so
+    the caller can push WebSocket updates.
+
+    Returns a summary dict with counts and any errors.
+    """
+    summary = {
+        "total": 0, "checked": 0, "imported": 0,
+        "skipped": 0, "failed": 0, "errors": [],
+        "state": "running",
+    }
+
+    def _progress(current_album=""):
+        if on_progress:
+            on_progress({**summary, "current_album": current_album})
+
+    try:
+        # First page to get totals
+        first = get_discogs_collection_page(username, token, page=1)
+        total_pages = first["pages"]
+        summary["total"] = first["total"]
+        _progress()
+
+        # Build set of existing discogs IDs for fast lookup
+        db = get_db()
+        try:
+            rows = db.execute(
+                "SELECT musicbrainz_release_id FROM albums "
+                "WHERE musicbrainz_release_id LIKE 'discogs:%' "
+                "AND deleted_at IS NULL"
+            ).fetchall()
+            existing_ids = {r["musicbrainz_release_id"] for r in rows}
+        finally:
+            db.close()
+
+        all_releases = first["releases"]
+        for pg in range(2, total_pages + 1):
+            time.sleep(1)  # rate limit
+            page_data = get_discogs_collection_page(username, token, page=pg)
+            all_releases.extend(page_data["releases"])
+
+        for rel in all_releases:
+            basic = rel.get("basic_information", {})
+            discogs_id = str(basic.get("id", ""))
+            artist = ", ".join(a.get("name", "") for a in basic.get("artists", []))
+            title = basic.get("title", "Unknown")
+            label = f"{artist} - {title}"
+
+            summary["checked"] += 1
+
+            # Already in catalog?
+            if f"discogs:{discogs_id}" in existing_ids:
+                summary["skipped"] += 1
+                _progress(label)
+                continue
+
+            # Fetch full release and save
+            try:
+                time.sleep(1)  # rate limit between fetches
+                release = get_discogs_release(discogs_id, token)
+                if not release.get("ok"):
+                    summary["failed"] += 1
+                    summary["errors"].append(f"{label}: {release.get('error', 'unknown')}")
+                    _progress(label)
+                    continue
+                album_id = save_release_to_catalog(release["release"])
+                if album_id:
+                    summary["imported"] += 1
+                    existing_ids.add(f"discogs:{discogs_id}")
+                else:
+                    summary["failed"] += 1
+                    summary["errors"].append(f"{label}: save failed")
+            except Exception as e:
+                summary["failed"] += 1
+                summary["errors"].append(f"{label}: {e}")
+
+            _progress(label)
+
+    except Exception as e:
+        summary["state"] = "error"
+        summary["errors"].append(str(e))
+        if on_progress:
+            on_progress(summary)
+        return summary
+
+    summary["state"] = "complete"
+    _progress()
+    return summary
