@@ -1734,13 +1734,17 @@ async def get_shelves():
                 decades[decade_label] = []
             decades[decade_label].append(album)
 
-    # By genre
+    # By genre (split comma-separated tags so albums appear in each genre shelf)
     genres = {}
     for album in albums:
-        genre = album.get('genre', 'Unknown')
-        if genre not in genres:
-            genres[genre] = []
-        genres[genre].append(album)
+        raw = album.get('genre', 'Unknown')
+        for g in raw.split(","):
+            g = g.strip()
+            if not g:
+                continue
+            if g not in genres:
+                genres[g] = []
+            genres[g].append(album)
 
     return {
         "recently_played": recently_played,
@@ -1773,10 +1777,11 @@ async def get_catalog_shelves():
         albums_in_decade = cat.get_albums_by_decade(decade)[:8]
         if albums_in_decade:
             decade_shelves[f"The {decade}s"] = albums_in_decade
-    genres = cat.get_genres_with_count(min_count=3)
+    genres = cat.get_genres_with_count(min_count=2)
     genre_shelves = {}
     for genre, _ in genres:
-        genre_albums = [a for a in all_albums if (a.get("genre") or "Unknown") == genre][:8]
+        genre_albums = [a for a in all_albums
+                        if genre in [g.strip() for g in (a.get("genre") or "Unknown").split(",")]][:8]
         if genre_albums:
             genre_shelves[genre] = genre_albums
     return {"recently_played": recently_played, "recently_added": recently_added, "most_played": most_played, "unplayed": unplayed, "favorites": favorites, "top_rated": top_rated, "decades": decade_shelves, "genres": genre_shelves}
