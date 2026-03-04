@@ -251,24 +251,44 @@ class AsyncAudioStream:
 def run_device_stream(conf, audio_stream, volume, done_callback):
     loop=asyncio.new_event_loop(); asyncio.set_event_loop(loop)
     async def _stream():
-        print(f"[airplay] Connecting to {conf.name} ({conf.address})…")
-        # Load credentials from whichever .pyatv.conf exists.
-        # Service runs as root but pairing was done as listen user, so check both.
-        atv=await pyatv.connect(conf, loop)
-        try:
-            print(f"[airplay] Connected — setting volume {volume}")
-            await atv.audio.set_volume(volume)
-            print(f"[airplay] Streaming to {conf.name}")
-            import traceback
+        max_retries=3
+        retry_count=0
+        base_delay=1.0
+
+        while retry_count<=max_retries:
             try:
-                await atv.stream.stream_file(audio_stream)
-                print(f"[airplay] stream_file returned normally for {conf.name}")
-            except Exception as sf_err:
-                print(f"[airplay] stream_file EXCEPTION for {conf.name}: "
-                      f"{type(sf_err).__name__}: {sf_err}")
-                traceback.print_exc()
-                raise
-        finally: atv.close()
+                print(f"[airplay] Connecting to {conf.name} ({conf.address})…")
+                atv=await pyatv.connect(conf, loop)
+                try:
+                    print(f"[airplay] Connected — setting volume {volume}")
+                    await atv.audio.set_volume(volume)
+                    print(f"[airplay] Streaming to {conf.name}")
+                    import traceback
+                    try:
+                        await atv.stream.stream_file(audio_stream)
+                        print(f"[airplay] stream_file returned normally for {conf.name}")
+                    except Exception as sf_err:
+                        print(f"[airplay] stream_file EXCEPTION for {conf.name}: "
+                              f"{type(sf_err).__name__}: {sf_err}")
+                        traceback.print_exc()
+                        raise
+                finally:
+                    atv.close()
+                break
+            except Exception as e:
+                retry_count+=1
+                if retry_count<=max_retries:
+                    delay=base_delay*(2**(retry_count-1))
+                    print(f"[airplay] Connection lost to {conf.name}, retrying in {delay}s (attempt {retry_count}/{max_retries})")
+                    asyncio.run_coroutine_threadsafe(
+                        broadcast("reconnecting", {"device": conf.name, "attempt": retry_count}),
+                        main_loop
+                    )
+                    await asyncio.sleep(delay)
+                else:
+                    print(f"[airplay] Final ERROR for {conf.name}: {type(e).__name__}: {e}")
+                    raise
+
     err=None
     try: loop.run_until_complete(_stream())
     except Exception as e:
@@ -290,6 +310,8 @@ class LocalOutputStream:
         self._samplerate = samplerate
         self._channels = channels
         self._proc = None
+        self._retry_count = 0
+        self._max_retries = 1
 
     def start(self):
         import subprocess
@@ -306,6 +328,16 @@ class LocalOutputStream:
                 self._proc.stdin.write(pcm_bytes)
             except (BrokenPipeError, OSError) as e:
                 print(f"[local-out] Write error: {e}")
+                if self._retry_count<self._max_retries:
+                    self._retry_count+=1
+                    print(f"[local-out] Attempting restart ({self._retry_count}/{self._max_retries})")
+                    time.sleep(2)
+                    try:
+                        self.stop()
+                        self.start()
+                        self._proc.stdin.write(pcm_bytes)
+                    except Exception as restart_err:
+                        print(f"[local-out] Restart failed: {restart_err}")
 
     def stop(self):
         if self._proc:
@@ -1039,6 +1071,24 @@ async def index(request: Request):
     return resp
 
 
+@app.get("/manifest.json")
+async def manifest():
+    """Serve PWA manifest."""
+    manifest_path = Path("templates/manifest.json")
+    if manifest_path.exists():
+        return FileResponse(manifest_path, media_type="application/manifest+json")
+    return {"error": "Manifest not found"}
+
+
+@app.get("/service-worker.js")
+async def service_worker():
+    """Serve service worker for PWA offline support."""
+    sw_path = Path("templates/service-worker.js")
+    if sw_path.exists():
+        return FileResponse(sw_path, media_type="application/javascript")
+    return {"error": "Service worker not found"}
+
+
 @app.get("/api/scan")
 async def scan_devices():
     found = await pyatv.scan(asyncio.get_event_loop(), timeout=7,
@@ -1516,6 +1566,46 @@ async def update_settings(body: dict):
         save_settings(state.settings)
     save_settings(state.settings)
     return {"ok": True}
+
+
+@app.post("/api/settings/backup")
+async def backup_settings():
+    """Create a backup of all settings including EQ and playlists."""
+    backup_data = {
+        "settings": state.settings,
+        "eq": {
+            "bass": state.eq.values[0],
+            "treble": state.eq.values[1],
+        },
+        "backup_timestamp": time.time(),
+        "backup_version": 1,
+    }
+    return backup_data
+
+
+@app.post("/api/settings/restore")
+async def restore_settings(body: dict):
+    """Restore settings from a backup JSON."""
+    try:
+        if "backup_version" not in body or body.get("backup_version")!=1:
+            return {"ok": False, "error": "Invalid backup format or version"}
+
+        if "settings" in body and isinstance(body["settings"], dict):
+            state.settings.update(body["settings"])
+            save_settings(state.settings)
+
+        if "eq" in body and isinstance(body["eq"], dict):
+            bass=float(body["eq"].get("bass", 0))
+            treble=float(body["eq"].get("treble", 0))
+            state.settings["bass"]=bass
+            state.settings["treble"]=treble
+            state.eq.set_eq(bass, treble)
+            save_settings(state.settings)
+
+        return {"ok": True, "message": "Settings restored successfully"}
+    except Exception as e:
+        print(f"[settings] Restore error: {e}")
+        return {"ok": False, "error": str(e)}
 
 
 @app.get("/api/screenshot")

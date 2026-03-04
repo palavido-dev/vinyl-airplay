@@ -4,6 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
 <meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Vinyl Streamer">
+<meta name="theme-color" content="#3e2723">
+<meta name="description" content="Web-controlled vinyl jukebox streaming to AirPlay, Bluetooth, and browsers">
+<link rel="manifest" href="/manifest.json">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'%3E%3Crect fill='%233e2723' width='192' height='192'/%3E%3Ccircle cx='96' cy='96' r='85' fill='%231a1a1a' stroke='%23d4a24e' stroke-width='2'/%3E%3Ccircle cx='96' cy='96' r='65' fill='%23000000'/%3E%3Ccircle cx='96' cy='96' r='30' fill='%233e2723' stroke='%23d4a24e' stroke-width='2'/%3E%3Ccircle cx='96' cy='96' r='15' fill='%23d4a24e'/%3E%3C/svg%3E">
 <title>The Listening Room</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -518,9 +524,10 @@
     background: var(--sage); color: white;
   }
   .catalog-empty { text-align: center; color: var(--muted); padding: 3rem 1rem; font-family: var(--display-font); font-size: 0.95rem; font-style: italic; }
-  .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(44,24,16,0.65); z-index: 100; overflow-y: auto; padding: 0.75rem; backdrop-filter: blur(4px); }
-  .modal-overlay.open { display: flex; align-items: flex-start; justify-content: center; }
-  .modal { position: relative; background: linear-gradient(180deg, var(--cream) 0%, var(--paper) 100%); border: 2px solid var(--shelf); border-radius: 10px; padding: 1.2rem; width: 100%; max-width: 480px; margin-top: 1rem; box-shadow: 0 8px 32px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.5); }
+  .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(44,24,16,0.65); z-index: 100; overflow-y: auto; padding: 0.75rem; backdrop-filter: blur(4px); opacity: 0; transition: opacity 200ms ease-out; }
+  .modal-overlay.open { display: flex; align-items: flex-start; justify-content: center; opacity: 1; }
+  .modal { position: relative; background: linear-gradient(180deg, var(--cream) 0%, var(--paper) 100%); border: 2px solid var(--shelf); border-radius: 10px; padding: 1.2rem; width: 100%; max-width: 480px; margin-top: 1rem; box-shadow: 0 8px 32px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.5); transform: scale(0.95); transition: transform 200ms ease-out; }
+  .modal-overlay.open .modal { transform: scale(1); }
   .modal-x { position: absolute; top: 0.5rem; right: 0.6rem; background: none; border: none; font-size: 1.3rem; color: var(--muted); cursor: pointer; padding: 0.2rem 0.4rem; line-height: 1; z-index: 5; border-radius: 4px; }
   .modal-x:active { background: var(--paper-dk); color: var(--ink); }
   .modal-header { display: flex; align-items: flex-start; gap: 0.8rem; margin-bottom: 0.8rem; }
@@ -1786,6 +1793,15 @@
         </div>
       </div>
       <p style="font-size:0.68rem;color:var(--muted);margin-top:0.2rem;line-height:1.3">Blend between album sides with a smooth crossfade. Set to 0 for gapless playback.</p>
+    </div>
+    <div class="settings-section"><h3>Backup and Restore</h3>
+      <p style="font-size:0.75rem;color:var(--muted);margin-bottom:0.5rem;line-height:1.4">Back up your settings and EQ adjustments, or restore from a previous backup.</p>
+      <div style="display:flex;gap:0.4rem;flex-direction:column">
+        <button class="btn" onclick="downloadSettingsBackup()" style="text-align:left">💾 Backup Settings</button>
+        <button class="btn" onclick="selectBackupFile()" style="text-align:left">📂 Restore Settings</button>
+        <input type="file" id="backup-file-input" accept=".json" style="display:none" onchange="restoreSettingsFromFile()">
+      </div>
+      <div id="backup-status" style="display:none;font-size:0.75rem;margin-top:0.3rem"></div>
     </div>
     <button class="btn btn-ghost" onclick="hideSettings()" style="width:100%;margin-top:0.5rem">Close</button>
   </div>
@@ -4590,4 +4606,252 @@ document.addEventListener('keydown', function(e){
 window.addEventListener('load', function(){
   setTimeout(restorePlayerStatus, 500);
 });
+
+// Register service worker for PWA support
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/service-worker.js').catch(err => {
+    console.log('Service worker registration failed:', err);
+  });
+}
+
+// Feature 5: Browser Stream Recovery
+let _browserStreamActive = false;
+let _browserStreamId = null;
+let _browserAudioContext = null;
+let _browserAudioSource = null;
+let _browserStreamRetrying = false;
+
+async function recoverBrowserStream() {
+  if (_browserStreamRetrying || !_browserStreamActive) return;
+
+  _browserStreamRetrying = true;
+  console.log('[browser-recovery] Attempting to recover stream...');
+  showToast('Browser stream recovering...');
+
+  try {
+    await new Promise(r => setTimeout(r, 1000));
+
+    const createResp = await fetch('/api/stream/create', { method: 'POST' }).then(r => r.json());
+    if (!createResp.ok || !createResp.stream_id) {
+      throw new Error('Failed to create new stream');
+    }
+
+    _browserStreamId = createResp.stream_id;
+    console.log('[browser-recovery] Created new stream:', _browserStreamId);
+
+    if (_browserAudioContext) {
+      restartBrowserAudio(_browserStreamId);
+    }
+
+    showToast('Browser stream recovered');
+  } catch (err) {
+    console.error('[browser-recovery] Recovery failed:', err);
+    showError('Browser stream recovery failed');
+  } finally {
+    _browserStreamRetrying = false;
+  }
+}
+
+function monitorBrowserStream(streamId) {
+  _browserStreamId = streamId;
+  _browserStreamActive = true;
+
+  if (!_browserAudioContext) {
+    _browserAudioContext = new (window.AudioContext || window.webkitAudioContext)();
+  }
+
+  const checkStream = async () => {
+    if (!_browserStreamActive) return;
+
+    try {
+      const resp = await fetch('/api/stream/' + streamId, { signal: AbortSignal.timeout(5000) });
+      if (!resp.ok || resp.body.locked) {
+        console.log('[browser-monitor] Stream ended unexpectedly');
+        await recoverBrowserStream();
+      }
+    } catch (err) {
+      if (!_browserStreamRetrying) {
+        console.log('[browser-monitor] Stream monitoring error:', err);
+        await recoverBrowserStream();
+      }
+    }
+
+    if (_browserStreamActive) {
+      setTimeout(checkStream, 30000);
+    }
+  };
+
+  setTimeout(checkStream, 30000);
+}
+
+// Feature 2: Album Art Color Extraction
+const _colorCache = {};
+
+function extractDominantColor(imageUrl, callback) {
+  if (_colorCache[imageUrl]) {
+    callback(_colorCache[imageUrl]);
+    return;
+  }
+
+  const img = new Image();
+  img.crossOrigin = 'anonymous';
+  img.onload = function() {
+    const canvas = document.createElement('canvas');
+    canvas.width = 100;
+    canvas.height = 100;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(img, 0, 0, 100, 100);
+
+    const imageData = ctx.getImageData(0, 0, 100, 100);
+    const data = imageData.data;
+
+    let r = 0, g = 0, b = 0;
+    let count = 0;
+
+    for (let i = 0; i < data.length; i += 4) {
+      r += data[i];
+      g += data[i + 1];
+      b += data[i + 2];
+      count++;
+    }
+
+    r = Math.floor(r / count);
+    g = Math.floor(g / count);
+    b = Math.floor(b / count);
+
+    const color = 'rgb(' + r + ',' + g + ',' + b + ')';
+    _colorCache[imageUrl] = color;
+    callback(color);
+  };
+  img.onerror = function() {
+    callback('rgba(62, 39, 35, 0.5)');
+  };
+  img.src = imageUrl;
+}
+
+function applyColorTint(elementId, color) {
+  const el = document.getElementById(elementId);
+  if (el) {
+    const rgb = color.match(/\d+/g);
+    if (rgb) {
+      const r = parseInt(rgb[0]);
+      const g = parseInt(rgb[1]);
+      const b = parseInt(rgb[2]);
+      const tintColor = 'rgba(' + r + ',' + g + ',' + b + ',0.08)';
+      el.style.background = 'linear-gradient(135deg, ' + tintColor + ' 0%, rgba(62,39,35,0.05) 100%)';
+    }
+  }
+}
+
+function applyNpBarTint(color) {
+  const npBar = document.querySelector('.np-bar');
+  if (npBar && color) {
+    const rgb = color.match(/\d+/g);
+    if (rgb) {
+      const r = parseInt(rgb[0]);
+      const g = parseInt(rgb[1]);
+      const b = parseInt(rgb[2]);
+      const tintColor = 'rgba(' + r + ',' + g + ',' + b + ',0.12)';
+      npBar.style.background = 'linear-gradient(180deg, ' + tintColor + ' 0%, rgba(44, 24, 16, 0.8) 100%)';
+    }
+  }
+}
+
+// Feature 3: Smooth Transitions - CSS transitions support
+function transitionView(fromEl, toEl, duration = 200) {
+  if (!fromEl || !toEl) return;
+
+  fromEl.style.transition = 'opacity ' + duration + 'ms ease-out, transform ' + duration + 'ms ease-out';
+  toEl.style.transition = 'opacity ' + duration + 'ms ease-in, transform ' + duration + 'ms ease-in';
+
+  fromEl.style.opacity = '0';
+  fromEl.style.transform = 'scale(0.98)';
+  fromEl.style.pointerEvents = 'none';
+
+  toEl.style.opacity = '1';
+  toEl.style.transform = 'scale(1)';
+  toEl.style.pointerEvents = 'auto';
+}
+
+function smoothShowModal(modalEl) {
+  if (!modalEl) return;
+  modalEl.classList.add('open');
+  modalEl.style.transition = 'opacity 200ms ease-out, transform 200ms ease-out';
+  modalEl.style.opacity = '0';
+  modalEl.style.transform = 'scale(0.95)';
+
+  setTimeout(() => {
+    modalEl.style.opacity = '1';
+    modalEl.style.transform = 'scale(1)';
+  }, 10);
+}
+
+function smoothHideModal(modalEl) {
+  if (!modalEl) return;
+  modalEl.style.transition = 'opacity 200ms ease-in, transform 200ms ease-in';
+  modalEl.style.opacity = '0';
+  modalEl.style.transform = 'scale(0.95)';
+
+  setTimeout(() => {
+    modalEl.classList.remove('open');
+    modalEl.style.opacity = '';
+    modalEl.style.transform = '';
+  }, 200);
+}
+
+// Feature 6: Settings Backup and Restore
+async function downloadSettingsBackup() {
+  try {
+    const response = await fetch('/api/settings/backup', { method: 'POST' }).then(r => r.json());
+
+    const dataStr = JSON.stringify(response, null, 2);
+    const dataBlob = new Blob([dataStr], { type: 'application/json' });
+    const url = URL.createObjectURL(dataBlob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'vinyl-settings-' + new Date().toISOString().split('T')[0] + '.json';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+
+    showToast('Settings backed up successfully');
+  } catch (err) {
+    console.error('Backup failed:', err);
+    showError('Failed to backup settings');
+  }
+}
+
+function selectBackupFile() {
+  document.getElementById('backup-file-input').click();
+}
+
+async function restoreSettingsFromFile() {
+  const fileInput = document.getElementById('backup-file-input');
+  const file = fileInput.files[0];
+  if (!file) return;
+
+  try {
+    const text = await file.text();
+    const backupData = JSON.parse(text);
+
+    const response = await fetch('/api/settings/restore', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(backupData),
+    }).then(r => r.json());
+
+    if (response.ok) {
+      showToast('Settings restored successfully');
+      setTimeout(() => window.location.reload(), 500);
+    } else {
+      showError(response.error || 'Failed to restore settings');
+    }
+  } catch (err) {
+    console.error('Restore failed:', err);
+    showError('Invalid backup file format');
+  } finally {
+    fileInput.value = '';
+  }
+}
 </script>
