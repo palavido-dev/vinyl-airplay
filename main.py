@@ -2136,6 +2136,58 @@ async def discogs_sync_status():
     return _discogs_sync_status
 
 
+_artwork_fetch_status = {"state": "idle"}
+_artwork_fetch_lock = threading.Lock()
+
+
+@app.post("/api/catalog/artwork/fetch-missing")
+async def fetch_missing_artwork():
+    """Fetch artwork for Discogs albums that are missing cover art."""
+    token = state.settings.get("discogs_token", "")
+    if not token:
+        return JSONResponse({"ok": False, "error": "Discogs token not set"}, status_code=400)
+
+    if not _artwork_fetch_lock.acquire(blocking=False):
+        return JSONResponse({"ok": False, "error": "Already fetching artwork"}, status_code=409)
+
+    global _artwork_fetch_status
+    _artwork_fetch_status = {"state": "starting", "total": 0, "checked": 0,
+                             "fetched": 0, "failed": 0}
+
+    loop = asyncio.get_event_loop()
+
+    def _run():
+        global _artwork_fetch_status
+        try:
+            def on_progress(info):
+                global _artwork_fetch_status
+                _artwork_fetch_status = info
+                asyncio.run_coroutine_threadsafe(
+                    broadcast("artwork_fetch_progress", info), loop
+                )
+            result = cat.fetch_missing_artwork(token, on_progress=on_progress)
+            _artwork_fetch_status = result
+            asyncio.run_coroutine_threadsafe(
+                broadcast("artwork_fetch_progress", result), loop
+            )
+        except Exception as e:
+            _artwork_fetch_status = {"state": "error", "errors": [str(e)]}
+            asyncio.run_coroutine_threadsafe(
+                broadcast("artwork_fetch_progress", _artwork_fetch_status), loop
+            )
+        finally:
+            _artwork_fetch_lock.release()
+
+    threading.Thread(target=_run, daemon=True).start()
+    return {"ok": True, "message": "Fetching missing artwork"}
+
+
+@app.get("/api/catalog/artwork/fetch-missing/status")
+async def artwork_fetch_status():
+    """Return current artwork fetch status."""
+    return _artwork_fetch_status
+
+
 @app.post("/api/catalog/release")
 async def save_release(body: dict):
     """Save a release (from Discogs search) to the catalog."""

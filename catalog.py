@@ -3250,3 +3250,69 @@ def sync_from_discogs(username: str, token: str,
     summary["state"] = "complete"
     _progress()
     return summary
+
+
+def fetch_missing_artwork(token: str, on_progress=None) -> dict:
+    """
+    Find albums imported from Discogs that have no artwork and attempt
+    to fetch cover art from the Discogs API.
+
+    Returns a summary dict with counts.
+    """
+    db = get_db()
+    try:
+        rows = db.execute(
+            "SELECT id, musicbrainz_release_id, title, artist FROM albums "
+            "WHERE musicbrainz_release_id LIKE 'discogs:%' "
+            "AND (artwork_path IS NULL OR artwork_path = '') "
+            "AND (user_artwork_path IS NULL OR user_artwork_path = '') "
+            "AND deleted_at IS NULL"
+        ).fetchall()
+    finally:
+        db.close()
+
+    summary = {
+        "state": "running", "total": len(rows),
+        "checked": 0, "fetched": 0, "failed": 0, "errors": [],
+    }
+
+    def _progress(label=""):
+        if on_progress:
+            on_progress({**summary, "current_album": label})
+
+    _progress()
+
+    for row in rows:
+        discogs_id = row["musicbrainz_release_id"].replace("discogs:", "")
+        label = f"{row['artist']} - {row['title']}"
+        summary["checked"] += 1
+
+        try:
+            time.sleep(1)  # rate limit
+            release = get_discogs_release(discogs_id, token)
+            if not release.get("ok"):
+                summary["failed"] += 1
+                summary["errors"].append(f"{label}: {release.get('error', 'unknown')}")
+                _progress(label)
+                continue
+            art_url = release["release"].get("artwork_url")
+            if art_url:
+                art_path = fetch_artwork_from_url(art_url, row["id"])
+                if art_path:
+                    update_album_artwork(row["id"], art_path, user=False)
+                    summary["fetched"] += 1
+                else:
+                    summary["failed"] += 1
+                    summary["errors"].append(f"{label}: download failed")
+            else:
+                summary["failed"] += 1
+                summary["errors"].append(f"{label}: no artwork on Discogs")
+        except Exception as e:
+            summary["failed"] += 1
+            summary["errors"].append(f"{label}: {e}")
+
+        _progress(label)
+
+    summary["state"] = "complete"
+    _progress()
+    return summary
