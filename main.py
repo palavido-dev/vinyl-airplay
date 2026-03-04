@@ -1565,6 +1565,10 @@ async def update_settings(body: dict):
         if state.player:
             state.player.set_crossfade(cf)
         save_settings(state.settings)
+    if "app_name" in body:
+        state.settings["app_name"] = str(body["app_name"])[:40]
+    if "theme" in body:
+        state.settings["theme"] = str(body["theme"])
     save_settings(state.settings)
     return {"ok": True}
 

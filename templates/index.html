@@ -1380,7 +1380,7 @@
 <div id="toast-msg"></div>
 <div class="frame">
 <div class="app-header">
-  <span class="brand"><span class="brand-icon"></span>The Listening Room<span class="album-count" id="album-count"></span></span>
+  <span class="brand"><span class="brand-icon"></span><span id="app-name">The Listening Room</span><span class="album-count" id="album-count"></span></span>
   <div class="search-wrap" id="search-wrap">
     <input type="search" class="search-bar" id="catalog-search" placeholder="Search your collection..." oninput="onSearchInput(this.value)" onfocus="onSearchFocus()" autocomplete="off">
     <div class="search-dropdown" id="search-dropdown"></div>
@@ -1743,6 +1743,14 @@
         <div id="update-message" style="font-size:0.72rem;color:var(--muted)">Updating...</div>
       </div>
       <button class="btn btn-accent" id="btn-update-now" onclick="performUpdate()" style="width:100%;display:none">Update Now</button>
+    </div>
+    <div class="settings-section"><h3>Personalization</h3>
+      <div class="form-row"><label>App Name</label>
+        <div style="display:flex;gap:0.4rem">
+          <input type="text" id="setting-app-name" class="form-input" placeholder="The Listening Room" style="flex:1;font-size:0.78rem" maxlength="40">
+          <button class="btn btn-accent" onclick="saveAppName()" style="font-size:0.75rem;padding:0.3rem 0.6rem">Save</button>
+        </div>
+      </div>
     </div>
     <div class="settings-section"><h3>WiFi</h3>
       <p style="font-size:0.75rem;color:var(--muted);margin-bottom:0.5rem;line-height:1.4">Launch the WiFi setup portal to connect to a different network or reconfigure your connection.</p>
@@ -3930,7 +3938,8 @@ async function selectResult(idx){const r=window._searchResults[idx];if(!r)return
 async function saveRelease(){if(!_pendingRelease)return;const r=await fetch('/api/catalog/release',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({release:_pendingRelease})}).then(r=>r.json());if(r.ok){hideAddForm();loadCatalog()}else showError(r.error||'Failed to save')}
 async function submitManual(){const t=document.getElementById('m-album-title').value.trim(),a=document.getElementById('m-artist').value.trim();if(!t||!a){showError('Album title and artist required');return}const ta=document.getElementById('m-tracks-a').value.split('\n').map(s=>s.trim()).filter(Boolean).map((x,i)=>({title:x,side:'A',track_number:String(i+1)}));const tb=document.getElementById('m-tracks-b').value.split('\n').map(s=>s.trim()).filter(Boolean).map((x,i)=>({title:x,side:'B',track_number:String(i+1)}));const tracks=[...ta,...tb];if(!tracks.length){showError('Enter at least one track');return}const r=await fetch('/api/catalog/manual',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({album_title:t,album_artist:a,year:parseInt(document.getElementById('m-year').value)||null,genre:document.getElementById('m-genre').value.trim()||null,label:document.getElementById('m-label').value.trim()||null,notes:document.getElementById('m-notes').value.trim()||null,tracks})}).then(r=>r.json());if(r.ok){hideAddForm();loadCatalog()}else showError(r.error||'Failed')}
 
-function showSettings(){document.getElementById('settings-modal').classList.add('open');loadBluetoothPaired()}
+function showSettings(){document.getElementById('settings-modal').classList.add('open');loadBluetoothPaired();document.getElementById('setting-app-name').value=document.getElementById('app-name').textContent}
+function saveAppName(){var n=document.getElementById('setting-app-name').value.trim()||'The Listening Room';document.getElementById('app-name').textContent=n;document.title=n;fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({app_name:n})});showToast('Name updated')}
 function hideSettings(){document.getElementById('settings-modal').classList.remove('open')}
 function showStats(){document.getElementById('stats-modal').classList.add('open');loadStats()}
 function hideStats(){document.getElementById('stats-modal').classList.remove('open')}
@@ -4128,6 +4137,7 @@ async function init(){
     if(d.settings.auto_stream_enabled!==undefined){document.getElementById('auto-stream-enabled').checked=d.settings.auto_stream_enabled;if(d.settings.auto_stream_device){window._savedAutoStreamDevice=d.settings.auto_stream_device;scanAutoStreamDevices()}const st=document.getElementById('auto-stream-status');if(d.settings.auto_stream_enabled&&d.settings.auto_stream_device)st.textContent=`Auto-streaming to: ${d.settings.auto_stream_device.name}`}
     if(d.settings.crossfade_secs!==undefined){document.getElementById('crossfade-slider').value=d.settings.crossfade_secs;updateCrossfadeLabel()}
     if(d.settings.device_volumes)window._deviceVolumes=d.settings.device_volumes;
+    if(d.settings.app_name){document.getElementById('app-name').textContent=d.settings.app_name;document.title=d.settings.app_name}
   }
   if(d.storage)updateStorageInfo(d.storage);
   if(d.album_recording){_recAlbumId=d.album_recording.album_id;_recSide=d.album_recording.side;if(!_recStartTime)_recStartTime=Date.now()}
