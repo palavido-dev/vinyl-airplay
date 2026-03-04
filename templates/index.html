@@ -38,6 +38,51 @@
     --display-font: 'Libre Baskerville', 'Fallback Serif', Georgia, serif;
     --body-font:    'DM Sans', 'Fallback Sans', 'Helvetica Neue', sans-serif;
   }
+  /* -- Midnight Blue theme -- */
+  [data-theme="midnight"] {
+    --walnut: #1a1a2e; --walnut-lt: #16213e; --leather: #0f3460;
+    --amber: #e94560; --amber-dk: #c23152; --cream: #eaeaea;
+    --paper: #d4d4d4; --paper-dk: #c0c0c0; --ink: #0a0a1a;
+    --muted: #7f8c9b; --sage: #53a8b6; --sage-dk: #3d8a96;
+    --rust: #e94560; --rust-dk: #c23152; --teal: #53a8b6;
+    --shelf: #1e3a5f; --groove: #0f1b2d;
+  }
+  /* -- Warm Slate theme -- */
+  [data-theme="slate"] {
+    --walnut: #2d2d2d; --walnut-lt: #404040; --leather: #555555;
+    --amber: #e8a87c; --amber-dk: #d19a6a; --cream: #f0ece3;
+    --paper: #e5e1d8; --paper-dk: #d5d1c8; --ink: #1a1a1a;
+    --muted: #8a8a8a; --sage: #85b79d; --sage-dk: #6fa388;
+    --rust: #d4725e; --rust-dk: #be5e4c; --teal: #6faba2;
+    --shelf: #4a4a4a; --groove: #333333;
+  }
+  /* -- Evergreen theme -- */
+  [data-theme="evergreen"] {
+    --walnut: #1b2e1b; --walnut-lt: #2d472d; --leather: #3e5f3e;
+    --amber: #c9a959; --amber-dk: #b09240; --cream: #f0eee4;
+    --paper: #e5e3d9; --paper-dk: #d5d3c9; --ink: #0f1a0f;
+    --muted: #6a7a6a; --sage: #7aab6f; --sage-dk: #5f9354;
+    --rust: #c9725a; --rust-dk: #b05e48; --teal: #5a9e8f;
+    --shelf: #3a5a3a; --groove: #253525;
+  }
+  /* -- Noir theme -- */
+  [data-theme="noir"] {
+    --walnut: #111111; --walnut-lt: #1c1c1c; --leather: #2a2a2a;
+    --amber: #ffffff; --amber-dk: #cccccc; --cream: #e0e0e0;
+    --paper: #c8c8c8; --paper-dk: #b0b0b0; --ink: #000000;
+    --muted: #777777; --sage: #8ab89a; --sage-dk: #6fa388;
+    --rust: #d45050; --rust-dk: #b83c3c; --teal: #60a5a0;
+    --shelf: #222222; --groove: #0a0a0a;
+  }
+  /* -- Desert Sand theme -- */
+  [data-theme="desert"] {
+    --walnut: #4a3423; --walnut-lt: #6b5040; --leather: #8c6d52;
+    --amber: #d4956b; --amber-dk: #c08050; --cream: #faf3e8;
+    --paper: #f0e6d6; --paper-dk: #e0d6c6; --ink: #3a2413;
+    --muted: #9a8572; --sage: #8aaa7a; --sage-dk: #729462;
+    --rust: #c46a50; --rust-dk: #a85840; --teal: #5a9a90;
+    --shelf: #7a5e42; --groove: #5a4030;
+  }
   * { margin: 0; padding: 0; box-sizing: border-box; }
   @media (max-width: 1024px) and (max-height: 600px) { * { cursor: none !important; } }
   body {
@@ -772,6 +817,14 @@
   }
   .settings-section { margin-bottom: 1.2rem; }
   .settings-section h3 { font-family: var(--display-font); font-size: 0.78rem; font-weight: 700; color: var(--leather); letter-spacing: 0.02em; margin-bottom: 0.5rem; }
+  .theme-grid { display: flex; gap: 0.4rem; flex-wrap: wrap; }
+  .theme-swatch {
+    display: flex; gap: 2px; padding: 4px; border-radius: 6px; cursor: pointer;
+    border: 2px solid transparent; background: rgba(0,0,0,0.1); transition: border-color 0.15s;
+  }
+  .theme-swatch span { width: 18px; height: 24px; border-radius: 3px; display: block; }
+  .theme-swatch:hover { border-color: var(--amber); }
+  .theme-swatch.active { border-color: var(--amber); box-shadow: 0 0 6px rgba(212,162,78,0.4); }
 
   /* ── Stats Modal ── */
   .stats-summary { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1rem; margin-bottom: 1.5rem; }
@@ -1749,6 +1802,16 @@
         <div style="display:flex;gap:0.4rem">
           <input type="text" id="setting-app-name" class="form-input" placeholder="The Listening Room" style="flex:1;font-size:0.78rem" maxlength="40">
           <button class="btn btn-accent" onclick="saveAppName()" style="font-size:0.75rem;padding:0.3rem 0.6rem">Save</button>
+        </div>
+      </div>
+      <div class="form-row" style="margin-top:0.5rem"><label>Theme</label>
+        <div class="theme-grid" id="theme-grid">
+          <button class="theme-swatch active" data-theme="classic" onclick="setTheme('classic')" title="Classic (default)"><span style="background:#3E2723"></span><span style="background:#D4A24E"></span><span style="background:#F5EBD8"></span></button>
+          <button class="theme-swatch" data-theme="midnight" onclick="setTheme('midnight')" title="Midnight"><span style="background:#1a1a2e"></span><span style="background:#e94560"></span><span style="background:#eaeaea"></span></button>
+          <button class="theme-swatch" data-theme="slate" onclick="setTheme('slate')" title="Warm Slate"><span style="background:#2d2d2d"></span><span style="background:#e8a87c"></span><span style="background:#f0ece3"></span></button>
+          <button class="theme-swatch" data-theme="evergreen" onclick="setTheme('evergreen')" title="Evergreen"><span style="background:#1b2e1b"></span><span style="background:#c9a959"></span><span style="background:#f0eee4"></span></button>
+          <button class="theme-swatch" data-theme="noir" onclick="setTheme('noir')" title="Noir"><span style="background:#111111"></span><span style="background:#ffffff"></span><span style="background:#e0e0e0"></span></button>
+          <button class="theme-swatch" data-theme="desert" onclick="setTheme('desert')" title="Desert"><span style="background:#4a3423"></span><span style="background:#d4956b"></span><span style="background:#faf3e8"></span></button>
         </div>
       </div>
     </div>
@@ -3940,6 +4003,12 @@ async function submitManual(){const t=document.getElementById('m-album-title').v
 
 function showSettings(){document.getElementById('settings-modal').classList.add('open');loadBluetoothPaired();document.getElementById('setting-app-name').value=document.getElementById('app-name').textContent}
 function saveAppName(){var n=document.getElementById('setting-app-name').value.trim()||'The Listening Room';document.getElementById('app-name').textContent=n;document.title=n;fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({app_name:n})});showToast('Name updated')}
+function setTheme(t){
+  if(t==='classic'){document.documentElement.removeAttribute('data-theme')}else{document.documentElement.setAttribute('data-theme',t)}
+  document.querySelectorAll('.theme-swatch').forEach(function(s){s.classList.toggle('active',s.dataset.theme===t)});
+  fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({theme:t})});
+}
+function applyTheme(t){if(!t||t==='classic'){document.documentElement.removeAttribute('data-theme')}else{document.documentElement.setAttribute('data-theme',t)}document.querySelectorAll('.theme-swatch').forEach(function(s){s.classList.toggle('active',s.dataset.theme===(t||'classic'))})}
 function hideSettings(){document.getElementById('settings-modal').classList.remove('open')}
 function showStats(){document.getElementById('stats-modal').classList.add('open');loadStats()}
 function hideStats(){document.getElementById('stats-modal').classList.remove('open')}
@@ -4138,6 +4207,7 @@ async function init(){
     if(d.settings.crossfade_secs!==undefined){document.getElementById('crossfade-slider').value=d.settings.crossfade_secs;updateCrossfadeLabel()}
     if(d.settings.device_volumes)window._deviceVolumes=d.settings.device_volumes;
     if(d.settings.app_name){document.getElementById('app-name').textContent=d.settings.app_name;document.title=d.settings.app_name}
+    if(d.settings.theme)applyTheme(d.settings.theme);
   }
   if(d.storage)updateStorageInfo(d.storage);
   if(d.album_recording){_recAlbumId=d.album_recording.album_id;_recSide=d.album_recording.side;if(!_recStartTime)_recStartTime=Date.now()}
