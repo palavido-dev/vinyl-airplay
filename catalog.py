@@ -3223,6 +3223,12 @@ def sync_from_discogs(username: str, token: str,
                     continue
                 album_id = save_release_to_catalog(release["release"])
                 if album_id:
+                    # Fetch artwork
+                    art_url = release["release"].get("artwork_url")
+                    if art_url:
+                        art_path = fetch_artwork_from_url(art_url, album_id)
+                        if art_path:
+                            update_album_artwork(album_id, art_path, user=False)
                     summary["imported"] += 1
                     existing_ids.add(f"discogs:{discogs_id}")
                 else:
