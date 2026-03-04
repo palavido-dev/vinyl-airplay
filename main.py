@@ -4144,4 +4144,19 @@ async def websocket_endpoint(ws: WebSocket):
 
 
 if __name__ == "__main__":
+    import os, threading
+    cert_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "certs")
+    cert_file = os.path.join(cert_dir, "cert.pem")
+    key_file = os.path.join(cert_dir, "key.pem")
+    has_certs = os.path.exists(cert_file) and os.path.exists(key_file)
+    if has_certs:
+        print("[ssl] Certs found. HTTP on :8080 (kiosk), HTTPS on :8443 (mobile)")
+        def run_https():
+            uvicorn.run("main:app", host="0.0.0.0", port=8443, reload=False,
+                        ssl_certfile=cert_file, ssl_keyfile=key_file,
+                        log_level="warning")
+        t = threading.Thread(target=run_https, daemon=True)
+        t.start()
+    else:
+        print("[ssl] No certs found, running plain HTTP only")
     uvicorn.run("main:app", host="0.0.0.0", port=8080, reload=False)
