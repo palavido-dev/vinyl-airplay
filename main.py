@@ -2136,6 +2136,30 @@ async def discogs_sync_status():
     return _discogs_sync_status
 
 
+@app.post("/api/catalog/sync/discogs/backfill-ids")
+async def backfill_discogs_ids():
+    """One-time migration: match local albums to Discogs collection by title/artist."""
+    username = state.settings.get("discogs_username", "").strip()
+    token = state.settings.get("discogs_token", "")
+    if not username or not token:
+        return JSONResponse({"ok": False, "error": "Discogs username and token required"}, status_code=400)
+
+    loop = asyncio.get_event_loop()
+
+    def _run():
+        def on_progress(info):
+            asyncio.run_coroutine_threadsafe(
+                broadcast("backfill_progress", info), loop
+            )
+        result = cat.backfill_discogs_ids(username, token, on_progress=on_progress)
+        asyncio.run_coroutine_threadsafe(
+            broadcast("backfill_progress", result), loop
+        )
+
+    threading.Thread(target=_run, daemon=True).start()
+    return {"ok": True, "message": "Backfill started"}
+
+
 _artwork_fetch_status = {"state": "idle"}
 _artwork_fetch_lock = threading.Lock()
 
