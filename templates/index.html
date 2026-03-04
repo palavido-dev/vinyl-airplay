@@ -3210,10 +3210,16 @@ async function saveSmartPlaylist(){
 }
 
 async function spPlay(playlistId){
-  if(!_isStreaming&&!_playerActive){showError('No output device selected');return}
-  await fetch('/api/smart-playlists/'+playlistId+'/play',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({devices:_currentDevices})}).then(function(r){return r.json()}).then(function(r){
-    if(r.ok){showToast('Playing smart playlist')}else{showError(r.error||'Playback failed')}
-  });
+  var r=await fetch('/api/smart-playlists/'+playlistId+'/albums').then(function(d){return d.json()});
+  var albums=(r.albums||[]).filter(function(a){return a.audio_count>0});
+  if(!albums.length){showError('No recorded albums in this smart playlist');return}
+  var albumIds=albums.map(function(a){return a.id});
+  togglePlaylistsPanel();
+  if(_isStreaming||_playerActive){
+    playMultipleAlbums(albumIds);
+  }else{
+    _pendingAlbumIds=albumIds;_pendingAlbumId=albumIds[0];showOutputPicker(albumIds[0]);
+  }
 }
 
 async function spDelete(playlistId){
