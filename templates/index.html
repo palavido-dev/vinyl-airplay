@@ -541,6 +541,8 @@
   .star-rating button:hover { color: var(--amber); }
   .modal-artist { font-size: 0.82rem; color: var(--muted); margin-top: 0.15rem; }
   .modal-meta { font-size: 0.72rem; color: var(--muted); margin-top: 0.1rem; }
+  .meta-tag { cursor: pointer; padding: 0.1rem 0.2rem; border-radius: 3px; transition: background 0.15s; }
+  .meta-tag:hover { background: rgba(212,162,78,0.15); }
   .track-list { max-height: 260px; overflow-y: auto; margin-bottom: 0.6rem; }
   .track-row { display: flex; align-items: center; gap: 0.4rem; padding: 0.35rem 0; border-bottom: 1px solid rgba(0,0,0,0.06); font-size: 0.82rem; cursor: pointer; transition: background 0.1s; }
   .track-row:last-child { border-bottom: none; }
@@ -1606,7 +1608,7 @@
     <div id="modal-detail">
       <div class="modal-header">
         <img id="modal-art" class="modal-art" src="" alt="" onerror="this.style.display='none'">
-        <div style="flex:1"><div style="display:flex;align-items:center;gap:0.4rem"><div class="modal-title" id="modal-title"></div><button id="modal-favorite-btn" class="modal-favorite-btn" onclick="toggleModalFavorite()" title="Favorite" style="font-size:0.9rem;background:none;border:none;cursor:pointer;color:rgba(0,0,0,0.3);padding:0;margin:0">&#x2661;</button></div><div class="modal-artist" id="modal-artist"></div><div class="modal-meta" id="modal-meta"></div></div>
+        <div style="flex:1"><div style="display:flex;align-items:center;gap:0.4rem"><div class="modal-title" id="modal-title" style="cursor:pointer" title="Tap to edit"></div><button id="modal-favorite-btn" class="modal-favorite-btn" onclick="toggleModalFavorite()" title="Favorite" style="font-size:0.9rem;background:none;border:none;cursor:pointer;color:rgba(0,0,0,0.3);padding:0;margin:0">&#x2661;</button></div><div class="modal-artist" id="modal-artist" style="cursor:pointer" title="Tap to edit"></div><div class="modal-meta" id="modal-meta"></div></div>
       </div>
       <div id="modal-rating" class="star-rating" style="margin-bottom:0.3rem"></div>
       <div id="modal-notes-section" style="margin-bottom:0.5rem">
@@ -3236,8 +3238,19 @@ async function openAlbumDetail(id){
   const a=cd.albums.find(x=>x.id===id);if(!a)return;
   const art=a.user_artwork_path||a.artwork_path;
   const artEl=document.getElementById('modal-art');artEl.src=art?`/artwork/${art.split('/').pop()}?t=${Date.now()}`:'';artEl.style.display=art?'':'none';
-  document.getElementById('modal-title').textContent=a.title;document.getElementById('modal-artist').textContent=a.artist;
-  document.getElementById('modal-meta').textContent=[a.year,a.genre,a.label].filter(Boolean).join(' \xB7 ');
+  var titleEl=document.getElementById('modal-title');titleEl.textContent=a.title;
+  titleEl.onclick=function(){editAlbumMetadata(id,'title')};
+  var artistEl=document.getElementById('modal-artist');artistEl.textContent=a.artist;
+  artistEl.onclick=function(){editAlbumMetadata(id,'artist')};
+  var metaEl=document.getElementById('modal-meta');
+  var metaParts=[];
+  if(a.year)metaParts.push('<span class="meta-tag" data-field="year" title="Tap to edit year">'+esc(String(a.year))+'</span>');
+  if(a.genre)metaParts.push('<span class="meta-tag" data-field="genre" title="Tap to edit genre">'+esc(a.genre)+'</span>');
+  if(a.label)metaParts.push('<span class="meta-tag" data-field="label" title="Tap to edit label">'+esc(a.label)+'</span>');
+  metaEl.innerHTML=metaParts.join(' <span style="opacity:0.4">\xB7</span> ');
+  metaEl.querySelectorAll('.meta-tag').forEach(function(tag){
+    tag.onclick=function(){editAlbumMetadata(id,tag.dataset.field)};
+  });
   // Update favorite button
   const favBtn=document.getElementById('modal-favorite-btn');
   if(favBtn){favBtn.textContent=a.favorite?'\u2665':'\u2661';favBtn.classList.toggle('is-favorite',!!a.favorite)}
@@ -4350,26 +4363,32 @@ document.addEventListener('keydown', function(e){
 
 // Feature 1: Inline Metadata Editing
 window.editAlbumMetadata = function(albumId, field){
-  const modal = document.getElementById('album-modal');
+  var modal = document.getElementById('album-modal');
   if(!modal.classList.contains('open')) return;
-  const value = document.getElementById('modal-' + field);
+  // Find the element: either modal-{field} for title/artist, or .meta-tag[data-field="{field}"] for year/genre/label
+  var value = document.getElementById('modal-' + field);
+  if(!value) {
+    value = modal.querySelector('.meta-tag[data-field="' + field + '"]');
+  }
   if(!value) return;
-  const currentText = value.textContent;
-  const input = document.createElement('input');
+  var currentText = value.textContent.trim();
+  var input = document.createElement('input');
   input.type = field === 'year' ? 'number' : 'text';
   input.value = currentText;
-  input.style.width = '100%';
-  input.style.padding = '0.3rem';
-  input.style.border = '1px solid var(--amber-dk)';
-  input.style.borderRadius = '4px';
+  input.className = 'meta-edit-input';
+  input.style.cssText = 'width:100%;padding:0.3rem 0.4rem;border:1px solid var(--amber-dk);border-radius:4px;font-size:inherit;font-family:inherit;background:var(--cream);color:var(--ink)';
+  if(field === 'genre') input.placeholder = 'e.g. Trip-hop, Electronic, Jazz';
+  var saved = false;
   input.onblur = function(){
-    saveAlbumMetadata(albumId, field, input.value);
+    if(!saved){ saved = true; saveAlbumMetadata(albumId, field, input.value); }
   };
   input.onkeydown = function(e){
     if(e.key === 'Enter') this.blur();
+    if(e.key === 'Escape'){ saved = true; openAlbumDetail(albumId); }
   };
   value.replaceWith(input);
   input.focus();
+  input.select();
 };
 
 window.saveAlbumMetadata = async function(albumId, field, value){
@@ -4384,7 +4403,7 @@ window.saveAlbumMetadata = async function(albumId, field, value){
     if(r.ok){
       showToast('Saved');
       loadCatalog();
-      setTimeout(() => openAlbumModal(albumId), 100);
+      setTimeout(() => openAlbumDetail(albumId), 100);
     } else {
       showError('Failed to save');
     }
