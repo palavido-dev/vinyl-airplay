@@ -2040,11 +2040,36 @@
     <button class="queue-clear-btn" onclick="togglePlaylistsPanel()" title="Close" style="touch-action:manipulation;-webkit-tap-highlight-color:transparent">✕</button>
   </div>
   <div style="display:flex;border-bottom:1px solid rgba(212,162,78,0.15);flex-shrink:0;background:rgba(0,0,0,0.1)">
-    <button id="pl-tab-regular" class="pl-tab active" onclick="plSwitchListTab('regular')" style="flex:1">Regular</button>
+    <button id="pl-tab-regular" class="pl-tab active" onclick="plSwitchListTab('regular')" style="flex:1">Albums</button>
+    <button id="pl-tab-songs" class="pl-tab" onclick="plSwitchListTab('songs')" style="flex:1">Songs</button>
     <button id="pl-tab-smart" class="pl-tab" onclick="plSwitchListTab('smart')" style="flex:1">Smart</button>
   </div>
   <div id="pl-view-regular" style="flex:1;overflow-y:auto">
     <div style="color:var(--muted);padding:1rem;text-align:center;font-size:0.82rem">No playlists yet</div>
+  </div>
+  <div id="pl-view-songs" style="flex:1;overflow-y:auto;display:none">
+    <div id="song-playlists-list" style="color:var(--muted);padding:1rem;text-align:center;font-size:0.82rem">No song playlists yet</div>
+  </div>
+  <div id="pl-view-song-detail" style="flex:1;overflow-y:auto;display:none;flex-direction:column">
+    <div style="padding:0.5rem 0.75rem;display:flex;align-items:center;gap:0.4rem;border-bottom:1px solid rgba(212,162,78,0.15);flex-shrink:0">
+      <button class="pl-item-btn" onclick="splBackToList()" style="font-size:0.9rem" title="Back">&#8592;</button>
+      <span id="spl-detail-name" style="flex:1;font-family:var(--display-font);color:var(--amber);font-size:0.9rem"></span>
+      <span id="spl-detail-count" style="font-size:0.68rem;color:var(--muted)"></span>
+      <button class="btn btn-ghost" style="font-size:0.7rem;padding:0.25rem 0.5rem" onclick="splPlayCurrent()">&#9654; Play</button>
+    </div>
+    <div style="display:flex;border-bottom:1px solid rgba(212,162,78,0.15);flex-shrink:0">
+      <button id="spl-tab-contents" class="pl-tab active" onclick="splSwitchTab('contents')">Tracks</button>
+      <button id="spl-tab-add" class="pl-tab" onclick="splSwitchTab('add')">Add Songs</button>
+    </div>
+    <div id="spl-tab-contents-view" style="flex:1;overflow-y:auto">
+      <div id="spl-detail-tracks"></div>
+    </div>
+    <div id="spl-tab-add-view" style="flex:1;overflow-y:auto;display:none;flex-direction:column">
+      <div style="padding:0.5rem 0.6rem;flex-shrink:0;position:sticky;top:0;background:var(--walnut);z-index:1">
+        <input type="search" id="spl-add-search" placeholder="Search songs to add..." oninput="splSearchSongs(this.value)" style="width:100%;padding:0.35rem 0.5rem;font-size:0.78rem;border:1px solid rgba(212,162,78,0.25);border-radius:5px;background:rgba(0,0,0,0.15);color:var(--amber);font-family:var(--body-font);outline:none">
+      </div>
+      <div id="spl-search-results" style="padding:0.3rem 0.5rem"></div>
+    </div>
   </div>
   <div id="pl-view-smart" style="flex:1;overflow-y:auto;display:none">
     <div id="smart-playlists-list" style="color:var(--muted);padding:1rem;text-align:center;font-size:0.82rem">Loading smart playlists...</div>
@@ -2073,6 +2098,9 @@
   <div style="flex-shrink:0;padding:0.6rem 0.75rem;border-top:1px solid rgba(212,162,78,0.15);background:rgba(0,0,0,0.2)">
     <div id="pl-new-regular" style="display:flex;gap:0.3rem">
       <button class="btn btn-ghost" style="flex:1;text-align:center;font-size:0.78rem" onclick="plCreateNew()">+ New Playlist</button>
+    </div>
+    <div id="pl-new-songs" style="display:none">
+      <button class="btn btn-ghost" style="width:100%;text-align:center;font-size:0.78rem" onclick="splCreateNew()">+ New Song Playlist</button>
     </div>
     <div id="pl-new-smart" style="display:none">
       <button class="btn btn-ghost" style="width:100%;text-align:center;font-size:0.78rem" onclick="showSmartPlaylistBuilder()">+ New Smart Playlist</button>
@@ -3136,14 +3164,20 @@ function closePlOnClickOutside(e){
   }
 }
 function plSwitchListTab(tab){
-  const isRegular=tab==='regular';
-  document.getElementById('pl-tab-regular').classList.toggle('active',isRegular);
-  document.getElementById('pl-tab-smart').classList.toggle('active',!isRegular);
-  document.getElementById('pl-view-regular').style.display=isRegular?'':'none';
-  document.getElementById('pl-view-smart').style.display=isRegular?'none':'';
-  document.getElementById('pl-new-regular').style.display=isRegular?'':'none';
-  document.getElementById('pl-new-smart').style.display=isRegular?'none':'';
-  if(!isRegular){plLoadSmartPlaylists()}else{plShowList()}
+  ['regular','songs','smart'].forEach(function(t){
+    var tabEl=document.getElementById('pl-tab-'+t);
+    if(tabEl)tabEl.classList.toggle('active',t===tab);
+    var viewEl=document.getElementById('pl-view-'+t);
+    if(viewEl)viewEl.style.display=t===tab?'':'none';
+    var newEl=document.getElementById('pl-new-'+t);
+    if(newEl)newEl.style.display=t===tab?'':'none';
+  });
+  // Hide detail views when switching tabs
+  document.getElementById('pl-view-detail').style.display='none';
+  document.getElementById('pl-view-song-detail').style.display='none';
+  if(tab==='regular')plShowList();
+  else if(tab==='songs')splShowList();
+  else plLoadSmartPlaylists();
 }
 
 async function plLoadSmartPlaylists(){
@@ -3606,6 +3640,155 @@ async function reorderPlaylist(fromIdx,toIdx){
   var r=await fetch('/api/playlists/'+_plCurrentId+'/reorder',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({from:fromIdx,to:toIdx})}).then(d=>d.json());
   if(r.ok){_plRefreshContents()}
   else{showToast(r.error||'Cannot reorder')}
+}
+
+// --- Song Playlists ---
+var _splCurrentId=null;
+var _splSearchDebounce=null;
+
+async function splShowList(){
+  document.getElementById('pl-view-songs').style.display='block';
+  document.getElementById('pl-view-song-detail').style.display='none';
+  _splCurrentId=null;
+  var r=await fetch('/api/song-playlists').then(function(d){return d.json()});
+  var el=document.getElementById('song-playlists-list');
+  if(!r.ok||!r.playlists||!r.playlists.length){
+    el.innerHTML='<div style="color:var(--muted);padding:1rem;text-align:center;font-size:0.82rem">No song playlists yet. Create one to get started.</div>';
+    return;
+  }
+  var html='';
+  r.playlists.forEach(function(p){
+    html+='<div class="pl-item" onclick="splShowDetail('+p.id+')">'
+      +'<span class="pl-item-name">'+esc(p.name)+'</span>'
+      +'<span class="pl-item-count">'+p.track_count+' song'+(p.track_count!==1?'s':'')+'</span>'
+      +'<div class="pl-item-actions">'
+      +'<button class="pl-item-btn" onclick="event.stopPropagation();splPlayDirect('+p.id+')" title="Play">&#9654;</button>'
+      +'<button class="pl-item-btn" onclick="event.stopPropagation();splRename('+p.id+',\''+esc(p.name).replace(/'/g,"\\'")+'\')" title="Rename">&#9998;</button>'
+      +'<button class="pl-item-btn" onclick="event.stopPropagation();splDelete('+p.id+')" title="Delete" style="color:var(--rust)">&#10005;</button>'
+      +'</div></div>';
+  });
+  el.innerHTML=html;
+}
+
+async function splShowDetail(id){
+  _splCurrentId=id;
+  document.getElementById('pl-view-songs').style.display='none';
+  document.getElementById('pl-view-song-detail').style.display='flex';
+  var r=await fetch('/api/song-playlists/'+id).then(function(d){return d.json()});
+  if(!r.ok||!r.playlist){splBackToList();return}
+  var pl=r.playlist;
+  document.getElementById('spl-detail-name').textContent=pl.name;
+  document.getElementById('spl-detail-count').textContent=pl.tracks.length+' song'+(pl.tracks.length!==1?'s':'');
+  splRenderTracks(pl.tracks);
+  if(!pl.tracks.length)splSwitchTab('add');
+  else splSwitchTab('contents');
+}
+
+function splRenderTracks(tracks){
+  var html='';
+  tracks.forEach(function(t,idx){
+    var artPath=t.user_artwork_path||t.artwork_path;
+    var artSrc=artPath?'/artwork/'+artPath.split('/').pop()+'?t='+t.album_id:'';
+    var dur=t.duration_secs?fmtTime(t.duration_secs):'';
+    html+='<div class="pl-album-item">'
+      +(artSrc?'<img src="'+artSrc+'" alt="" style="width:36px;height:36px;border-radius:4px;object-fit:cover;flex-shrink:0">':'')
+      +'<div class="pl-album-info"><div class="pl-album-title">'+esc(t.title)+'</div>'
+      +'<div class="pl-album-artist">'+esc(t.artist||t.track_artist||'')+' - '+esc(t.album_title)+'</div></div>'
+      +'<span style="font-size:0.65rem;color:var(--muted);white-space:nowrap">'+(dur||'')+'</span>'
+      +'<button class="pl-album-remove" onclick="splRemoveTrack('+idx+')" title="Remove">&#10005;</button>'
+      +'</div>';
+  });
+  if(!html)html='<div style="color:var(--muted);padding:0.8rem;text-align:center;font-size:0.78rem">Tap "Add Songs" to search for tracks</div>';
+  document.getElementById('spl-detail-tracks').innerHTML=html;
+}
+
+function splSwitchTab(tab){
+  document.getElementById('spl-tab-contents').classList.toggle('active',tab==='contents');
+  document.getElementById('spl-tab-add').classList.toggle('active',tab==='add');
+  document.getElementById('spl-tab-contents-view').style.display=tab==='contents'?'':'none';
+  document.getElementById('spl-tab-add-view').style.display=tab==='add'?'flex':'none';
+}
+
+function splSearchSongs(q){
+  clearTimeout(_splSearchDebounce);
+  if(!q||!q.trim()){document.getElementById('spl-search-results').innerHTML='';return}
+  _splSearchDebounce=setTimeout(async function(){
+    var r=await fetch('/api/catalog/tracks/search?q='+encodeURIComponent(q.trim())).then(function(d){return d.json()});
+    var tracks=r.tracks||[];
+    var html='';
+    if(!tracks.length){
+      html='<div style="color:var(--muted);padding:0.5rem;text-align:center;font-size:0.78rem">No songs found</div>';
+    }else{
+      tracks.forEach(function(t){
+        var artPath=t.user_artwork_path||t.artwork_path;
+        var artSrc=artPath?'/artwork/'+artPath.split('/').pop()+'?t='+t.album_id:'';
+        html+='<div class="pl-album-item" style="cursor:pointer" onclick="splAddTrack('+t.id+')">'
+          +(artSrc?'<img src="'+artSrc+'" alt="" style="width:32px;height:32px;border-radius:3px;object-fit:cover;flex-shrink:0">':'')
+          +'<div class="pl-album-info"><div class="pl-album-title">'+esc(t.title)+'</div>'
+          +'<div class="pl-album-artist">'+esc(t.artist)+' - '+esc(t.album_title)+'</div></div>'
+          +'<span style="font-size:0.62rem;color:var(--sage);flex-shrink:0">+ Add</span>'
+          +'</div>';
+      });
+    }
+    document.getElementById('spl-search-results').innerHTML=html;
+  },250);
+}
+
+async function splAddTrack(trackId){
+  if(!_splCurrentId)return;
+  var r=await fetch('/api/song-playlists/'+_splCurrentId+'/add',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({track_id:trackId})}).then(function(d){return d.json()});
+  if(r.ok){showToast('Song added');splShowDetail(_splCurrentId)}
+}
+
+async function splRemoveTrack(index){
+  if(!_splCurrentId)return;
+  await fetch('/api/song-playlists/'+_splCurrentId+'/remove',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({index:index})});
+  splShowDetail(_splCurrentId);
+}
+
+function splBackToList(){
+  document.getElementById('pl-view-song-detail').style.display='none';
+  document.getElementById('pl-view-songs').style.display='block';
+  _splCurrentId=null;
+  splShowList();
+}
+
+async function splCreateNew(){
+  var name=prompt('Song playlist name:');
+  if(!name||!name.trim())return;
+  var r=await fetch('/api/song-playlists',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:name.trim()})}).then(function(d){return d.json()});
+  showToast('Playlist "'+name.trim()+'" created');
+  if(r.ok&&r.id){splShowDetail(r.id)}else{splShowList()}
+}
+
+async function splPlayDirect(id){
+  if(!_isStreaming&&!_playerActive){
+    showToast('Select an output device first by playing an album');return;
+  }
+  var r=await fetch('/api/song-playlists/'+id).then(function(d){return d.json()});
+  if(!r.ok||!r.playlist||!r.playlist.tracks.length){showToast('Empty playlist');return}
+  var first=r.playlist.tracks[0];
+  playAlbum(first.album_id,first.id);
+  togglePlaylistsPanel();
+  showToast('Playing: '+first.title);
+}
+
+async function splPlayCurrent(){
+  if(!_splCurrentId)return;
+  splPlayDirect(_splCurrentId);
+}
+
+async function splRename(id,currentName){
+  var newName=prompt('New name:',currentName);
+  if(!newName||!newName.trim())return;
+  await fetch('/api/song-playlists/'+id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:newName.trim()})});
+  showToast('Playlist renamed');splShowList();
+}
+
+async function splDelete(id){
+  if(!confirm('Delete this song playlist?'))return;
+  await fetch('/api/song-playlists/'+id,{method:'DELETE'});
+  splShowList();
 }
 
 // --- Add to Playlist from Modal ---
