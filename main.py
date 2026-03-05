@@ -51,6 +51,10 @@ def _capture_channels(device_index=None) -> int:
         return 2  # safe stereo fallback
 BITS          = 16
 BLOCK_SIZE    = 8192   # larger blocks = fewer callbacks = less overflow on Pi
+INPUT_LATENCY = 0.5    # seconds — large ALSA buffer absorbs USB timing jitter
+                       # (Scarlett 2i2 4th Gen triggers retire_capture_urb warnings
+                       # on the Pi's USB host controller; a bigger buffer keeps the
+                       # stream alive through those hiccups)
 READ_SIZE     = 8192
 MAX_CHUNKS    = 500
 
@@ -1079,7 +1083,8 @@ async def _run_stream_inner(targets, audio_device_index, volume):
     try:
         with sd.InputStream(device=audio_device_index, samplerate=SAMPLE_RATE,
                             channels=_capture_channels(audio_device_index), dtype="float32",
-                            blocksize=BLOCK_SIZE, callback=callback):
+                            blocksize=BLOCK_SIZE, latency=INPUT_LATENCY,
+                            callback=callback):
             stop_task    = asyncio.create_task(state.stop_event.wait())
             if confs:
                 threads_task = asyncio.create_task(threads_done.wait())
@@ -4480,7 +4485,8 @@ async def _start_listen_mode():
         try:
             with sd.InputStream(device=audio_device_index, samplerate=SAMPLE_RATE,
                                 channels=_capture_channels(audio_device_index), dtype="float32",
-                                blocksize=BLOCK_SIZE, callback=callback):
+                                blocksize=BLOCK_SIZE, latency=INPUT_LATENCY,
+                                callback=callback):
                 print("[listen] Audio-only mode started")
                 await broadcast("status", {"streaming": False, "listening": True,
                                            "message": "Listening (no AirPlay)"})
