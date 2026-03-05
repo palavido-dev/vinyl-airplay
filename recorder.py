@@ -48,6 +48,8 @@ MIN_TRACK_SECS    = 15              # ignore tracks shorter than this (needle dr
 STARTUP_AUDIO_SECS = 2.0            # sustained audio required before silence detection begins
 DURATION_SPLIT_TOLERANCE = 10.0     # seconds past expected track duration before forcing a split
                                     # fallback for albums with seamless transitions (no silence gaps)
+STREAM_STALL_SECS = 10.0            # if no audio chunks arrive for this long during recording,
+                                    # the audio stream has likely died (USB overflow, ALSA glitch)
 
 
 # ── Recording Buffer ──────────────────────────────────────────────────────────
@@ -104,6 +106,9 @@ class RecordingBuffer:
         self._duration_track_idx = 0                 # which expected track we're on
         self._track_elapsed_secs = 0.0               # seconds since last split
 
+        # Stream stall detection: track when audio last arrived
+        self._last_put_time: float = 0.0             # monotonic timestamp of last put() call
+
     def start(self, auto_split: bool = True):
         with self._lock:
             self._chunks        = []
@@ -120,6 +125,7 @@ class RecordingBuffer:
             self._above_thresh_secs    = 0.0
             self._duration_track_idx   = 0
             self._track_elapsed_secs   = 0.0
+            self._last_put_time        = time.monotonic()
             # Keep _expected_durations — set externally before start()
         print(f"[recorder] Recording started (auto_split={auto_split})")
 
@@ -158,6 +164,13 @@ class RecordingBuffer:
         return self._active
 
     @property
+    def stream_stalled(self) -> bool:
+        """True if recording is active but no audio has arrived recently."""
+        if not self._active or self._last_put_time == 0.0:
+            return False
+        return (time.monotonic() - self._last_put_time) >= STREAM_STALL_SECS
+
+    @property
     def elapsed_secs(self) -> float:
         with self._lock:
             return _pcm_duration(b"x" * self._total_bytes)
@@ -170,6 +183,8 @@ class RecordingBuffer:
         reset) even during normal non-recording streaming.
         Only chunk accumulation is gated behind _active.
         """
+        self._last_put_time = time.monotonic()
+
         # Calculate RMS first — needed for both recording and silence detection
         samples = np.frombuffer(pcm_chunk, dtype=np.int16).astype(np.float32) / 32768.0
         rms     = float(np.sqrt(np.mean(samples ** 2)))

@@ -240,6 +240,7 @@ class AppState:
         self.listen_task: Optional[asyncio.Task] = None  # audio-only (no AirPlay) task
         self.learn_session: Optional["LearnSession"] = None
         self.album_recorder: Optional[rec.AlbumRecorder] = None  # full-side capture
+        self.stall_watchdog_task: Optional[asyncio.Task] = None  # audio stream health monitor
         self.player: Optional[plr.Player] = None
         self.player_task: Optional[asyncio.Task] = None
         self.airplay_metadata: Optional[MediaMetadata] = None
@@ -2829,6 +2830,7 @@ async def _auto_finalize_album_side():
     album_id = ar.album_id
     side = ar.side
     state.album_recorder = None  # detach so no more PCM is fed
+    _stop_stall_watchdog()
 
     # Stop learn session for this side
     if state.learn_session:
@@ -2879,6 +2881,67 @@ async def _auto_finalize_album_side():
             "recording": False,
             "message": "Side too short or encoding failed",
         })
+
+
+async def _stream_stall_watchdog():
+    """Periodically checks whether the audio stream has stopped delivering data.
+    USB audio interfaces can silently die after an input overflow (ALSA/URB errors).
+    When detected, flushes accumulated audio and finalizes the recording so the
+    user isn't left staring at a frozen timer."""
+    POLL_INTERVAL = 3.0  # seconds between checks
+    try:
+        while True:
+            await asyncio.sleep(POLL_INTERVAL)
+            rb = state.rec_buffer
+            if not rb or not rb.is_active:
+                continue
+            if not rb.stream_stalled:
+                continue
+
+            print("[watchdog] Audio stream stall detected — no data for "
+                  f"{rec.STREAM_STALL_SECS:.0f}s. Flushing recording.")
+
+            # Force-flush any accumulated audio as the final track
+            if rb._total_bytes > 0:
+                rb._silence_start_byte = rb._total_bytes
+                rb._silence_secs = 0.0
+                rb._split_track()
+
+            # Fire end-of-side to finalize album recording
+            if rb._on_end_of_side:
+                rb._on_end_of_side()
+
+            # Notify UI about the error
+            album_id = state.album_recorder.album_id if state.album_recorder else None
+            side = state.album_recorder.side if state.album_recorder else None
+            await broadcast("album_recording_status", {
+                "recording": False,
+                "album_id": album_id,
+                "side": side,
+                "error": True,
+                "message": "Audio stream lost (USB/hardware glitch). "
+                           "Recording saved with what was captured. "
+                           "Try recording this side again.",
+            })
+            break  # watchdog's job is done for this recording session
+    except asyncio.CancelledError:
+        pass
+    except Exception as e:
+        print(f"[watchdog] Error: {e}")
+
+
+def _start_stall_watchdog():
+    """Start the audio stream stall watchdog (idempotent)."""
+    if state.stall_watchdog_task and not state.stall_watchdog_task.done():
+        return  # already running
+    state.stall_watchdog_task = asyncio.ensure_future(_stream_stall_watchdog())
+
+
+def _stop_stall_watchdog():
+    """Cancel the stall watchdog."""
+    if state.stall_watchdog_task and not state.stall_watchdog_task.done():
+        state.stall_watchdog_task.cancel()
+    state.stall_watchdog_task = None
 
 
 @app.post("/api/album-recording/start")
@@ -2985,6 +3048,7 @@ async def album_recording_start(body: dict):
 
             state.rec_buffer._on_track_ready = _on_learn_track_ready
             state.rec_buffer.start(auto_split=True)
+            _start_stall_watchdog()
 
     await broadcast("album_recording_status", {
         "recording": True,
@@ -3015,6 +3079,7 @@ async def album_recording_flip(body: dict):
     # Finish current side
     album_id = state.album_recorder.album_id
     loop = asyncio.get_event_loop()
+    _stop_stall_watchdog()
 
     # Stop learn session for this side
     if state.learn_session:
@@ -3123,6 +3188,7 @@ async def album_recording_flip(body: dict):
 
             state.rec_buffer._on_track_ready = _on_learn_track_ready
             state.rec_buffer.start(auto_split=True)
+            _start_stall_watchdog()
 
     await broadcast("album_recording_status", {
         "recording": True,
@@ -3145,6 +3211,7 @@ async def album_recording_stop():
     ar = state.album_recorder
     state.album_recorder = None
     album_id = ar.album_id
+    _stop_stall_watchdog()
 
     # Stop learn session
     if state.learn_session:
@@ -3218,6 +3285,7 @@ async def album_recording_status():
 @app.post("/api/album-recording/cancel")
 async def album_recording_cancel():
     """Cancel the current album recording without saving."""
+    _stop_stall_watchdog()
     if state.album_recorder:
         state.album_recorder.cancel()
         state.album_recorder = None
