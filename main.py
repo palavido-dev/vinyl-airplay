@@ -2363,6 +2363,54 @@ async def clear_track_fingerprints(track_id: int):
             "message": f"Cleared {deleted} fingerprints for this track"}
 
 
+@app.post("/api/catalog/track/{track_id}/re-fingerprint")
+async def re_fingerprint_track(track_id: int):
+    """Re-fingerprint a single track from its side's recorded FLAC audio."""
+    loop = asyncio.get_event_loop()
+    rows = await loop.run_in_executor(None, cat.fingerprint_track_from_flac, track_id)
+    if rows is None:
+        return {"ok": False, "error": "Could not re-fingerprint. Check that the track "
+                "has timestamps and a FLAC recording exists for its side."}
+    return {"ok": True, "rows": rows,
+            "message": f"Re-fingerprinted from FLAC: {rows} windows saved"}
+
+
+@app.post("/api/catalog/{album_id}/re-fingerprint")
+async def re_fingerprint_album(album_id: int, body: dict = {}):
+    """Re-fingerprint all tracks on an album from recorded FLAC audio.
+    If body contains force=true, re-fingerprints even tracks that already
+    have fingerprints. Otherwise only processes unlearned tracks."""
+    force = body.get("force", False)
+    tracks = cat.get_album_tracks(album_id)
+    loop = asyncio.get_event_loop()
+    db = cat.get_db()
+    try:
+        fp_track_ids = set(
+            r["track_id"] for r in db.execute(
+                "SELECT DISTINCT track_id FROM fingerprints "
+                "WHERE track_id IN (SELECT id FROM tracks WHERE album_id = ?)",
+                (album_id,)
+            ).fetchall()
+        )
+    finally:
+        db.close()
+
+    done = 0
+    skipped = 0
+    for t in tracks:
+        if t.get("start_secs") is None or t.get("end_secs") is None:
+            skipped += 1
+            continue
+        if not force and t["id"] in fp_track_ids:
+            skipped += 1
+            continue
+        rows = await loop.run_in_executor(None, cat.fingerprint_track_from_flac, t["id"])
+        if rows is not None:
+            done += 1
+    return {"ok": True, "fingerprinted": done, "skipped": skipped,
+            "message": f"Re-fingerprinted {done} track(s) from FLAC"}
+
+
 @app.post("/api/catalog/{album_id}/reorder")
 async def reorder_tracks(album_id: int, body: dict):
     """Save new track order. body: { track_ids: [id, id, ...] in desired order }"""

@@ -1390,6 +1390,88 @@ def clear_album_fingerprints(album_id: int) -> int:
         db.close()
 
 
+def fingerprint_track_from_flac(track_id: int) -> Optional[int]:
+    """
+    Extract a track's audio from its side's FLAC file, fingerprint it,
+    and save to the database. Returns number of fingerprint rows saved,
+    or None on failure.
+
+    Requires the track to have start_secs/end_secs set (from a previous
+    recording session) and a FLAC file to exist for that album+side.
+    """
+    db = get_db()
+    try:
+        track = db.execute(
+            "SELECT id, album_id, side, start_secs, end_secs FROM tracks WHERE id = ?",
+            (track_id,)
+        ).fetchone()
+        if not track:
+            print(f"[catalog] re-fingerprint: track {track_id} not found")
+            return None
+        if track["start_secs"] is None or track["end_secs"] is None:
+            print(f"[catalog] re-fingerprint: track {track_id} has no timestamps")
+            return None
+
+        side = track["side"] or "A"
+        audio = db.execute(
+            "SELECT file_path FROM album_audio WHERE album_id = ? AND side = ?",
+            (track["album_id"], side)
+        ).fetchone()
+        if not audio:
+            print(f"[catalog] re-fingerprint: no FLAC for album {track['album_id']} side {side}")
+            return None
+
+        flac_path = audio["file_path"]
+        if not os.path.exists(flac_path):
+            print(f"[catalog] re-fingerprint: FLAC missing: {flac_path}")
+            return None
+    finally:
+        db.close()
+
+    # Extract the track's audio slice from the FLAC as WAV via ffmpeg
+    start = track["start_secs"]
+    end = track["end_secs"]
+    duration = end - start
+    if duration < 5:
+        print(f"[catalog] re-fingerprint: track {track_id} too short ({duration:.1f}s)")
+        return None
+
+    try:
+        result = subprocess.run([
+            "ffmpeg", "-y",
+            "-i", flac_path,
+            "-ss", str(start),
+            "-to", str(end),
+            "-f", "wav",
+            "-acodec", "pcm_s16le",
+            "-ac", "2",
+            "-ar", "44100",
+            "pipe:1",
+        ], capture_output=True, timeout=60)
+        if result.returncode != 0:
+            print(f"[catalog] re-fingerprint: ffmpeg failed: {result.stderr.decode()[:200]}")
+            return None
+        wav_bytes = result.stdout
+    except (subprocess.TimeoutExpired, FileNotFoundError) as e:
+        print(f"[catalog] re-fingerprint: ffmpeg error: {e}")
+        return None
+
+    if len(wav_bytes) < 1000:
+        print(f"[catalog] re-fingerprint: extracted WAV too small ({len(wav_bytes)} bytes)")
+        return None
+
+    # Fingerprint the WAV
+    fp_result = fingerprint_wav(wav_bytes)
+    if not fp_result:
+        print(f"[catalog] re-fingerprint: fingerprinting failed for track {track_id}")
+        return None
+
+    raw_ints, _compressed, fp_duration = fp_result
+    rows = save_track_fingerprints(track_id, raw_ints, fp_duration)
+    print(f"[catalog] re-fingerprint: track {track_id} done, {rows} fingerprint windows saved")
+    return rows
+
+
 def purge_oversized_fingerprints() -> int:
     """
     Remove fingerprints that are larger than the canonical window size.
