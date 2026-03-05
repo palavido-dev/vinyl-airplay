@@ -175,19 +175,23 @@ class RecordingBuffer:
         with self._lock:
             return _pcm_duration(b"x" * self._total_bytes)
 
-    def put(self, pcm_chunk: bytes):
+    def put(self, pcm_chunk: bytes, rms: float = None):
         """Called from audio callback with each block of int16 stereo PCM.
 
         Silence detection and level monitoring always run regardless of whether
         recording is active — this allows inter-track gap detection (for recogniser
         reset) even during normal non-recording streaming.
         Only chunk accumulation is gated behind _active.
+
+        If *rms* is provided (pre-computed in the callback from float32 data),
+        the expensive int16->float32 conversion + RMS calculation is skipped.
         """
         self._last_put_time = time.monotonic()
 
-        # Calculate RMS first — needed for both recording and silence detection
-        samples = np.frombuffer(pcm_chunk, dtype=np.int16).astype(np.float32) / 32768.0
-        rms     = float(np.sqrt(np.mean(samples ** 2)))
+        if rms is None:
+            # Fallback: compute RMS from int16 PCM (expensive — avoid in hot path)
+            samples = np.frombuffer(pcm_chunk, dtype=np.int16).astype(np.float32) / 32768.0
+            rms     = float(np.sqrt(np.mean(samples ** 2)))
 
         with self._lock:
             if self._active:
@@ -491,15 +495,20 @@ class AlbumRecorder:
     def track_count(self) -> int:
         return len(self._track_boundaries)
 
-    def put(self, pcm_chunk: bytes):
-        """Called from audio callback with each block of int16 stereo PCM."""
+    def put(self, pcm_chunk: bytes, rms: float = None):
+        """Called from audio callback with each block of int16 stereo PCM.
+
+        If *rms* is provided (pre-computed in the callback), the expensive
+        int16->float32 conversion + RMS calculation is skipped.
+        """
         if not self._active:
             return
 
         # Detect first audio to mark start
         if not self._audio_started:
-            samples = np.frombuffer(pcm_chunk, dtype=np.int16).astype(np.float32) / 32768.0
-            rms = float(np.sqrt(np.mean(samples ** 2)))
+            if rms is None:
+                samples = np.frombuffer(pcm_chunk, dtype=np.int16).astype(np.float32) / 32768.0
+                rms = float(np.sqrt(np.mean(samples ** 2)))
             if rms >= 0.006:  # same as SILENCE_RATIO_MIN
                 self._audio_started = True
                 print("[album-rec] Audio detected — recording")

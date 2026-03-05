@@ -701,6 +701,10 @@ def make_callback(streams, eq, fp_buffer):
                 _last_overflow_log = now
         # Scarlett 2i2 4th Gen captures 4 channels — use first 2 (L+R inputs)
         audio_in = np.ascontiguousarray(indata[:, :CHANNELS]) if indata.shape[1] > CHANNELS else indata
+        # Compute RMS once from float32 data — avoids the expensive
+        # int16->float32 round-trip that rec_buffer and album_recorder
+        # were each doing independently on every callback.
+        rms = float(np.sqrt(np.mean(audio_in ** 2)))
         # Feed fingerprint buffer BEFORE EQ/volume — raw signal gives best results
         raw_pcm = (audio_in * 32767).astype(np.int16).tobytes()
         fp_buffer.put(raw_pcm)
@@ -708,10 +712,10 @@ def make_callback(streams, eq, fp_buffer):
         # Always call put() — silence detection runs inside regardless of is_active,
         # so inter-track gaps trigger recogniser reset even when not recording
         if state.rec_buffer:
-            state.rec_buffer.put(raw_pcm)
+            state.rec_buffer.put(raw_pcm, rms=rms)
         # Feed album recorder (full-side capture) with raw pre-EQ audio
         if state.album_recorder and state.album_recorder.is_active:
-            state.album_recorder.put(raw_pcm)
+            state.album_recorder.put(raw_pcm, rms=rms)
         # Apply EQ + volume for the actual stream output
         audio = eq.process(audio_in)
         pcm   = (audio*32767).astype(np.int16).tobytes()
