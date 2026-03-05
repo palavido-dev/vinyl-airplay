@@ -4236,7 +4236,9 @@ function renderModalTracks(tracks,reorder,boundaryEdit){
         var endVal=t.end_secs!=null?fmtTimePrecise(t.end_secs):'0:00.0';
         h+='<div class="track-row" data-id="'+t.id+'" data-idx="'+i+'" data-side="'+side+'" style="gap:0.6rem"><span class="track-num">'+esc(t.track_number||'')+'</span><span style="flex:1">'+esc(t.title)+'</span><input type="text" class="boundary-time-input" id="boundary-start-'+t.id+'" value="'+stVal+'" placeholder="MM:SS.s"><input type="text" class="boundary-time-input" id="boundary-end-'+t.id+'" value="'+endVal+'" placeholder="MM:SS.s"><button class="btn boundary-save-btn" onclick="saveBoundary('+t.id+')">Save</button></div>';
       }else{
-        h+='<div class="track-row" data-id="'+t.id+'" data-idx="'+i+'" data-side="'+side+'" '+trackClick+'>'+handle+playIcon+'<span class="track-num">'+esc(t.track_number||'')+'</span><span style="flex:1">'+esc(t.title)+'</span>'+fpBadge+fpClear+'<span style="color:var(--muted);font-size:0.72rem;min-width:2.5rem;text-align:right">'+dur+'</span>'+delBtn+'</div>';
+        var durDisplay=dur||'--:--';
+        var durSpan='<span class="track-dur" style="color:var(--muted);font-size:0.72rem;min-width:2.5rem;text-align:right;cursor:pointer" onclick="event.stopPropagation();editTrackDuration(this,'+t.id+','+JSON.stringify(t.duration_secs||0)+')" title="Click to edit duration">'+durDisplay+'</span>';
+        h+='<div class="track-row" data-id="'+t.id+'" data-idx="'+i+'" data-side="'+side+'" '+trackClick+'>'+handle+playIcon+'<span class="track-num">'+esc(t.track_number||'')+'</span><span style="flex:1">'+esc(t.title)+'</span>'+fpBadge+fpClear+durSpan+delBtn+'</div>';
       }
     });
     if(reorder)h+='</div>';
@@ -4282,6 +4284,29 @@ async function reFingerprintAlbum(albumId,force){
   var d=await r.json();
   if(d.ok){showToast(d.message)}else{showToast(d.error||'Failed','error')}
   if(currentAlbumId)openAlbumDetail(currentAlbumId);
+}
+function editTrackDuration(span,trackId,currentSecs){
+  var curVal=currentSecs>0?fmtTime(currentSecs):'';
+  var inp=document.createElement('input');
+  inp.type='text';inp.value=curVal;inp.placeholder='M:SS';
+  inp.style.cssText='width:3.5rem;font-size:0.72rem;text-align:right;padding:0 0.2rem;border:1px solid var(--amber-dk);border-radius:3px;background:var(--paper);color:var(--ink);font-family:var(--body-font)';
+  span.replaceWith(inp);inp.focus();inp.select();
+  function save(){
+    var v=inp.value.trim();
+    if(!v){inp.replaceWith(span);return}
+    // Parse M:SS or seconds
+    var secs=0;
+    var parts=v.split(':');
+    if(parts.length===2){secs=parseInt(parts[0])*60+parseInt(parts[1])}
+    else if(parts.length===3){secs=parseInt(parts[0])*3600+parseInt(parts[1])*60+parseInt(parts[2])}
+    else{secs=parseInt(v)}
+    if(isNaN(secs)||secs<=0){inp.replaceWith(span);return}
+    fetch('/api/catalog/track/'+trackId,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({duration_secs:secs})}).then(function(){
+      if(currentAlbumId)openAlbumDetail(currentAlbumId);
+    });
+  }
+  inp.addEventListener('blur',save);
+  inp.addEventListener('keydown',function(e){if(e.key==='Enter'){e.preventDefault();inp.blur()}if(e.key==='Escape'){inp.value='';inp.blur()}});
 }
 async function deleteAlbum(){if(!currentAlbumId||!confirm('Delete this album and all its data?'))return;await fetch(`/api/catalog/${currentAlbumId}`,{method:'DELETE'});closeModal();loadCatalog()}
 
