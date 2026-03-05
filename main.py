@@ -2033,6 +2033,7 @@ async def update_track(track_id: int, body: dict = Body(...)):
         artist=body.get("artist"),
         track_number=body.get("track_number"),
         side=body.get("side"),
+        duration_secs=body.get("duration_secs"),
     )
     return {"ok": ok}
 

@@ -1611,7 +1611,8 @@ def delete_track(track_id: int) -> bool:
 
 
 def update_track(track_id: int, title: str = None, artist: str = None,
-                 track_number: str = None, side: str = None) -> bool:
+                 track_number: str = None, side: str = None,
+                 duration_secs: float = None) -> bool:
     """Update editable fields on a track."""
     db = get_db()
     try:
@@ -1625,6 +1626,8 @@ def update_track(track_id: int, title: str = None, artist: str = None,
             fields.append("track_number = ?"); vals.append(track_number)
         if side is not None:
             fields.append("side = ?"); vals.append(side)
+        if duration_secs is not None:
+            fields.append("duration_secs = ?"); vals.append(float(duration_secs))
         if not fields:
             return True
         vals.append(track_id)
