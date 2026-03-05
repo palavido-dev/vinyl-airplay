@@ -1745,13 +1745,12 @@
         <button class="btn btn-accent" onclick="playNextFromModal()" id="btn-modal-play-next" title="Insert after current track">Play Next</button>
         <button class="btn btn-accent" onclick="addToQueueFromModal()" id="btn-modal-queue">+ Queue</button>
         <button class="btn btn-accent" onclick="showAddToPlaylistMenu()" id="btn-modal-playlist">+ Playlist</button>
-        <button class="btn btn-accent" onclick="openLearnForAlbum()" id="btn-modal-learn"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:2px"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>Learn</button>
+        <button class="btn btn-accent" onclick="reFingerprintAlbum(currentAlbumId)" id="btn-modal-fingerprint" title="Fingerprint all tracks from recorded audio"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:2px"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>Fingerprint</button>
         <button class="btn" onclick="showAlbumRecPanel()" id="btn-modal-rec"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:2px"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>Record</button>
         <label class="btn" style="cursor:pointer" title="Upload album artwork"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:2px"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>Photo<input type="file" accept="image/*" style="display:none" onchange="uploadArtwork(event)"></label>
         <button class="btn btn-ghost" onclick="toggleReorderMode()" id="btn-reorder" title="Reorder tracks"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:2px"><polyline points="7 3 7 9 1 6"/><polyline points="17 21 17 15 23 18"/><line x1="7" y1="6" x2="17" y2="18"/></svg>Reorder</button>
         <button class="btn btn-ghost" onclick="toggleBoundaryEdit()" id="btn-boundary-edit" title="Edit track boundaries"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:2px"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><line x1="20" y1="4" x2="8.12" y2="15.88"/><line x1="14.47" y1="14.48" x2="20" y2="20"/><line x1="8.12" y1="8.12" x2="12" y2="12"/></svg>Boundaries</button>
         <button class="btn btn-ghost" onclick="clearAlbumFingerprints()" title="Clear learned fingerprints"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:2px"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>Clear FP</button>
-        <button class="btn btn-ghost" onclick="reFingerprintAlbum(currentAlbumId)" id="btn-relearn-fp" title="Re-learn fingerprints from recorded audio"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:2px"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>Re-learn</button>
         <button class="btn btn-ghost" style="color:var(--rust)" onclick="deleteAlbum()">Delete</button>
         <button class="btn btn-ghost" onclick="closeModal()" style="margin-left:auto">Close</button>
       </div>
@@ -4223,8 +4222,8 @@ function renderModalTracks(tracks,reorder,boundaryEdit){
     sideTracks.forEach(function(t,i){
       var dur=t.duration_secs&&t.duration_secs>0?fmtTime(t.duration_secs):(t.start_secs!=null&&t.end_secs!=null?fmtTime(t.end_secs-t.start_secs):'');
       var learned=(t.fingerprint_count||0)>0;
-      var canLearnFromFlac=!learned&&t.start_secs!=null&&t.end_secs!=null&&window._modalAlbumHasAudio;
-      var fpBadge=learned?'<span style="color:var(--sage);font-size:0.68rem">\u2713 '+t.fingerprint_count+'fp</span>':(canLearnFromFlac?'<span class="track-fp-learn" style="color:var(--amber-dk);font-size:0.68rem;cursor:pointer;text-decoration:underline" onclick="event.stopPropagation();reFingerprint('+t.id+')" title="Learn fingerprint from recorded audio">learn</span>':'<span style="color:var(--muted);font-size:0.68rem">unlearned</span>');
+      var canFpFromFlac=t.start_secs!=null&&t.end_secs!=null&&window._modalAlbumHasAudio;
+      var fpBadge=learned?(canFpFromFlac?'<span style="color:var(--sage);font-size:0.68rem;cursor:pointer" onclick="event.stopPropagation();reFingerprint('+t.id+')" title="Re-fingerprint from recorded audio">\u2713 '+t.fingerprint_count+'fp</span>':'<span style="color:var(--sage);font-size:0.68rem">\u2713 '+t.fingerprint_count+'fp</span>'):(canFpFromFlac?'<span class="track-fp-learn" style="color:var(--amber-dk);font-size:0.68rem;cursor:pointer;text-decoration:underline" onclick="event.stopPropagation();reFingerprint('+t.id+')" title="Fingerprint from recorded audio">fingerprint</span>':'<span style="color:var(--muted);font-size:0.68rem">unlearned</span>');
       var fpClear=learned?'<span class="track-fp-clear" title="Clear fingerprints for this track" onclick="event.stopPropagation();clearTrackFP('+t.id+',\''+esc(t.title).replace(/'/g,"\\'")+'\')">\u2715</span>':'';
       var handle=reorder?'<span class="drag-handle">\u2807</span>':'';
       var delBtn=reorder?'<button class="track-delete-btn" onclick="event.stopPropagation();deleteTrack('+t.id+',\''+esc(t.title).replace(/'/g,"\\'")+'\')\" title="Delete track">\u2715</button>':'';
@@ -4269,17 +4268,17 @@ function toggleBrowserAudio(btn){const aid=parseInt(btn.dataset.album),id=parseI
 function stopBrowserAudio(){if(_audioPlayer){_audioPlayer.pause();_audioPlayer=null}if(_audioPlayingId){const r=document.getElementById('audio-row-'+_audioPlayingId);if(r){const b=r.querySelector('.audio-play-btn');if(b)b.innerHTML=_svgPlay12}}_audioPlayingId=null}
 async function deleteAudioSide(btn){const aid=parseInt(btn.dataset.album),id=parseInt(btn.dataset.audio);if(!confirm('Delete this recorded side?'))return;await fetch(`/api/album-audio/${aid}/${id}`,{method:'DELETE'});loadAlbumAudio(aid);loadCatalog()}
 async function uploadArtwork(e){const f=e.target.files[0];if(!f||!currentAlbumId)return;const fd=new FormData();fd.append('file',f);const r=await fetch(`/api/catalog/${currentAlbumId}/artwork`,{method:'POST',body:fd}).then(r=>r.json());if(r.ok){openAlbumDetail(currentAlbumId);loadCatalog()}else showError(r.error||'Upload failed')}
-async function clearAlbumFingerprints(){if(!currentAlbumId||!confirm('Clear all fingerprints? You will need to re-learn.'))return;await fetch(`/api/catalog/${currentAlbumId}/fingerprints`,{method:'DELETE'});showToast('Fingerprints cleared');openAlbumDetail(currentAlbumId)}
+async function clearAlbumFingerprints(){if(!currentAlbumId||!confirm('Clear all fingerprints for this album?'))return;await fetch(`/api/catalog/${currentAlbumId}/fingerprints`,{method:'DELETE'});showToast('Fingerprints cleared');openAlbumDetail(currentAlbumId)}
 async function clearTrackFP(trackId,title){if(!confirm(`Clear fingerprints for "${title}"?`))return;await fetch(`/api/catalog/track/${trackId}/fingerprints`,{method:'DELETE'});showToast(`Cleared FP: ${title}`);if(currentAlbumId)openAlbumDetail(currentAlbumId)}
 async function reFingerprint(trackId){
-  showToast('Learning from recording...');
+  showToast('Fingerprinting from recording...');
   var r=await fetch(`/api/catalog/track/${trackId}/re-fingerprint`,{method:'POST'});
   var d=await r.json();
   if(d.ok){showToast(d.message)}else{showToast(d.error||'Failed','error')}
   if(currentAlbumId)openAlbumDetail(currentAlbumId);
 }
 async function reFingerprintAlbum(albumId,force){
-  showToast('Re-learning all tracks from recording...');
+  showToast('Fingerprinting all tracks from recording...');
   var r=await fetch(`/api/catalog/${albumId}/re-fingerprint`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({force:!!force})});
   var d=await r.json();
   if(d.ok){showToast(d.message)}else{showToast(d.error||'Failed','error')}
