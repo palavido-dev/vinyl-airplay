@@ -142,11 +142,16 @@ class RecordingBuffer:
         return pcm
 
     def set_expected_durations(self, durations: list[float]):
-        """Set expected track durations (from Discogs) for time-based fallback splitting."""
-        self._expected_durations = [d for d in durations if d > 0]
+        """Set expected track durations (from Discogs) for time-based fallback splitting.
+        Zero-duration entries are kept so the track index stays synchronized --
+        time-based splitting is simply skipped for those tracks while silence
+        detection still operates normally."""
+        self._expected_durations = [float(d) for d in durations]
+        known = [d for d in self._expected_durations if d > 0]
         if self._expected_durations:
             print(f"[recorder] Expected track durations set: "
-                  f"{[f'{d:.0f}s' for d in self._expected_durations]}")
+                  f"{[f'{d:.0f}s' for d in self._expected_durations]}"
+                  f" ({len(known)} known, {len(self._expected_durations) - len(known)} unknown)")
 
     @property
     def is_active(self) -> bool:
