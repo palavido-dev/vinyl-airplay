@@ -1877,7 +1877,7 @@
       <div class="settings-group-body">
         <div class="settings-section"><h3>Discogs</h3>
           <p style="font-size:0.75rem;color:var(--muted);margin-bottom:0.4rem;line-height:1.4">Connect your Discogs account to search with cover art and sync your collection. <a href="https://www.discogs.com/settings/developers" target="_blank" style="color:var(--amber-dk)">Get token</a></p>
-          <div class="form-row"><label>Token</label><div style="display:flex;gap:0.4rem;align-items:center;flex:1"><input type="password" class="form-input" id="discogs-token" placeholder="Paste token" style="flex:1"><button class="btn btn-accent" onclick="saveDiscogsToken()">Save</button></div></div>
+          <div class="form-row"><label>Token</label><div style="display:flex;gap:0.4rem;align-items:center;flex:1"><input type="password" class="form-input" id="discogs-token" placeholder="Paste token" style="flex:1" autocomplete="off" data-lpignore="true" data-form-type="other"><button class="btn btn-accent" onclick="saveDiscogsToken()">Save</button></div></div>
           <span id="discogs-saved" style="display:none;color:var(--sage);font-size:0.75rem">✓ Saved</span>
           <div class="form-row" style="margin-top:0.3rem"><label>Username</label><div style="display:flex;gap:0.4rem;align-items:center;flex:1"><input type="text" class="form-input" id="discogs-username" placeholder="Your Discogs username" style="flex:1"><button class="btn btn-accent" onclick="saveDiscogsUsername()">Save</button></div></div>
           <span id="discogs-user-saved" style="display:none;color:var(--sage);font-size:0.75rem">✓ Saved</span>
