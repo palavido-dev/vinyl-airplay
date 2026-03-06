@@ -2276,7 +2276,8 @@ function showToast(msg){
   },3000);
 }
 
-function connectWS(){const p=location.protocol==='https:'?'wss':'ws';ws=new WebSocket(`${p}://${location.host}/ws`);ws.onmessage=e=>{try{handleEvent(JSON.parse(e.data))}catch(err){console.warn('WS',err)}};ws.onclose=()=>setTimeout(connectWS,2000)}
+function connectWS(){const p=location.protocol==='https:'?'wss':'ws';ws=new WebSocket(`${p}://${location.host}/ws`);ws.onopen=function(){syncAlbumRecState()};ws.onmessage=e=>{try{handleEvent(JSON.parse(e.data))}catch(err){console.warn('WS',err)}};ws.onclose=()=>setTimeout(connectWS,2000)}
+function syncAlbumRecState(){fetch('/api/album-recording/status').then(r=>r.json()).then(function(d){if(d.awaiting_flip){clearInterval(_recTimerInterval);setRecordingIndicator(false);document.getElementById('album-rec-active').style.display='none';document.getElementById('album-rec-saving').style.display='none';document.getElementById('album-rec-flip-prompt').style.display='block';document.getElementById('album-rec-done-side').textContent=d.side||'?';var ns=String.fromCharCode((d.side||'A').charCodeAt(0)+1);document.getElementById('album-rec-next-side-label').textContent=ns;showAlbumRecPanel();if(d.album_id&&currentAlbumId===d.album_id){loadAlbumAudio(d.album_id);loadCatalog()}}else if(!d.recording&&_recTimerInterval){clearInterval(_recTimerInterval);setRecordingIndicator(false)}}).catch(function(){})}
 
 function handleEvent(d){
   if(d.event==='status')setStatus(d);

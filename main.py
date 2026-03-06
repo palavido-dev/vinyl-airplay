@@ -3341,12 +3341,22 @@ async def album_recording_stop():
 
 @app.get("/api/album-recording/status")
 async def album_recording_status():
-    """Get current album recording status."""
-    if not state.album_recorder or not state.album_recorder.is_active:
-        return {"recording": False}
+    """Get current album recording status.
+    Returns recording state so the UI can sync after a WebSocket reconnect."""
+    if not state.album_recorder:
+        return {"recording": False, "awaiting_flip": False}
     ar = state.album_recorder
+    if not ar.is_active:
+        # Recorder exists but inactive = side was auto-finalized, awaiting flip
+        return {
+            "recording": False,
+            "awaiting_flip": True,
+            "album_id": ar.album_id,
+            "side": ar.side,
+        }
     return {
         "recording": True,
+        "awaiting_flip": False,
         "album_id": ar.album_id,
         "side": ar.side,
         "elapsed_secs": round(ar.elapsed_secs, 1),
