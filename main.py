@@ -3081,7 +3081,7 @@ async def album_recording_start(body: dict):
     # (reuses existing learn infrastructure)
     if not state.learn_session and state.rec_buffer and _ensure_audio_active():
         loop = asyncio.get_event_loop()
-        session = LearnSession(album_id, len(side_tracks), loop)
+        session = LearnSession(album_id, len(side_tracks), loop, side=side)
         if session.pending_tracks:
             state.learn_session = session
             if state.recogniser:
@@ -3220,7 +3220,7 @@ async def album_recording_flip(body: dict):
 
     # Restart learn session for new side
     if state.rec_buffer and (state.is_streaming or state.listen_task):
-        session = LearnSession(album_id, len(side_tracks), loop)
+        session = LearnSession(album_id, len(side_tracks), _loop2, side=new_side)
         if session.pending_tracks:
             state.learn_session = session
             if state.recogniser:
@@ -4366,15 +4366,19 @@ class LearnSession:
          "Flip record / next side?" or "Done"
     """
 
-    def __init__(self, album_id: int, track_count: int, loop):
+    def __init__(self, album_id: int, track_count: int, loop, side: str = None):
         self.album_id    = album_id
         self.track_count = track_count   # how many tracks to learn this session
         self.learned     = 0             # tracks learned so far this session
         self.active      = True
         self._loop       = loop
 
-        # Get the ordered list of unlearned tracks for this album
+        # Get the ordered list of unlearned tracks for this album,
+        # filtered to the current side if specified (so recording Side A
+        # doesn't accidentally learn Side B tracks).
         all_tracks = cat.get_album_tracks(album_id)
+        if side:
+            all_tracks = [t for t in all_tracks if (t.get("side") or "A") == side]
         db = cat.get_db()
         self.pending_tracks = [
             t for t in all_tracks
@@ -4383,7 +4387,7 @@ class LearnSession:
             ).fetchone()
         ]
         db.close()
-        print(f"[learn] Session started: album {album_id}, "
+        print(f"[learn] Session started: album {album_id} side {side or 'all'}, "
               f"{track_count} tracks to learn, "
               f"{len(self.pending_tracks)} unlearned tracks available")
 
