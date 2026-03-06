@@ -2887,7 +2887,9 @@ async def _auto_finalize_album_side():
 
     album_id = ar.album_id
     side = ar.side
-    state.album_recorder = None  # detach so no more PCM is fed
+    # Keep album_recorder around (but inactive after finish()) so the
+    # flip endpoint can read album_id from it.  The audio callback
+    # already checks is_active before calling put(), so no PCM is fed.
     _stop_stall_watchdog()
 
     # Stop learn session for this side
@@ -3131,11 +3133,11 @@ async def album_recording_flip(body: dict):
     Finish current side and start recording the next side.
     body: { side: str ("B", "C", etc.) }
     """
-    if not state.album_recorder or not state.album_recorder.is_active:
+    if not state.album_recorder:
         return {"ok": False, "error": "No album recording in progress"}
 
-    # Finish current side
     album_id = state.album_recorder.album_id
+    already_finalized = not state.album_recorder.is_active
     loop = asyncio.get_event_loop()
     _stop_stall_watchdog()
 
@@ -3148,34 +3150,31 @@ async def album_recording_flip(body: dict):
     if state.rec_buffer and state.rec_buffer.is_active:
         state.rec_buffer.stop()
 
-    # Encode the current side in background
-    ar = state.album_recorder
-    state.album_recorder = None
+    # Encode current side in background (skip if auto-finalize already did it)
+    if not already_finalized:
+        ar = state.album_recorder
 
-    async def _finish_and_start_next():
-        # Encode current side
-        path, duration, boundaries = await loop.run_in_executor(None, ar.finish)
-        if path:
-            file_size = path.stat().st_size
-            cat.save_album_audio(album_id, ar.side, str(path), duration, file_size)
+        async def _finish_and_start_next():
+            path, duration, boundaries = await loop.run_in_executor(None, ar.finish)
+            if path:
+                file_size = path.stat().st_size
+                cat.save_album_audio(album_id, ar.side, str(path), duration, file_size)
 
-            # Save track timestamps
-            for b in boundaries:
-                if b["track_id"] and b["end_secs"] is not None:
-                    cat.update_track_timestamps(b["track_id"], b["start_secs"], b["end_secs"])
+                for b in boundaries:
+                    if b["track_id"] and b["end_secs"] is not None:
+                        cat.update_track_timestamps(b["track_id"], b["start_secs"], b["end_secs"])
 
-            # Sanity-check boundaries against catalog durations and correct if needed
-            cat.correct_side_boundaries(album_id, ar.side, duration)
+                cat.correct_side_boundaries(album_id, ar.side, duration)
 
-            await broadcast("album_recording_side_saved", {
-                "album_id": album_id,
-                "side": ar.side,
-                "duration_secs": round(duration, 1),
-                "size_mb": round(file_size / (1024 * 1024), 1),
-                "tracks_captured": len(boundaries),
-            })
+                await broadcast("album_recording_side_saved", {
+                    "album_id": album_id,
+                    "side": ar.side,
+                    "duration_secs": round(duration, 1),
+                    "size_mb": round(file_size / (1024 * 1024), 1),
+                    "tracks_captured": len(boundaries),
+                })
 
-    asyncio.create_task(_finish_and_start_next())
+        asyncio.create_task(_finish_and_start_next())
 
     # Start new side
     new_side = body.get("side", "B").upper()
@@ -3267,8 +3266,23 @@ async def album_recording_stop():
         return {"ok": False, "error": "No album recording in progress"}
 
     ar = state.album_recorder
+    already_finalized = not ar.is_active
     state.album_recorder = None
     album_id = ar.album_id
+
+    # If auto-finalize already saved the FLAC, just clean up
+    if already_finalized:
+        if state.learn_session:
+            state.learn_session.active = False
+            state.learn_session = None
+        if state.recogniser:
+            state.recogniser.set_learning_mode(False)
+        await broadcast("album_recording_status", {
+            "recording": False,
+            "album_id": album_id,
+            "message": "Recording stopped",
+        })
+        return {"ok": True, "already_finalized": True}
     _stop_stall_watchdog()
 
     # Stop learn session
