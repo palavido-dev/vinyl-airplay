@@ -43,6 +43,10 @@ EARLY_SPLIT_RATIO  = 0.75           # suppress silence splits until 75% of expec
 END_OF_SIDE_SECS  = 20.0            # silence this long = end of side — auto-flush final track
                                     # _split_track trims to silence_start+pad so no long silence
                                     # is appended to the file
+END_OF_SIDE_RMS   = 0.004           # RMS must stay below this to count toward end-of-side
+                                    # Run-out grooves typically read 0.001-0.003 RMS.
+                                    # Quiet music passages sit around 0.004-0.006, so this
+                                    # avoids false end-of-side triggers on quiet records.
 SILENCE_PAD_SECS  = 0.5            # keep this much silence at end of track (natural fade)
 MIN_TRACK_SECS    = 15              # ignore tracks shorter than this (needle drop, interludes)
 STARTUP_AUDIO_SECS = 2.0            # sustained audio required before silence detection begins
@@ -92,6 +96,7 @@ class RecordingBuffer:
         self._sustained_audio_secs = 0.0   # how long we've heard audio above threshold
         self._audio_seen           = False  # True once startup gate is cleared
         self._end_of_side_fired    = False  # prevent double-firing end-of-side flush
+        self._eos_silence_secs     = 0.0    # separate counter for end-of-side (stricter threshold)
 
         # Adaptive signal level: exponential moving average of RMS while music is playing.
         # Silence threshold = _signal_level * SILENCE_RATIO.
@@ -122,6 +127,7 @@ class RecordingBuffer:
             self._signal_level         = 0.03
             self._silence_log_countdown = 0
             self._end_of_side_fired    = False
+            self._eos_silence_secs     = 0.0
             self._above_thresh_secs    = 0.0
             self._duration_track_idx   = 0
             self._track_elapsed_secs   = 0.0
@@ -263,17 +269,27 @@ class RecordingBuffer:
             # from getting stuck high on dynamic albums where quiet music sits
             # below an inflated threshold from earlier loud passages.
             self._signal_level -= SIGNAL_DECAY_RATE * self._signal_level
+            # End-of-side uses a stricter absolute threshold: run-out grooves
+            # read 0.001-0.003 RMS, well below quiet music passages (0.004-0.006).
+            # Track this separately so quiet music doesn't false-trigger end-of-side.
+            if rms < END_OF_SIDE_RMS:
+                self._eos_silence_secs += chunk_secs
+            else:
+                self._eos_silence_secs = 0.0  # quiet music, not actual silence
             # Periodic diagnostic log so we can see gap RMS in journalctl
             self._silence_log_countdown -= 1
             if self._silence_log_countdown <= 0:
                 print(f"[recorder] Gap: RMS={rms:.5f}  threshold={silence_threshold:.5f}"
-                      f"  signal={self._signal_level:.5f}  silence={self._silence_secs:.1f}s")
+                      f"  signal={self._signal_level:.5f}  silence={self._silence_secs:.1f}s"
+                      f"  eos={self._eos_silence_secs:.1f}s")
                 self._silence_log_countdown = 20  # log every ~20 chunks
-            # End-of-side detection: long silence = needle lifted / run-out groove
+            # End-of-side detection: prolonged near-silence = run-out groove / needle lifted.
+            # Uses the stricter _eos_silence_secs counter (requires RMS < END_OF_SIDE_RMS)
+            # instead of _silence_secs (which just requires below the adaptive threshold).
             if (not self._end_of_side_fired
-                    and self._silence_secs >= END_OF_SIDE_SECS):
+                    and self._eos_silence_secs >= END_OF_SIDE_SECS):
                 self._end_of_side_fired = True
-                print(f"[recorder] End-of-side detected ({self._silence_secs:.1f}s silence)"
+                print(f"[recorder] End-of-side detected ({self._eos_silence_secs:.1f}s near-silence)"
                       f" — flushing final track (trimmed to music end)")
                 self._split_track()          # trims silence, hands off final track
                 self._audio_seen = False     # re-arm startup gate for next side
@@ -283,6 +299,7 @@ class RecordingBuffer:
             # Update signal level EMA while music is playing
             self._signal_level += SIGNAL_ADAPT_RATE * (rms - self._signal_level)
             self._above_thresh_secs += chunk_secs
+            self._eos_silence_secs = 0.0  # audio above threshold, reset end-of-side counter
             # Forgiveness: brief above-threshold blips (vinyl pops, crackles) during
             # a gap shouldn't reset the silence counter. Require sustained audio
             # to confirm the gap is actually over.
