@@ -2259,6 +2259,7 @@ var _svgPlay12='<svg width="12" height="12" viewBox="0 0 24 24" fill="currentCol
 var _svgPause12='<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="5" y="3" width="4" height="18" rx="1"/><rect x="15" y="3" width="4" height="18" rx="1"/></svg>';
 
 function esc(s){if(!s)return'';const d=document.createElement('div');d.textContent=s;return d.innerHTML}
+function artistSortName(a){return (a||'').replace(/^the\s+/i,'')}
 function fmtTime(s){return Math.floor(s/60)+':'+String(Math.floor(s%60)).padStart(2,'0')}
 function fmtTimePrecise(s){const min=Math.floor(s/60);const sec=Math.floor(s%60);const tenth=Math.floor((s%1)*10);return min+':'+String(sec).padStart(2,'0')+'.'+tenth}
 function parseTimeToSecs(str){const parts=str.split(':');if(parts.length!==2)return null;const min=parseInt(parts[0]);const rest=parts[1].split('.');const sec=parseInt(rest[0]);const tenth=rest[1]?parseInt(rest[1].charAt(0)):0;if(isNaN(min)||isNaN(sec))return null;return min*60+sec+tenth*0.1}
@@ -2424,13 +2425,13 @@ async function shuffleShelf(title){
 
 // ── Sort comparators ──
 var _sortComparators={
-  artist:function(a,b){return (a.artist||'').localeCompare(b.artist||'')||( a.title||'').localeCompare(b.title||'')},
+  artist:function(a,b){return artistSortName(a.artist).localeCompare(artistSortName(b.artist))||( a.title||'').localeCompare(b.title||'')},
   title:function(a,b){return (a.title||'').localeCompare(b.title||'')},
-  year:function(a,b){return (b.year||0)-(a.year||0)||(a.artist||'').localeCompare(b.artist||'')},
-  recent_play:function(a,b){return (b.last_played||'').localeCompare(a.last_played||'')||(a.artist||'').localeCompare(b.artist||'')},
-  recent_add:function(a,b){return (b.created_at||'').localeCompare(a.created_at||'')||(a.artist||'').localeCompare(b.artist||'')},
-  favorites:function(a,b){return (b.favorite||0)-(a.favorite||0)||(a.artist||'').localeCompare(b.artist||'')},
-  rating:function(a,b){return (b.rating||0)-(a.rating||0)||(a.artist||'').localeCompare(b.artist||'')}
+  year:function(a,b){return (b.year||0)-(a.year||0)||artistSortName(a.artist).localeCompare(artistSortName(b.artist))},
+  recent_play:function(a,b){return (b.last_played||'').localeCompare(a.last_played||'')||artistSortName(a.artist).localeCompare(artistSortName(b.artist))},
+  recent_add:function(a,b){return (b.created_at||'').localeCompare(a.created_at||'')||artistSortName(a.artist).localeCompare(artistSortName(b.artist))},
+  favorites:function(a,b){return (b.favorite||0)-(a.favorite||0)||artistSortName(a.artist).localeCompare(artistSortName(b.artist))},
+  rating:function(a,b){return (b.rating||0)-(a.rating||0)||artistSortName(a.artist).localeCompare(artistSortName(b.artist))}
 };
 
 function sortAlbums(albums){
@@ -3693,8 +3694,8 @@ function plRenderBrowseGrid(){
   var grid=document.getElementById('pl-browse-grid');
   var q=(document.getElementById('pl-add-search').value||'').toLowerCase().trim();
   var albums=_catalogAlbums.slice();
-  // Sort by artist then title
-  albums.sort(function(a,b){return (a.artist||'').localeCompare(b.artist||'')||( a.title||'').localeCompare(b.title||'')});
+  // Sort by artist then title (ignore leading "The")
+  albums.sort(function(a,b){return artistSortName(a.artist).localeCompare(artistSortName(b.artist))||( a.title||'').localeCompare(b.title||'')});
   if(q){
     albums=albums.filter(function(a){
       return (a.title||'').toLowerCase().indexOf(q)!==-1

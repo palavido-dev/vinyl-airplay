@@ -1356,7 +1356,7 @@ def get_all_albums() -> list[dict]:
             LEFT JOIN plays  p ON p.album_id = a.id
             WHERE a.deleted_at IS NULL
             GROUP BY a.id
-            ORDER BY a.artist, a.title
+            ORDER BY CASE WHEN a.artist LIKE 'The %' THEN SUBSTR(a.artist, 5) ELSE a.artist END, a.title
         """).fetchall()
         return [dict(r) for r in rows]
     finally:
@@ -1699,7 +1699,7 @@ def search_tracks(query: str, limit: int = 50) -> list[dict]:
             FROM tracks t
             JOIN albums a ON a.id = t.album_id
             WHERE t.title LIKE ? AND (a.deleted_at IS NULL OR a.deleted_at = '')
-            ORDER BY t.title COLLATE NOCASE, a.artist COLLATE NOCASE
+            ORDER BY t.title COLLATE NOCASE, CASE WHEN a.artist LIKE 'The %' THEN SUBSTR(a.artist, 5) ELSE a.artist END COLLATE NOCASE
             LIMIT ?
         """, (q, limit)).fetchall()
         return [dict(r) for r in rows]
@@ -2572,7 +2572,7 @@ def get_export_manifest(settings: dict = None) -> dict:
         albums = db.execute("""
             SELECT id, title, artist, year, genre
             FROM albums
-            ORDER BY artist, title
+            ORDER BY CASE WHEN artist LIKE 'The %' THEN SUBSTR(artist, 5) ELSE artist END, title
         """).fetchall()
 
         for album in albums:
