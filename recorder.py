@@ -233,22 +233,36 @@ class RecordingBuffer:
             else:
                 # Reset sustained counter if audio drops before gate opens
                 self._sustained_audio_secs = 0.0
-                # Track silence while gate is closed — if we just split the
+                # Track silence while gate is closed -- if we just split the
                 # final track and the needle is in the run-out groove, the gate
                 # never reopens. Detect end-of-side here so we don't record
                 # silence indefinitely.
                 self._silence_secs += chunk_secs
+                # End-of-side requires near-zero RMS (run-out groove), not just
+                # below the gate threshold. Quiet music between tracks on albums
+                # like Midnight Marauders hovers around 0.004-0.006, which is
+                # below the gate but above the run-out groove floor.
+                if rms < END_OF_SIDE_RMS:
+                    self._eos_silence_secs += chunk_secs
+                else:
+                    self._eos_silence_secs = 0.0
+                # Periodic log while gate is closed so we can diagnose issues
+                self._silence_log_countdown -= 1
+                if self._silence_log_countdown <= 0:
+                    print(f"[recorder] Gate closed: RMS={rms:.5f}  gate_thresh={SILENCE_RATIO_MIN}"
+                          f"  silence={self._silence_secs:.1f}s  eos={self._eos_silence_secs:.1f}s")
+                    self._silence_log_countdown = 20
                 # Mark where silence started so _split_track trims correctly
                 if self._silence_start_byte == 0:
                     with self._lock:
                         self._silence_start_byte = self._total_bytes - len(pcm_chunk)
                 if (not self._end_of_side_fired
-                        and self._silence_secs >= END_OF_SIDE_SECS
+                        and self._eos_silence_secs >= END_OF_SIDE_SECS
                         and self._total_bytes > 0):
                     self._end_of_side_fired = True
                     print(f"[recorder] End-of-side detected while waiting for audio"
-                          f" ({self._silence_secs:.1f}s silence, gate closed)")
-                    # Don't call _split_track — the last real track already
+                          f" ({self._eos_silence_secs:.1f}s near-silence, gate closed)")
+                    # Don't call _split_track -- the last real track already
                     # split cleanly. Only silence scraps remain in the buffer.
                     # Just fire end-of-side so the album recorder can finalize.
                     if self._on_end_of_side:
