@@ -1115,8 +1115,17 @@ async def _run_stream_inner(targets, audio_device_index, volume):
 
 # ── App Lifespan ──────────────────────────────────────────────────────────────
 
+_lifespan_initialized = False
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    global _lifespan_initialized
+    if _lifespan_initialized:
+        # Second uvicorn instance (HTTPS) shares the same app object.
+        # Skip audio/DB init so we don't double-open the capture device.
+        yield
+        return
+    _lifespan_initialized = True
     cat.init_db(state.settings)
     devices = sd.query_devices()
     state.audio_devices = [
