@@ -1817,7 +1817,7 @@
       <div class="form-cols" style="margin-bottom:0.4rem">
         <div class="form-row"><label>Artist</label><input type="text" class="form-input" id="s-artist" placeholder="Pearl Jam" onkeydown="if(event.key==='Enter')doSearch()"></div>
         <div class="form-row"><label>Album</label><input type="text" class="form-input" id="s-album" placeholder="Ten" onkeydown="if(event.key==='Enter')doSearch()"></div>
-        <div class="form-row"><label>Barcode</label><input type="text" class="form-input" id="s-barcode" placeholder="075021033115" onkeydown="if(event.key==='Enter')doSearch()"></div>
+        <div class="form-row"><label>Barcode</label><input type="text" inputmode="numeric" class="form-input" id="s-barcode" placeholder="075021033115" onkeydown="if(event.key==='Enter')doSearch()"></div>
       </div>
       <div style="display:flex;gap:0.4rem;margin-bottom:0.6rem;flex-wrap:wrap">
         <button class="btn btn-accent" id="btn-search" onclick="doSearch()">Search Discogs</button>
