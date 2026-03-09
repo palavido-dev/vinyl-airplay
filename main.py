@@ -2255,6 +2255,68 @@ async def artwork_fetch_status():
     return _artwork_fetch_status
 
 
+@app.post("/api/catalog/collage")
+async def generate_collage():
+    """Generate a grid collage of all album artwork."""
+    loop = asyncio.get_event_loop()
+
+    def _build():
+        from PIL import Image as PILImage
+        import random
+
+        db = cat._connect()
+        rows = db.execute("""
+            SELECT COALESCE(NULLIF(user_artwork_path,''), artwork_path) as art
+            FROM albums WHERE deleted_at IS NULL
+            ORDER BY CASE WHEN artist LIKE 'The %%' THEN SUBSTR(artist, 5)
+                          ELSE artist END, title
+        """).fetchall()
+        db.close()
+
+        images = [r[0] for r in rows if r[0] and os.path.exists(r[0])]
+        n = len(images)
+        if n == 0:
+            return None
+
+        thumb = 300
+        cols = math.ceil(math.sqrt(n))
+        rows_count = math.ceil(n / cols)
+        collage = PILImage.new("RGB", (cols * thumb, rows_count * thumb), (20, 20, 20))
+
+        for i, path in enumerate(images):
+            r, c = divmod(i, cols)
+            try:
+                img = PILImage.open(path).convert("RGB").resize(
+                    (thumb, thumb), PILImage.LANCZOS)
+                collage.paste(img, (c * thumb, r * thumb))
+            except Exception:
+                pass
+
+        # fill empty trailing cells with random picks
+        empty = cols * rows_count - n
+        if empty > 0:
+            fill = random.sample(images, min(empty, len(images)))
+            for j in range(empty):
+                idx = n + j
+                r, c = divmod(idx, cols)
+                try:
+                    img = PILImage.open(fill[j % len(fill)]).convert("RGB").resize(
+                        (thumb, thumb), PILImage.LANCZOS)
+                    collage.paste(img, (c * thumb, r * thumb))
+                except Exception:
+                    pass
+
+        out = cat.ARTWORK_DIR / "vinyl_collage.jpg"
+        collage.save(str(out), "JPEG", quality=90)
+        w, h = cols * thumb, rows_count * thumb
+        return {"albums": n, "size": f"{w}x{h}"}
+
+    result = await loop.run_in_executor(None, _build)
+    if result is None:
+        return {"ok": False, "error": "No albums with artwork found"}
+    return {"ok": True, "url": "/artwork/vinyl_collage.jpg", **result}
+
+
 @app.post("/api/catalog/release")
 async def save_release(body: dict):
     """Save a release (from Discogs search) to the catalog."""

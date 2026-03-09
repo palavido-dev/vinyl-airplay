@@ -888,6 +888,13 @@
   .settings-group[open] > summary .sg-chevron { transform: rotate(90deg); }
   .settings-group > summary:hover { background: var(--muted-bg, rgba(128,128,128,0.12)); }
   .settings-group-body { padding: 0.5rem 0.75rem 0.75rem; }
+  .modal-fp-section { margin-top: 0.4rem; }
+  .modal-fp-section summary { font-size: 0.78rem; color: var(--muted); cursor: pointer; display: flex; align-items: center; gap: 0.3rem; user-select: none; list-style: none; }
+  .modal-fp-section summary::-webkit-details-marker { display: none; }
+  .modal-fp-section summary::marker { display: none; content: ""; }
+  .modal-fp-section summary .sg-chevron { width: 12px; height: 12px; transition: transform 0.2s; }
+  .modal-fp-section[open] summary .sg-chevron { transform: rotate(90deg); }
+  .modal-fp-section .fp-actions { display: flex; gap: 0.3rem; flex-wrap: wrap; padding-top: 0.4rem; }
   .theme-grid { display: flex; gap: 0.4rem; flex-wrap: wrap; }
   .theme-swatch {
     display: flex; gap: 2px; padding: 4px; border-radius: 6px; cursor: pointer;
@@ -1745,15 +1752,20 @@
         <button class="btn btn-accent" onclick="playNextFromModal()" id="btn-modal-play-next" title="Insert after current track">Play Next</button>
         <button class="btn btn-accent" onclick="addToQueueFromModal()" id="btn-modal-queue">+ Queue</button>
         <button class="btn btn-accent" onclick="showAddToPlaylistMenu()" id="btn-modal-playlist">+ Playlist</button>
-        <button class="btn btn-accent" onclick="reFingerprintAlbum(currentAlbumId)" id="btn-modal-fingerprint" title="Fingerprint all tracks from recorded audio"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:2px"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>Fingerprint</button>
-        <button class="btn" onclick="showAlbumRecPanel()" id="btn-modal-rec"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:2px"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>Record</button>
-        <label class="btn" style="cursor:pointer" title="Upload album artwork"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:2px"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>Photo<input type="file" accept="image/*" style="display:none" onchange="uploadArtwork(event)"></label>
-        <button class="btn btn-ghost" onclick="toggleReorderMode()" id="btn-reorder" title="Reorder tracks"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:2px"><polyline points="7 3 7 9 1 6"/><polyline points="17 21 17 15 23 18"/><line x1="7" y1="6" x2="17" y2="18"/></svg>Reorder</button>
-        <button class="btn btn-ghost" onclick="toggleBoundaryEdit()" id="btn-boundary-edit" title="Edit track boundaries"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:2px"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><line x1="20" y1="4" x2="8.12" y2="15.88"/><line x1="14.47" y1="14.48" x2="20" y2="20"/><line x1="8.12" y1="8.12" x2="12" y2="12"/></svg>Boundaries</button>
-        <button class="btn btn-ghost" onclick="clearAlbumFingerprints()" title="Clear learned fingerprints"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:2px"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>Clear FP</button>
-        <button class="btn btn-ghost" style="color:var(--rust)" onclick="deleteAlbum()">Delete</button>
+        <button class="btn btn-accent" onclick="showAlbumRecPanel()" id="btn-modal-rec"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:2px"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>Record</button>
+        <label class="btn btn-accent" style="cursor:pointer" title="Upload album artwork"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:2px"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>Photo<input type="file" accept="image/*" style="display:none" onchange="uploadArtwork(event)"></label>
+        <button class="btn btn-accent" onclick="toggleReorderMode()" id="btn-reorder" title="Reorder tracks"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:2px"><polyline points="7 3 7 9 1 6"/><polyline points="17 21 17 15 23 18"/><line x1="7" y1="6" x2="17" y2="18"/></svg>Reorder</button>
+        <button class="btn btn-danger" onclick="deleteAlbum()">Delete</button>
         <button class="btn btn-ghost" onclick="closeModal()" style="margin-left:auto">Close</button>
       </div>
+      <details class="modal-fp-section">
+        <summary><svg class="sg-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 6 15 12 9 18"/></svg> Fingerprinting</summary>
+        <div class="fp-actions">
+          <button class="btn btn-accent" onclick="reFingerprintAlbum(currentAlbumId)" id="btn-modal-fingerprint" title="Fingerprint all tracks from recorded audio"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:2px"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>Fingerprint</button>
+          <button class="btn btn-accent" onclick="toggleBoundaryEdit()" id="btn-boundary-edit" title="Edit track boundaries"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:2px"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><line x1="20" y1="4" x2="8.12" y2="15.88"/><line x1="14.47" y1="14.48" x2="20" y2="20"/><line x1="8.12" y1="8.12" x2="12" y2="12"/></svg>Boundaries</button>
+          <button class="btn btn-danger" onclick="clearAlbumFingerprints()" title="Clear learned fingerprints"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:2px"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>Clear FP</button>
+        </div>
+      </details>
       <div id="modal-playlist-menu" style="display:none;margin-top:0.4rem;padding:0.5rem;background:rgba(0,0,0,0.04);border:1px solid rgba(0,0,0,0.08);border-radius:6px">
         <div style="font-size:0.72rem;color:var(--muted);margin-bottom:0.3rem">Add to playlist:</div>
         <div id="modal-playlist-options" style="max-height:140px;overflow-y:auto"></div>
@@ -1929,6 +1941,14 @@
             <input type="file" id="backup-file-input" accept=".json" style="display:none" onchange="restoreSettingsFromFile()">
           </div>
           <div id="backup-status" style="display:none;font-size:0.75rem;margin-top:0.3rem"></div>
+        </div>
+        <div class="settings-section"><h3>Collection Collage</h3>
+          <p style="font-size:0.75rem;color:var(--muted);margin-bottom:0.5rem;line-height:1.4">Generate a grid collage of all your album covers. Great for sharing your collection online.</p>
+          <button class="btn btn-accent" id="collage-gen-btn" onclick="generateCollage()">Generate Collage</button>
+          <div id="collage-status" style="display:none;font-size:0.75rem;margin-top:0.3rem"></div>
+          <div id="collage-preview" style="display:none;margin-top:0.5rem">
+            <img id="collage-img" style="max-width:100%;border-radius:6px;cursor:pointer" title="Click to open full size" onclick="window.open(this.src,'_blank')">
+          </div>
         </div>
       </div>
     </details>
@@ -5815,6 +5835,37 @@ async function restoreSettingsFromFile() {
   } finally {
     fileInput.value = '';
   }
+}
+
+async function generateCollage() {
+  var btn = document.getElementById('collage-gen-btn');
+  var status = document.getElementById('collage-status');
+  var preview = document.getElementById('collage-preview');
+  btn.disabled = true;
+  btn.textContent = 'Generating...';
+  status.style.display = 'block';
+  status.textContent = 'Building collage from album artwork...';
+  status.style.color = 'var(--muted)';
+  try {
+    var r = await fetch('/api/catalog/collage', {method:'POST'}).then(function(d){return d.json()});
+    if (r.ok) {
+      status.textContent = r.albums + ' albums, ' + r.size;
+      status.style.color = 'var(--sage)';
+      var img = document.getElementById('collage-img');
+      img.src = r.url + '?t=' + Date.now();
+      preview.style.display = 'block';
+    } else {
+      status.textContent = r.error || 'Failed to generate collage';
+      status.style.color = 'var(--rust)';
+      preview.style.display = 'none';
+    }
+  } catch (err) {
+    status.textContent = 'Error: ' + err.message;
+    status.style.color = 'var(--rust)';
+    preview.style.display = 'none';
+  }
+  btn.disabled = false;
+  btn.textContent = 'Generate Collage';
 }
 
 async function checkForUpdates() {
