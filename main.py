@@ -2991,22 +2991,52 @@ async def _auto_finalize_album_side():
         # Sanity-check boundaries against catalog durations and correct if needed
         cat.correct_side_boundaries(album_id, side, duration)
 
+        # Check if album has more sides to record
+        all_tracks = cat.get_album_tracks(album_id)
+        album_sides = sorted(set(t.get("side") or "A" for t in all_tracks))
+        current_idx = album_sides.index(side) if side in album_sides else -1
+        has_next_side = current_idx >= 0 and current_idx < len(album_sides) - 1
+        next_side = album_sides[current_idx + 1] if has_next_side else None
+
         await broadcast("album_recording_side_saved", {
             "album_id": album_id,
             "side": side,
             "duration_secs": round(duration, 1),
             "size_mb": round(file_size / (1024 * 1024), 1),
             "tracks_captured": len(boundaries),
+            "has_next_side": has_next_side,
+            "next_side": next_side,
         })
-        await broadcast("album_recording_status", {
-            "recording": False,
-            "album_id": album_id,
-            "side": side,
-            "message": f"✓ Side {side} saved — {duration:.0f}s, "
-                       f"{file_size / (1024*1024):.1f} MB. Flip and record next side when ready.",
-        })
+
+        if has_next_side:
+            await broadcast("album_recording_status", {
+                "recording": False,
+                "album_id": album_id,
+                "side": side,
+                "message": f"Side {side} saved -- {duration:.0f}s, "
+                           f"{file_size / (1024*1024):.1f} MB. Flip and record Side {next_side} when ready.",
+            })
+        else:
+            await broadcast("album_recording_status", {
+                "recording": False,
+                "album_id": album_id,
+                "side": side,
+                "message": f"Side {side} saved -- {duration:.0f}s, "
+                           f"{file_size / (1024*1024):.1f} MB. All sides complete!",
+            })
+            # Last side done -- clean up recorder and stop audio stream/recogniser
+            state.album_recorder = None
+            if state.recogniser:
+                state.recogniser.stop()
+                state.recogniser = None
+            if state.rec_buffer:
+                state.rec_buffer.stop()
+                state.rec_buffer = None
+            await stop_stream()
+
         print(f"[album-rec] Auto-finalized Side {side}: {duration:.0f}s, "
-              f"{file_size / (1024*1024):.1f} MB")
+              f"{file_size / (1024*1024):.1f} MB"
+              f"{' (last side)' if not has_next_side else ''}")
     else:
         await broadcast("album_recording_status", {
             "recording": False,
@@ -3419,11 +3449,17 @@ async def album_recording_status():
     ar = state.album_recorder
     if not ar.is_active:
         # Recorder exists but inactive = side was auto-finalized, awaiting flip
+        all_tracks = cat.get_album_tracks(ar.album_id)
+        album_sides = sorted(set(t.get("side") or "A" for t in all_tracks))
+        current_idx = album_sides.index(ar.side) if ar.side in album_sides else -1
+        has_next = current_idx >= 0 and current_idx < len(album_sides) - 1
+        next_side = album_sides[current_idx + 1] if has_next else None
         return {
             "recording": False,
-            "awaiting_flip": True,
+            "awaiting_flip": has_next,
             "album_id": ar.album_id,
             "side": ar.side,
+            "next_side": next_side,
         }
     return {
         "recording": True,
