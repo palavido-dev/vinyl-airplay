@@ -2264,7 +2264,7 @@ async def generate_collage():
         from PIL import Image as PILImage
         import random
 
-        db = cat._connect()
+        db = cat.get_db()
         rows = db.execute("""
             SELECT COALESCE(NULLIF(user_artwork_path,''), artwork_path) as art
             FROM albums WHERE deleted_at IS NULL
