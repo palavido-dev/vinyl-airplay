@@ -2270,8 +2270,7 @@ async def generate_collage():
         rows = db.execute("""
             SELECT COALESCE(NULLIF(user_artwork_path,''), artwork_path) as art
             FROM albums WHERE deleted_at IS NULL
-            ORDER BY CASE WHEN artist LIKE 'The %%' THEN SUBSTR(artist, 5)
-                          ELSE artist END, title
+            ORDER BY RANDOM()
         """).fetchall()
         db.close()
 
