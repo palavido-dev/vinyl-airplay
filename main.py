@@ -1198,7 +1198,9 @@ async def service_worker():
     """Serve service worker for PWA offline support."""
     sw_path = Path("templates/service-worker.js")
     if sw_path.exists():
-        return FileResponse(sw_path, media_type="application/javascript")
+        resp = FileResponse(sw_path, media_type="application/javascript")
+        resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        return resp
     return {"error": "Service worker not found"}
 
 

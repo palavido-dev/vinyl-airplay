@@ -1,10 +1,10 @@
-const CACHE_NAME = 'vinyl-streamer-v1';
+const CACHE_NAME = 'vinyl-streamer-v2';
 const STATIC_ASSETS = [
-  '/',
   '/manifest.json',
 ];
 
 self.addEventListener('install', event => {
+  self.skipWaiting();
   event.waitUntil(
     caches.open(CACHE_NAME).then(cache => {
       return cache.addAll(STATIC_ASSETS).catch(err => {
@@ -24,18 +24,19 @@ self.addEventListener('activate', event => {
           }
         })
       );
-    })
+    }).then(() => self.clients.claim())
   );
 });
 
 self.addEventListener('fetch', event => {
   const url = new URL(event.request.url);
 
-  if (url.pathname.startsWith('/api/')) {
+  // Always go network-first for the main page and API calls
+  if (url.pathname === '/' || url.pathname.startsWith('/api/')) {
     event.respondWith(
       fetch(event.request)
         .then(response => {
-          if (response.ok) {
+          if (response.ok && url.pathname.startsWith('/api/')) {
             const cache = caches.open(CACHE_NAME);
             cache.then(c => c.put(event.request, response.clone()));
           }
@@ -48,6 +49,7 @@ self.addEventListener('fetch', event => {
         })
     );
   } else {
+    // Static assets: cache-first with network fallback
     event.respondWith(
       caches.match(event.request).then(response => {
         return response || fetch(event.request);
