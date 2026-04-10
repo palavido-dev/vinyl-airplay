@@ -39,7 +39,9 @@ import player as plr
 
 SAMPLE_RATE      = 44100
 CHANNELS         = 2    # processing/output channels (stereo)
-CAPTURE_CHANNELS_MAX = 4  # preferred: Scarlett 2i2 4th Gen presents as 4-ch
+CAPTURE_CHANNELS_MAX = 2  # stereo capture — HiFiBerry DAC2 ADC Pro returns silence
+                          # if opened with >2 channels (empty TDM slots). App only
+                          # ever processes L+R anyway, so 2 is correct for any device.
 
 def _capture_channels(device_index=None) -> int:
     """Return the number of input channels to use for a given device.
