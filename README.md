@@ -3,10 +3,10 @@
 **A Raspberry Pi-powered vinyl jukebox that records, recognizes, and streams your records -so you can enjoy them without the wear.**
 
 <p align="center">
-  <img src="screenshots/IMG_0153.JPG" width="700" alt="Vinyl Streamer setup -turntable, touchscreen, and Focusrite Scarlett">
+  <img src="screenshots/IMG_0153.JPG" width="700" alt="Vinyl Streamer setup -turntable, touchscreen, and HiFiBerry DAC2 ADC Pro">
 </p>
 
-Vinyl Streamer captures audio from your turntable through a USB audio interface, learns your record collection through audio fingerprinting, and streams lossless audio to AirPlay and Bluetooth speakers throughout your home. It also records full album sides as FLAC files, turning your Pi into a vinyl jukebox -play back your entire collection at CD quality without ever touching the physical records.
+Vinyl Streamer captures audio from your turntable through a line-level audio interface, learns your record collection through audio fingerprinting, and streams lossless audio to AirPlay and Bluetooth speakers throughout your home. It also records full album sides as FLAC files, turning your Pi into a vinyl jukebox -play back your entire collection at CD quality without ever touching the physical records.
 
 Drop the needle once to teach it. After that, play the vinyl or play the recording -your choice.
 
@@ -16,7 +16,7 @@ Drop the needle once to teach it. After that, play the vinyl or play the recordi
 
 ## What It Does
 
-Vinyl Streamer sits between your turntable and your speakers. It captures analog audio via a USB DAC, identifies the record using local audio fingerprinting, and streams 16-bit/44.1kHz lossless audio to any AirPlay or Bluetooth speaker on your network.
+Vinyl Streamer sits between your turntable and your speakers. It captures analog audio via a line-level ADC, identifies the record using local audio fingerprinting, and streams 16-bit/44.1kHz lossless audio to any AirPlay or Bluetooth speaker on your network.
 
 But it goes further than just streaming live vinyl. Every album you teach it gets recorded as a high-quality FLAC file. Those recordings live in your catalog and can be played back at any time -no turntable needed. Think of it as a jukebox for your vinyl collection: browse your albums on the touchscreen or your phone, tap one, and it plays through your speakers. The physical records stay safely on the shelf.
 
@@ -53,8 +53,8 @@ But it goes further than just streaming live vinyl. Every album you teach it get
 | Component | What I Use | Notes |
 |---|---|---|
 | **Raspberry Pi** | [CanaKit Pi 5 Starter Kit (8GB)](https://www.amazon.com/dp/B0CRSNCJ6Y) | Developed and tested on a Pi 5 8GB. Other models may work but are untested. |
-| **USB Audio Interface** | Focusrite Scarlett 2i2 (4th Gen) | Any class-compliant USB DAC with line-level input works. |
-| **NVMe SSD** | [Geekworm X1005 PCIe HAT](https://www.amazon.com/dp/B0DTH2Y1WN) + [Silicon Power 256GB NVMe](https://www.amazon.com/dp/B08QBJ2YMG) | Stores FLAC recordings and the fingerprint database. Much faster and more reliable than SD card storage. |
+| **Audio Interface HAT** | [HiFiBerry DAC2 ADC Pro](https://www.hifiberry.com/shop/boards/hifiberry-dac2-adc-pro/) | Pi HAT with a stereo line-level ADC (PCM186x) and DAC (PCM512x). Originally built with a Focusrite Scarlett 2i2 (4th Gen) USB interface; transitioned to the HiFiBerry for an all-in-one Pi-mounted design with no USB cables. Any class-compliant USB DAC with line-level input also works. |
+| **NVMe SSD** | [SupTronics Dual NVMe SSD Shield](https://www.amazon.com/s?k=suptronics+dual+nvme+ssd+shield) + [Silicon Power 256GB NVMe](https://www.amazon.com/dp/B08QBJ2YMG) | Stores FLAC recordings and the fingerprint database. Much faster and more reliable than SD card storage. Earlier builds used a Geekworm X1005 PCIe HAT; either works. |
 | **Touchscreen** | [ROADOM 10.1" IPS Touch Display (1024x600)](https://www.amazon.com/dp/B0CSQGZ91P) | Runs the web UI in Chromium kiosk mode as a dedicated now-playing display and jukebox interface. |
 | **Turntable** | Any with line-level output | If your turntable has a built-in preamp, connect directly. Otherwise, run it through a phono preamp first. |
 | **Speakers** | Any AirPlay or Bluetooth speaker | See compatibility notes below. |
@@ -75,7 +75,7 @@ The Pi mounts right on the back of the touchscreen with the NVMe HAT, keeping th
 ### Wiring
 
 ```
-Turntable ──▶ (Phono Preamp if needed) ──▶ USB Audio Interface (line in) ──▶ Raspberry Pi (USB)
+Turntable ──▶ (Phono Preamp if needed) ──▶ HiFiBerry DAC2 ADC Pro (line in) ──▶ Raspberry Pi (GPIO HAT)
                                                                                     │
                                                                               NVMe SSD (storage)
                                                                                     │
@@ -189,7 +189,7 @@ If your Pi's IP address changes, you can regenerate the certificates from the Mo
 
 ## How to Use
 
-1. **Connect your hardware** -Plug your turntable (via preamp if needed) into your USB audio interface, and plug the interface into the Pi.
+1. **Connect your hardware** -Plug your turntable (via preamp if needed) into the line-input of your audio interface. If you're using the HiFiBerry DAC2 ADC Pro, it mounts directly onto the Pi's GPIO header. If you're using a USB interface like the Scarlett, connect it to one of the Pi's USB ports.
 
 2. **Open the web UI** -Navigate to `http://<your-pi-ip>:8080` from any device on your network, or use the touchscreen directly.
 
@@ -238,11 +238,11 @@ When recording an album side, the system captures the full side as a continuous 
 
 ### Streaming
 
-Audio is captured at 16-bit/44.1kHz from the USB interface, processed through a real-time EQ stage (bass and treble shelving filters), and streamed to AirPlay devices via [pyatv](https://github.com/postlund/pyatv), to Bluetooth speakers via BlueALSA, or to the browser via Web Audio API. Multiple AirPlay speakers can receive simultaneously, plus one Bluetooth device. For a deeper look at what happens to the audio during playback and how each output path compares, see [Audio Quality](#audio-quality-and-lossless).
+Audio is captured at 16-bit/44.1kHz from the audio interface, processed through a real-time EQ stage (bass and treble shelving filters), and streamed to AirPlay devices via [pyatv](https://github.com/postlund/pyatv), to Bluetooth speakers via BlueALSA, or to the browser via Web Audio API. Multiple AirPlay speakers can receive simultaneously, plus one Bluetooth device. For a deeper look at what happens to the audio during playback and how each output path compares, see [Audio Quality](#audio-quality-and-lossless).
 
 ### Audio Quality and "Lossless"
 
-Throughout this project, "lossless" refers to how the audio is captured and stored. Recordings are saved as FLAC files, a lossless codec that preserves the full quality of the analog-to-digital conversion from your USB interface. Nothing is lost at the storage level.
+Throughout this project, "lossless" refers to how the audio is captured and stored. Recordings are saved as FLAC files, a lossless codec that preserves the full quality of the analog-to-digital conversion from your audio interface. Nothing is lost at the storage level.
 
 During playback, the audio goes through a processing chain before it reaches your speakers: FLAC is decoded to 16-bit PCM, converted to floating point for the EQ stage (shelving filters running at 64-bit float precision), then converted back to 16-bit integer for output. That round-trip and the EQ processing itself introduce changes that are technically not reversible. The difference is imperceptible to human ears, but the output is not bit-for-bit identical to what's in the FLAC file.
 
