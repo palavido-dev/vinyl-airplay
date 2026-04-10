@@ -2305,7 +2305,7 @@ function showToast(msg){
 }
 
 function connectWS(){const p=location.protocol==='https:'?'wss':'ws';ws=new WebSocket(`${p}://${location.host}/ws`);ws.onopen=function(){syncAlbumRecState()};ws.onmessage=e=>{try{handleEvent(JSON.parse(e.data))}catch(err){console.warn('WS',err)}};ws.onclose=()=>setTimeout(connectWS,2000)}
-function syncAlbumRecState(){fetch('/api/album-recording/status').then(r=>r.json()).then(function(d){if(d.awaiting_flip&&d.next_side){clearInterval(_recTimerInterval);setRecordingIndicator(false);document.getElementById('album-rec-active').style.display='none';document.getElementById('album-rec-saving').style.display='none';document.getElementById('album-rec-flip-prompt').style.display='block';document.getElementById('album-rec-done-side').textContent=d.side||'?';document.getElementById('album-rec-next-side-label').textContent=d.next_side;showAlbumRecPanel();if(d.album_id&&currentAlbumId===d.album_id){loadAlbumAudio(d.album_id);loadCatalog()}}else if(!d.recording&&_recTimerInterval){clearInterval(_recTimerInterval);setRecordingIndicator(false)}}).catch(function(){})}
+function syncAlbumRecState(){fetch('/api/album-recording/status').then(r=>r.json()).then(function(d){if(d.awaiting_flip&&d.next_side){clearInterval(_recTimerInterval);_recTimerInterval=null;setRecordingIndicator(false);_recStartTime=null;_recAlbumId=null;_recAwaitingFlipAlbumId=d.album_id||null;_recAwaitingFlipDoneSide=d.side||null;_recAwaitingFlipNextSide=d.next_side;if(currentAlbumId===d.album_id){document.getElementById('album-rec-active').style.display='none';document.getElementById('album-rec-saving').style.display='none';document.getElementById('album-rec-flip-prompt').style.display='block';document.getElementById('album-rec-done-side').textContent=d.side||'?';document.getElementById('album-rec-next-side-label').textContent=d.next_side;showAlbumRecPanel();loadAlbumAudio(d.album_id);loadCatalog()}}else if(!d.recording){clearInterval(_recTimerInterval);_recTimerInterval=null;setRecordingIndicator(false);_recStartTime=null;_recAlbumId=null;_recAwaitingFlipAlbumId=null;_recAwaitingFlipDoneSide=null;_recAwaitingFlipNextSide=null}}).catch(function(){})}
 
 function handleEvent(d){
   if(d.event==='status')setStatus(d);
@@ -4155,7 +4155,7 @@ async function openAlbumDetail(id){
   document.getElementById('btn-modal-play').style.display=(ad.audio&&ad.audio.length)?'':'none';
   document.getElementById('btn-modal-queue').style.display=(ad.audio&&ad.audio.length&&_playerActive)?'':'none';
   loadAlbumAudio(id);
-  if(_recAlbumId===id&&_recStartTime){restoreAlbumRecPanel()}else{hideAlbumRecPanel()}
+  if(_recAlbumId===id&&_recStartTime){restoreAlbumRecPanel()}else if(_recAwaitingFlipAlbumId===id&&_recAwaitingFlipNextSide){restoreAlbumRecFlipPrompt()}else{hideAlbumRecPanel()}
   const recBtn=document.getElementById('btn-modal-rec');
   if(_recAlbumId&&_recStartTime&&_recAlbumId!==id){recBtn.disabled=true;recBtn.title='Recording in progress on another album'}else{recBtn.disabled=false;recBtn.title=''}
   document.getElementById('album-modal').classList.add('open');
@@ -4483,10 +4483,23 @@ function restoreAlbumRecPanel(){
   _recTimerInterval=setInterval(()=>{const s=Math.floor((Date.now()-_recStartTime)/1000);document.getElementById('album-rec-timer').textContent=String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0')},1000);
   const s=Math.floor((Date.now()-_recStartTime)/1000);document.getElementById('album-rec-timer').textContent=String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0');
 }
+function restoreAlbumRecFlipPrompt(){
+  // Restore the "Side X saved — flip to Side Y" prompt on modal reopen.
+  // Used when a side auto-finalized while the user had the modal closed.
+  document.getElementById('album-rec-panel').style.display='block';
+  document.getElementById('album-rec-setup').style.display='none';
+  document.getElementById('album-rec-active').style.display='none';
+  document.getElementById('album-rec-saving').style.display='none';
+  document.getElementById('album-rec-flip-prompt').style.display='block';
+  document.getElementById('album-rec-done-side').textContent=_recAwaitingFlipDoneSide||'?';
+  document.getElementById('album-rec-next-side-label').textContent=_recAwaitingFlipNextSide||'?';
+  clearInterval(_recTimerInterval);_recTimerInterval=null;
+  setRecordingIndicator(false);
+}
 var _recOutputDevice=null;
 var _recSetupHTML=null;
 var _recSide=null;
-var _recStartTime=null;
+var _recStartTime=null,_recAwaitingFlipAlbumId=null,_recAwaitingFlipDoneSide=null,_recAwaitingFlipNextSide=null;
 var _recAlbumId=null;
 async function startAlbumRecording(){
   var setup=document.getElementById('album-rec-setup');
@@ -4542,12 +4555,12 @@ async function beginRecordingWithDevice(devIdx){
   document.getElementById('album-rec-setup').style.display='none';document.getElementById('album-rec-active').style.display='block';document.getElementById('album-rec-active-side').textContent=side;document.getElementById('album-rec-timer').textContent='00:00';document.getElementById('album-rec-track-log').innerHTML='';clearInterval(_recTimerInterval);_recTimerInterval=setInterval(()=>{const s=Math.floor((Date.now()-_recStartTime)/1000);document.getElementById('album-rec-timer').textContent=String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0')},1000)
 }
 async function stopAlbumRecording(keepStream){clearInterval(_recTimerInterval);_recStartTime=null;_recAlbumId=null;setRecordingIndicator(false);document.getElementById('album-rec-active').style.display='none';var r=await fetch('/api/album-recording/stop',{method:'POST'}).then(function(r){return r.json()});if(r.already_finalized){document.getElementById('album-rec-saving').style.display='none';hideAlbumRecPanel();if(currentAlbumId){loadAlbumAudio(currentAlbumId);loadCatalog()}}else{document.getElementById('album-rec-saving').style.display='block'}if(!keepStream&&_recOutputDevice){await fetch('/api/stop',{method:'POST'});_recOutputDevice=null}}
-async function cancelAlbumRecording(){clearInterval(_recTimerInterval);_recStartTime=null;_recAlbumId=null;setRecordingIndicator(false);await fetch('/api/album-recording/cancel',{method:'POST'});hideAlbumRecPanel()}
+async function cancelAlbumRecording(){clearInterval(_recTimerInterval);_recTimerInterval=null;_recStartTime=null;_recAlbumId=null;_recAwaitingFlipAlbumId=null;_recAwaitingFlipDoneSide=null;_recAwaitingFlipNextSide=null;setRecordingIndicator(false);await fetch('/api/album-recording/cancel',{method:'POST'});hideAlbumRecPanel()}
 function flipAlbumRecording(){stopAlbumRecording(true)}
 function onAlbumRecStatus(d){if(d.message)document.getElementById('album-rec-status-text').textContent=d.message;if(d.recording===false){clearInterval(_recTimerInterval);setRecordingIndicator(false)}if(d.album_id&&currentAlbumId===d.album_id)refreshModalTracks(d.album_id);if(d.track_name){var log=document.getElementById('album-rec-track-log');log.innerHTML+='<div style="padding:0.15rem 0;color:var(--sage)">\u2713 '+esc(d.track_name)+'</div>';log.scrollTop=log.scrollHeight}}
-function onAlbumRecSideSaved(d){clearInterval(_recTimerInterval);setRecordingIndicator(false);document.getElementById('album-rec-active').style.display='none';document.getElementById('album-rec-saving').style.display='none';if(d.has_next_side&&d.next_side){document.getElementById('album-rec-flip-prompt').style.display='block';document.getElementById('album-rec-done-side').textContent=d.side||'?';document.getElementById('album-rec-next-side-label').textContent=d.next_side}else{_recStartTime=null;_recAlbumId=null;hideAlbumRecPanel();showToast('All sides recorded!')}if(currentAlbumId){loadAlbumAudio(currentAlbumId);loadCatalog()}}
+function onAlbumRecSideSaved(d){clearInterval(_recTimerInterval);_recTimerInterval=null;setRecordingIndicator(false);_recStartTime=null;_recAlbumId=null;if(d.has_next_side&&d.next_side){_recAwaitingFlipAlbumId=d.album_id||null;_recAwaitingFlipDoneSide=d.side||null;_recAwaitingFlipNextSide=d.next_side}else{_recAwaitingFlipAlbumId=null;_recAwaitingFlipDoneSide=null;_recAwaitingFlipNextSide=null}document.getElementById('album-rec-active').style.display='none';document.getElementById('album-rec-saving').style.display='none';if(d.has_next_side&&d.next_side){document.getElementById('album-rec-flip-prompt').style.display='block';document.getElementById('album-rec-done-side').textContent=d.side||'?';document.getElementById('album-rec-next-side-label').textContent=d.next_side}else{hideAlbumRecPanel();showToast('All sides recorded!')}if(currentAlbumId){loadAlbumAudio(currentAlbumId);loadCatalog()}}
 async function startNextSideRecording(){const ns=document.getElementById('album-rec-next-side-label').textContent;_recSide=ns;document.getElementById('album-rec-flip-prompt').style.display='none';document.getElementById('album-rec-saving').style.display='none';var r=await fetch('/api/album-recording/start',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({album_id:currentAlbumId,side:ns})}).then(function(r){return r.json()});if(!r.ok){showError(r.error||'Failed to start next side');showAlbumRecPanel();return}_recAlbumId=currentAlbumId;_recStartTime=Date.now();setRecordingIndicator(true);document.getElementById('album-rec-setup').style.display='none';document.getElementById('album-rec-active').style.display='block';document.getElementById('album-rec-active-side').textContent=ns;document.getElementById('album-rec-timer').textContent='00:00';document.getElementById('album-rec-track-log').innerHTML='';document.getElementById('album-rec-status-text').textContent='Waiting for audio\u2026';clearInterval(_recTimerInterval);_recTimerInterval=setInterval(()=>{const s=Math.floor((Date.now()-_recStartTime)/1000);document.getElementById('album-rec-timer').textContent=String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0')},1000)}
-function finishAlbumRecSession(){clearInterval(_recTimerInterval);_recStartTime=null;_recAlbumId=null;hideAlbumRecPanel();if(currentAlbumId){loadAlbumAudio(currentAlbumId);loadCatalog()}}
+function finishAlbumRecSession(){clearInterval(_recTimerInterval);_recTimerInterval=null;_recStartTime=null;_recAlbumId=null;_recAwaitingFlipAlbumId=null;_recAwaitingFlipDoneSide=null;_recAwaitingFlipNextSide=null;hideAlbumRecPanel();if(currentAlbumId){loadAlbumAudio(currentAlbumId);loadCatalog()}}
 
 function openLearnForAlbum(){if(!currentAlbumId)return;const a=_catalogAlbums.find(x=>x.id===currentAlbumId);if(!a)return;document.getElementById('learn-album-input').value=a.artist+' \u2014 '+a.title;document.getElementById('learn-album-id').value=currentAlbumId;const sa=(window._modalTracks||[]).filter(t=>t.side==='A').length;document.getElementById('learn-track-count').value=sa||5;closeModal();showLearnOverlay()}
 function showLearnOverlay(){document.getElementById('learn-overlay').classList.add('open');showLearnStep('setup');populateLearnAlbumSelect()}
