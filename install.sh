@@ -51,24 +51,63 @@ fi
 
 info "Installing system dependencies..."
 apt-get update || error "Failed to update package lists"
+
+# Resolve distro-specific package names.
+# Pi OS Bookworm and Debian 12+ renamed/removed several packages:
+#   chromium-browser  -> chromium
+#   wpa_supplicant / wpa-supplicant -> wpasupplicant
+CHROMIUM_PKG="chromium"
+if ! apt-cache show chromium >/dev/null 2>&1; then
+  if apt-cache show chromium-browser >/dev/null 2>&1; then
+    CHROMIUM_PKG="chromium-browser"
+  fi
+fi
+
+WPASUPPLICANT_PKG="wpasupplicant"
+if ! apt-cache show wpasupplicant >/dev/null 2>&1; then
+  if apt-cache show wpa_supplicant >/dev/null 2>&1; then
+    WPASUPPLICANT_PKG="wpa_supplicant"
+  fi
+fi
+
 apt-get install -y \
   python3-pip \
   python3-venv \
+  python3-dev \
+  build-essential \
   ffmpeg \
   libchromaprint-tools \
   portaudio19-dev \
   libasound2-dev \
+  libjpeg-dev \
+  zlib1g-dev \
   bluez \
   bluez-alsa-utils \
   cage \
   wtype \
-  chromium-browser \
+  "$CHROMIUM_PKG" \
   hostapd \
   dnsmasq \
-  wpa-supplicant \
+  "$WPASUPPLICANT_PKG" \
   git \
   || error "Failed to install system dependencies"
-success "System dependencies installed"
+success "System dependencies installed ($CHROMIUM_PKG, $WPASUPPLICANT_PKG)"
+
+# Resolve chromium binary path for the kiosk systemd unit (written later).
+CHROMIUM_BIN=""
+for candidate in /usr/bin/chromium /usr/bin/chromium-browser /usr/lib/chromium/chromium /usr/lib/chromium-browser/chromium-browser; do
+  if [[ -x "$candidate" ]]; then
+    CHROMIUM_BIN="$candidate"
+    break
+  fi
+done
+if [[ -z "$CHROMIUM_BIN" ]]; then
+  CHROMIUM_BIN="$(command -v chromium || command -v chromium-browser || true)"
+fi
+if [[ -z "$CHROMIUM_BIN" ]]; then
+  error "Could not locate chromium binary after install"
+fi
+info "Using chromium binary: $CHROMIUM_BIN"
 
 info "Creating vinyl-streamer application directory..."
 mkdir -p /opt/vinyl-streamer
@@ -213,7 +252,7 @@ success "WiFi setup service created"
 
 # Create systemd service for Chromium kiosk
 info "Creating systemd service for Chromium kiosk..."
-cat > /etc/systemd/system/vinyl-kiosk.service <<'EOF'
+cat > /etc/systemd/system/vinyl-kiosk.service <<EOF
 [Unit]
 Description=Vinyl Streamer Kiosk
 After=vinyl-airplay.service
@@ -225,7 +264,7 @@ User=listen
 WorkingDirectory=/opt/vinyl-streamer
 Environment="DISPLAY=:0"
 Environment="XAUTHORITY=/home/listen/.Xauthority"
-ExecStart=/usr/bin/cage -s /usr/bin/chromium-browser --kiosk --no-default-browser-check --no-first-run --disable-sync --disable-translate --disable-infobars --disable-extensions http://localhost:8080
+ExecStart=/usr/bin/cage -s ${CHROMIUM_BIN} --kiosk --no-default-browser-check --no-first-run --disable-sync --disable-translate --disable-infobars --disable-extensions http://localhost:8080
 Restart=on-failure
 RestartSec=10
 StandardOutput=journal
