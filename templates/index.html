@@ -504,10 +504,32 @@
   .queue-track-row.qt-active .qt-num,
   .queue-track-row.qt-active .qt-dur { color: var(--amber); opacity: 0.8; }
 
-  .main-content { flex: 1; overflow: hidden; padding: 0.75rem; -webkit-overflow-scrolling: touch; display: flex; gap: 0.75rem; }
-  .album-grid-wrap { flex-shrink: 0; overflow-y: auto; }
-  .main-content.has-hero .album-grid-wrap { width: 310px; }
-  .main-content:not(.has-hero) .album-grid-wrap { flex: 1; }
+  .main-content { flex: 1; overflow: hidden; padding: 0.75rem; -webkit-overflow-scrolling: touch; display: flex; gap: 0.75rem; position: relative; }
+  .album-grid-wrap { flex-shrink: 0; overflow-y: auto; flex: 1; }
+  /* Hero takes the whole main area when playing; library is hidden */
+  .main-content.has-hero .album-grid-wrap { display: none; }
+  .main-content.has-hero .np-hero { flex: 1; }
+  /* "Browse library" override: show library full width, hide hero, even during playback */
+  .main-content.has-hero.library-browse .album-grid-wrap { display: block; flex: 1; }
+  .main-content.has-hero.library-browse .np-hero { display: none !important; }
+  /* Floating "Now Playing" button shown only while browsing the library during playback */
+  .np-return-btn {
+    display: none;
+    position: absolute; top: 0.75rem; right: 0.75rem;
+    background: var(--walnut); color: var(--amber);
+    border: 1px solid var(--amber-dk);
+    border-radius: 999px;
+    padding: 0.5rem 0.9rem;
+    font-family: var(--display-font);
+    font-size: 0.78rem; font-weight: 700;
+    letter-spacing: 0.03em;
+    cursor: pointer;
+    box-shadow: 0 3px 10px rgba(0,0,0,0.25);
+    z-index: 20;
+    align-items: center; gap: 0.4rem;
+  }
+  .np-return-btn:active { transform: scale(0.97); }
+  .main-content.has-hero.library-browse .np-return-btn { display: inline-flex; }
   .recently-played-section {
     margin-bottom: 1rem;
     padding-bottom: 0.8rem;
@@ -620,18 +642,39 @@
   /* ── Now Playing Hero ── */
   .np-hero {
     flex: 1; display: none; align-items: center; justify-content: center;
-    gap: 1.5rem; padding: 1rem;
-    background: linear-gradient(135deg, rgba(62,39,35,0.06) 0%, rgba(212,162,78,0.06) 100%);
-    border: 1px solid rgba(212,162,78,0.15);
-    border-radius: 10px;
+    gap: 2.5rem; padding: 2rem 3rem;
+    background: linear-gradient(135deg, rgba(62,39,35,0.08) 0%, rgba(212,162,78,0.08) 100%);
+    border: 1px solid rgba(212,162,78,0.2);
+    border-radius: 12px;
     min-width: 0;
+    position: relative;
   }
   .np-hero.visible { display: flex; }
   .np-hero-art {
-    width: 280px; height: 280px; flex-shrink: 0;
-    border-radius: 8px; overflow: hidden;
-    box-shadow: 0 6px 24px rgba(0,0,0,0.2), 0 2px 8px rgba(0,0,0,0.15);
+    width: min(46vh, 460px); height: min(46vh, 460px); flex-shrink: 0;
+    border-radius: 10px; overflow: hidden;
+    box-shadow: 0 12px 40px rgba(0,0,0,0.3), 0 4px 14px rgba(0,0,0,0.18);
   }
+  .np-hero-browse-btn {
+    align-self: flex-start;
+    margin-top: 1.2rem;
+    background: var(--walnut);
+    color: var(--amber);
+    border: 1px solid var(--amber-dk);
+    border-radius: 999px;
+    padding: 0.55rem 1.1rem;
+    font-family: var(--display-font);
+    font-size: 0.82rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.18);
+    transition: transform 0.1s;
+  }
+  .np-hero-browse-btn:active { transform: scale(0.97); }
   .np-hero-art img {
     width: 100%; height: 100%; object-fit: cover;
   }
@@ -644,22 +687,22 @@
   }
   .np-hero-info {
     flex: 1; min-width: 0;
-    display: flex; flex-direction: column; gap: 0.4rem;
+    display: flex; flex-direction: column; gap: 0.55rem;
   }
   .np-hero-track {
     font-family: var(--display-font);
-    font-size: 1.6rem; font-weight: 700; line-height: 1.2;
+    font-size: 2.4rem; font-weight: 700; line-height: 1.15;
     color: var(--ink);
     overflow: hidden; text-overflow: ellipsis;
-    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+    display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;
   }
   .np-hero-artist {
-    font-size: 1.05rem; color: var(--leather);
+    font-size: 1.45rem; color: var(--leather);
     font-weight: 500;
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
   .np-hero-album {
-    font-size: 0.85rem; color: var(--muted);
+    font-size: 1rem; color: var(--muted);
     font-style: italic;
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
@@ -1296,6 +1339,9 @@
     .album-grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 0.6rem; }
     .np-hero { display: none !important; }
     .main-content { padding: 0.6rem; }
+    /* On mobile the hero is never shown, so keep the library visible even when has-hero is active */
+    .main-content.has-hero .album-grid-wrap { display: block !important; flex: 1 !important; }
+    .np-return-btn { display: none !important; }
   }
 
   /* ── Small Tablet (480px to 768px) ── */
@@ -1397,8 +1443,10 @@
     .album-queue-btn { bottom: 3px; }
 
     .main-content { padding: 0.5rem; flex-direction: column; }
-    .album-grid-wrap { width: 100% !important; flex: 1 !important; }
+    .album-grid-wrap { width: 100% !important; flex: 1 !important; display: block !important; }
+    .main-content.has-hero .album-grid-wrap { display: block !important; }
     .np-hero { display: none !important; }
+    .np-return-btn { display: none !important; }
 
     /* Status Bar */
     .status-bar { font-size: 0.65rem; padding: 0.15rem 0.6rem; }
@@ -1583,8 +1631,16 @@
       <div class="np-hero-artist" id="np-hero-artist">—</div>
       <div class="np-hero-album" id="np-hero-album"></div>
       <div class="np-hero-source" id="np-hero-source"></div>
+      <button class="np-hero-browse-btn" onclick="showLibraryDuringPlayback()" title="Browse your collection while this keeps playing">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="7" height="16" rx="1"/><rect x="14" y="4" width="7" height="16" rx="1"/></svg>
+        Browse Library
+      </button>
     </div>
   </div>
+  <button class="np-return-btn" id="np-return-btn" onclick="showHeroFromLibrary()" title="Back to now playing">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+    Now Playing
+  </button>
 </div>
 
 <!-- Multi-Select Action Bar -->
@@ -2340,7 +2396,9 @@ function setStatus(d){
   if(!s&&_playerSource==='vinyl'&&!_playerActive)hideNPFooter();
 }
 function showNPFooter(){const f=document.getElementById('np-footer');f.classList.remove('hidden');f.style.display='';document.getElementById('np-hero').classList.add('visible');document.getElementById('main-content').classList.add('has-hero')}
-function hideNPFooter(){const f=document.getElementById('np-footer');f.classList.add('hidden');f.style.display='none';_playerSource=null;document.getElementById('np-hero').classList.remove('visible');document.getElementById('main-content').classList.remove('has-hero')}
+function hideNPFooter(){const f=document.getElementById('np-footer');f.classList.add('hidden');f.style.display='none';_playerSource=null;var mc=document.getElementById('main-content');document.getElementById('np-hero').classList.remove('visible');mc.classList.remove('has-hero');mc.classList.remove('library-browse')}
+function showLibraryDuringPlayback(){document.getElementById('main-content').classList.add('library-browse')}
+function showHeroFromLibrary(){document.getElementById('main-content').classList.remove('library-browse')}
 
 async function loadCatalog(){
   try{const d=await fetch('/api/catalog').then(r=>r.json());_catalogAlbums=d.albums||[];renderCatalog(getFilteredAlbums());updateAlbumCount();if(_viewState.view==='shelves')renderHomeView()}
