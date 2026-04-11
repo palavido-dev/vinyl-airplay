@@ -512,19 +512,12 @@
   /* "Browse library" override: show library full width, hide hero, even during playback */
   .main-content.has-hero.library-browse .album-grid-wrap { display: block; flex: 1; }
   .main-content.has-hero.library-browse .np-hero { display: none !important; }
-  /* Clickable now-playing text area expands back to hero view while browsing library */
-  .np-title-row { display: flex; align-items: center; gap: 0.35rem; min-width: 0; }
-  .np-title-row .np-title { flex: 1; min-width: 0; }
+  /* Clickable now-playing text area + expand button return to hero while browsing library */
   .np-text { transition: transform 0.1s; }
   body.np-expandable .np-text { cursor: pointer; }
   body.np-expandable .np-text:active { transform: scale(0.985); }
-  .np-expand-cue {
-    display: none;
-    flex-shrink: 0;
-    color: var(--amber);
-    opacity: 0.75;
-  }
-  body.np-expandable .np-expand-cue { display: inline-flex; }
+  .np-expand-btn { display: none !important; }
+  body.np-expandable .np-expand-btn { display: flex !important; }
   .recently-played-section {
     margin-bottom: 1rem;
     padding-bottom: 0.8rem;
@@ -1650,11 +1643,12 @@
   <div class="np-row">
     <div class="np-art-placeholder" id="np-art-wrap" style="cursor:pointer;">💿</div>
     <div class="np-text" onclick="showHeroFromLibrary()" title="Expand now playing">
-      <div class="np-title-row"><div class="np-title" id="np-title">—</div><svg class="np-expand-cue" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"/></svg></div>
+      <div class="np-title" id="np-title">—</div>
       <div class="np-artist-album" id="np-artist-album">—</div>
       <div id="np-side-count" style="font-size:0.6rem;color:var(--muted);letter-spacing:0.04em"></div>
     </div>
     <div class="np-transport" id="np-transport" style="display:none">
+      <button class="np-btn np-expand-btn" onclick="showHeroFromLibrary()" title="Expand now playing"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg></button>
       <button class="np-btn" onclick="playerPrev()"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="2" y="4" width="3" height="16" rx="1"/><polygon points="20 4 8 12 20 20"/></svg></button>
       <button class="np-btn primary" id="np-play-pause" onclick="playerToggle()"><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="5" y="3" width="4" height="18" rx="1"/><rect x="15" y="3" width="4" height="18" rx="1"/></svg></button>
       <button class="np-btn" onclick="playerNext()"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="4 4 16 12 4 20"/><rect x="19" y="4" width="3" height="16" rx="1"/></svg></button>
