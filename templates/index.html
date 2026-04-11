@@ -512,24 +512,19 @@
   /* "Browse library" override: show library full width, hide hero, even during playback */
   .main-content.has-hero.library-browse .album-grid-wrap { display: block; flex: 1; }
   .main-content.has-hero.library-browse .np-hero { display: none !important; }
-  /* Floating "Now Playing" button shown only while browsing the library during playback */
-  .np-return-btn {
+  /* Clickable now-playing text area expands back to hero view while browsing library */
+  .np-title-row { display: flex; align-items: center; gap: 0.35rem; min-width: 0; }
+  .np-title-row .np-title { flex: 1; min-width: 0; }
+  .np-text { transition: transform 0.1s; }
+  body.np-expandable .np-text { cursor: pointer; }
+  body.np-expandable .np-text:active { transform: scale(0.985); }
+  .np-expand-cue {
     display: none;
-    position: absolute; top: 0.75rem; right: 0.75rem;
-    background: var(--walnut); color: var(--amber);
-    border: 1px solid var(--amber-dk);
-    border-radius: 999px;
-    padding: 0.5rem 0.9rem;
-    font-family: var(--display-font);
-    font-size: 0.78rem; font-weight: 700;
-    letter-spacing: 0.03em;
-    cursor: pointer;
-    box-shadow: 0 3px 10px rgba(0,0,0,0.25);
-    z-index: 20;
-    align-items: center; gap: 0.4rem;
+    flex-shrink: 0;
+    color: var(--amber);
+    opacity: 0.75;
   }
-  .np-return-btn:active { transform: scale(0.97); }
-  .main-content.has-hero.library-browse .np-return-btn { display: inline-flex; }
+  body.np-expandable .np-expand-cue { display: inline-flex; }
   .recently-played-section {
     margin-bottom: 1rem;
     padding-bottom: 0.8rem;
@@ -1637,10 +1632,6 @@
       </button>
     </div>
   </div>
-  <button class="np-return-btn" id="np-return-btn" onclick="showHeroFromLibrary()" title="Back to now playing">
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-    Now Playing
-  </button>
 </div>
 
 <!-- Multi-Select Action Bar -->
@@ -1658,8 +1649,8 @@
 <div class="np-bar hidden" id="np-footer">
   <div class="np-row">
     <div class="np-art-placeholder" id="np-art-wrap" style="cursor:pointer;">💿</div>
-    <div class="np-text">
-      <div class="np-title" id="np-title">—</div>
+    <div class="np-text" onclick="showHeroFromLibrary()" title="Expand now playing">
+      <div class="np-title-row"><div class="np-title" id="np-title">—</div><svg class="np-expand-cue" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"/></svg></div>
       <div class="np-artist-album" id="np-artist-album">—</div>
       <div id="np-side-count" style="font-size:0.6rem;color:var(--muted);letter-spacing:0.04em"></div>
     </div>
@@ -2396,9 +2387,9 @@ function setStatus(d){
   if(!s&&_playerSource==='vinyl'&&!_playerActive)hideNPFooter();
 }
 function showNPFooter(){const f=document.getElementById('np-footer');f.classList.remove('hidden');f.style.display='';document.getElementById('np-hero').classList.add('visible');document.getElementById('main-content').classList.add('has-hero')}
-function hideNPFooter(){const f=document.getElementById('np-footer');f.classList.add('hidden');f.style.display='none';_playerSource=null;var mc=document.getElementById('main-content');document.getElementById('np-hero').classList.remove('visible');mc.classList.remove('has-hero');mc.classList.remove('library-browse')}
-function showLibraryDuringPlayback(){document.getElementById('main-content').classList.add('library-browse')}
-function showHeroFromLibrary(){document.getElementById('main-content').classList.remove('library-browse')}
+function hideNPFooter(){const f=document.getElementById('np-footer');f.classList.add('hidden');f.style.display='none';_playerSource=null;var mc=document.getElementById('main-content');document.getElementById('np-hero').classList.remove('visible');mc.classList.remove('has-hero');mc.classList.remove('library-browse');document.body.classList.remove('np-expandable')}
+function showLibraryDuringPlayback(){document.getElementById('main-content').classList.add('library-browse');document.body.classList.add('np-expandable')}
+function showHeroFromLibrary(){document.getElementById('main-content').classList.remove('library-browse');document.body.classList.remove('np-expandable')}
 
 async function loadCatalog(){
   try{const d=await fetch('/api/catalog').then(r=>r.json());_catalogAlbums=d.albums||[];renderCatalog(getFilteredAlbums());updateAlbumCount();if(_viewState.view==='shelves')renderHomeView()}
@@ -2412,7 +2403,7 @@ async function switchView(view){
   // If the now-playing hero is covering the main area, swap to library-browse
   // so clicking Shelves/Library from the header always reveals the grid.
   var _mc=document.getElementById('main-content');
-  if(_mc&&_mc.classList.contains('has-hero'))_mc.classList.add('library-browse');
+  if(_mc&&_mc.classList.contains('has-hero')){_mc.classList.add('library-browse');document.body.classList.add('np-expandable')}
   document.getElementById('view-shelves').classList.toggle('active',view==='shelves');
   document.getElementById('view-library').classList.toggle('active',view==='library');
   document.getElementById('home-view').style.display=view==='shelves'?'':'none';
