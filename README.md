@@ -10,6 +10,12 @@ Vinyl Streamer captures audio from your turntable through a line-level audio int
 
 Drop the needle once to teach it. After that, play the vinyl or play the recording -your choice.
 
+> **Looking for the manual?** Full documentation lives in the [docs folder](docs/):
+>
+> - **[Getting Started](docs/getting-started.md)** - 5 minute orientation tour.
+> - **[User Guide](docs/user-guide.md)** - feature by feature walkthrough of the web UI with common workflows.
+> - **[Reference](docs/reference.md)** - exhaustive button level and API level reference.
+
 > **A personal note:** I'm not an audiophile, and I don't pretend to be. This started as a personal project -I just wanted a simple way to play my records on speakers around the house without re-buying everything digitally. I also wanted to preserve my vinyl. Some of my records are irreplaceable, and every play wears the grooves a little more. Now I can record each album once, and from then on play the lossless FLAC recording whenever I want -saving the physical vinyl for when I really want that ritual. I know vinyl purists may have opinions about digitizing analog audio, and that's totally fair. I built this for myself and I'm sharing it in case it's useful to anyone else.
 
 ---
@@ -21,7 +27,7 @@ Vinyl Streamer sits between your turntable and your speakers. It captures analog
 But it goes further than just streaming live vinyl. Every album you teach it gets recorded as a high-quality FLAC file. Those recordings live in your catalog and can be played back at any time -no turntable needed. Think of it as a jukebox for your vinyl collection: browse your albums on the touchscreen or your phone, tap one, and it plays through your speakers. The physical records stay safely on the shelf.
 
 <p align="center">
-  <img src="screenshots/now_playing.png" width="700" alt="Now playing -album detail with playback controls">
+  <img src="docs/images/11-nowplaying-hero.png" width="700" alt="Now playing hero with large artwork, track title, and transport controls">
 </p>
 
 ### Key Features
@@ -196,14 +202,13 @@ If your Pi's IP address changes, you can regenerate the certificates from the Mo
 3. **Add an album** -Search for your record on Discogs to import the track listing and artwork. No API token needed for basic use.
 
 <p align="center">
-  <img src="screenshots/add_album_search_results.png" width="400" alt="Discogs search results">
-  <img src="screenshots/add_album_search_save.png" width="400" alt="Confirm track listing before saving">
+  <img src="docs/images/04-add-record.png" width="500" alt="Add Record modal with Discogs search, barcode scan, and manual entry">
 </p>
 
 4. **Record and teach** -Start a recording session, then play Side A all the way through. The system records a lossless FLAC and automatically detects track boundaries to build a fingerprint database. Flip and repeat for Side B.
 
 <p align="center">
-  <img src="screenshots/album_details_and_record.png" width="500" alt="Album detail with record and learn options">
+  <img src="docs/images/03-album-detail.png" width="500" alt="Album detail modal with tracks, record, learn, and playback actions">
 </p>
 
 5. **Enjoy two ways:**
@@ -211,8 +216,10 @@ If your Pi's IP address changes, you can regenerate the certificates from the Mo
    - **Jukebox mode** -Tap any album in your catalog to play the FLAC recording through your speakers. No turntable needed -your vinyl stays on the shelf.
 
 <p align="center">
-  <img src="screenshots/Catalog Screenshot.png" width="700" alt="Album catalog -browse and play your collection">
+  <img src="docs/images/01-library-grid.png" width="700" alt="Library grid with every album in the collection as a cover card">
 </p>
+
+For a complete walkthrough of the web UI, including Shelves, multi select, queue, playlists, stats, and every settings group, see the **[User Guide](docs/user-guide.md)**.
 
 ---
 
@@ -221,8 +228,10 @@ If your Pi's IP address changes, you can regenerate the certificates from the Mo
 Configure AirPlay devices, Bluetooth speakers, auto-streaming, audio input, and storage all from the settings panel.
 
 <p align="center">
-  <img src="screenshots/settings.png" width="400" alt="Settings -AirPlay, Bluetooth, and streaming configuration">
+  <img src="docs/images/05-settings.png" width="500" alt="Settings modal with Audio, Library, Personalization, and System groups">
 </p>
+
+See the **[Settings section of the User Guide](docs/user-guide.md#settings)** for a complete description of every setting, or the **[Settings section of the Reference](docs/reference.md#settings-modal)** for field by field detail.
 
 ---
 
@@ -263,15 +272,27 @@ In short: FLAC storage is lossless. Playback processing colors the audio slightl
 
 ```
 vinyl-airplay/
-├── main.py          # FastAPI server, streaming, audio pipeline, API
-├── catalog.py       # Album catalog, fingerprinting, Discogs integration
-├── recorder.py      # Recording, silence detection, track splitting
-├── player.py        # FLAC playback engine with track navigation
+├── main.py              # FastAPI server, streaming, audio pipeline, API
+├── catalog.py           # Album catalog, fingerprinting, Discogs integration
+├── recorder.py          # Recording, silence detection, track splitting
+├── player.py            # FLAC playback engine with track navigation
+├── make_collage.py      # Library cover collage builder
+├── wifi_setup.py        # Captive portal WiFi setup
+├── install.sh           # One line installer
+├── kiosk.sh             # Chromium kiosk launcher
 ├── templates/
-│   └── index.html   # Web UI (single-page app)
-├── settings.json    # User configuration (auto-created)
-└── data/            # SQLite database, artwork, FLAC recordings
+│   └── index.html       # Web UI (single page app)
+├── docs/                # Documentation
+│   ├── getting-started.md
+│   ├── user-guide.md
+│   ├── reference.md
+│   └── images/          # UI screenshots
+├── screenshots/         # Hardware photos
+├── settings.json        # User configuration (auto created)
+└── data/                # SQLite database, artwork, FLAC recordings
 ```
+
+For a deeper look at each module and every HTTP API route, see the **[Reference](docs/reference.md)**.
 
 ---
 
