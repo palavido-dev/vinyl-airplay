@@ -2409,6 +2409,10 @@ async function loadCatalog(){
 async function switchView(view){
   _viewState.view=view;
   if(view==='shelves'){_activeShelfFilter=null}
+  // If the now-playing hero is covering the main area, swap to library-browse
+  // so clicking Shelves/Library from the header always reveals the grid.
+  var _mc=document.getElementById('main-content');
+  if(_mc&&_mc.classList.contains('has-hero'))_mc.classList.add('library-browse');
   document.getElementById('view-shelves').classList.toggle('active',view==='shelves');
   document.getElementById('view-library').classList.toggle('active',view==='library');
   document.getElementById('home-view').style.display=view==='shelves'?'':'none';
