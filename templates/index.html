@@ -970,6 +970,330 @@
   .boundary-time-input { width: 70px; padding: 0.35rem 0.4rem; font-family: monospace; font-size: 0.78rem; border: 1px solid rgba(0,0,0,0.12); border-radius: 4px; background: var(--cream); color: var(--ink); text-align: center; }
   .boundary-time-input:focus { outline: none; border-color: var(--amber-dk); }
   .boundary-save-btn { padding: 0.3rem 0.5rem; font-size: 0.7rem; min-height: auto; height: 28px; }
+
+  /* ── Full-page views (album detail, settings) ── */
+  #album-modal.open {
+    display: flex;
+    align-items: stretch;
+    padding: 0;
+    background: linear-gradient(165deg, var(--cream) 0%, var(--paper) 100%);
+    overflow: hidden;
+  }
+  #album-modal.open .modal {
+    max-width: 100%;
+    width: 100%;
+    margin: 0;
+    border: none;
+    border-radius: 0;
+    box-shadow: none;
+    background: transparent;
+    padding: 0;
+    transform: none;
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+  }
+  #album-modal .modal-x { display: none; }
+
+  #album-modal.open #modal-detail {
+    display: flex;
+    flex: 1;
+    gap: 2rem;
+    padding: 1.5rem 2.5rem;
+    overflow: hidden;
+  }
+
+  .album-detail-left {
+    flex: 0 0 380px;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    overflow-y: auto;
+  }
+
+  .album-detail-left .back-to-library {
+    font-size: 0.82rem;
+    color: var(--muted);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    padding: 0;
+    background: none;
+    border: none;
+    font-family: var(--body-font);
+    margin-bottom: 0.5rem;
+  }
+  .album-detail-left .back-to-library:hover { color: var(--ink); }
+
+  #album-modal.open .modal-art {
+    width: 100%;
+    height: auto;
+    aspect-ratio: 1;
+    max-width: 380px;
+    border-radius: 8px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+  }
+
+  #album-modal.open .modal-header {
+    flex-direction: column;
+    gap: 1rem;
+    margin-bottom: 0;
+  }
+
+  #album-modal.open .modal-title {
+    font-size: 1.5rem;
+  }
+
+  #album-modal.open .modal-artist {
+    font-size: 1rem;
+  }
+
+  #album-modal.open .modal-meta {
+    font-size: 0.82rem;
+  }
+
+  .album-detail-right {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    overflow-y: auto;
+  }
+
+  #album-modal.open .track-list {
+    max-height: none;
+    overflow-y: auto;
+    flex: 1;
+  }
+
+  #album-modal.open .track-row {
+    font-size: 0.9rem;
+    padding: 0.5rem 0;
+  }
+
+  #album-modal.open .modal-actions {
+    padding-top: 0.8rem;
+  }
+
+  #album-modal.open .modal-fp-section {
+    margin-top: 0.6rem;
+  }
+
+  body.album-detail-open .main-content { display: none; }
+  body.album-detail-open .multi-select-bar { display: none !important; }
+
+  /* ── Recording enhancements for full-page layout ── */
+  #album-modal.open #album-rec-panel {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+  }
+
+  #album-modal.open #album-rec-active {
+    background: rgba(193,85,58,0.05);
+    border: 1px solid rgba(193,85,58,0.12);
+    border-radius: 10px;
+    padding: 1.25rem;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  #album-modal.open .rec-timer {
+    font-size: 3.5rem;
+    margin: 0.5rem 0;
+  }
+
+  /* Level meter enhancements */
+  #album-modal.open #album-rec-active > div:nth-child(3) {
+    /* This targets the level meter wrapper div */
+    background: rgba(0,0,0,0.04);
+    padding: 0.75rem 1rem;
+    border-radius: 8px;
+  }
+
+  #album-modal.open #rec-level-bar {
+    height: 14px !important;
+    border-radius: 7px !important;
+  }
+
+  /* Track log gets more space */
+  #album-modal.open #album-rec-track-log {
+    max-height: none !important;
+    flex: 1;
+    overflow-y: auto;
+    font-size: 0.85rem !important;
+  }
+
+  /* Recording buttons - larger touch targets */
+  #album-modal.open #album-rec-active .btn {
+    padding: 0.6rem 1.2rem;
+    font-size: 0.88rem;
+  }
+
+  /* Setup panel (pre-recording) */
+  #album-modal.open #album-rec-setup {
+    background: rgba(0,0,0,0.03);
+    border-radius: 10px;
+    padding: 1.25rem;
+  }
+
+  #album-modal.open #album-rec-setup .side-label {
+    font-size: 0.85rem;
+  }
+
+  /* Side indicator styling */
+  #album-modal.open #album-rec-active .side-label {
+    font-size: 0.9rem;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+
+  /* Flip prompt */
+  #album-modal.open #album-rec-flip-prompt {
+    background: rgba(107,143,113,0.08);
+    border: 1px solid rgba(107,143,113,0.2);
+    border-radius: 10px;
+    padding: 1.25rem;
+  }
+  #album-modal.open #album-rec-flip-prompt .side-label {
+    font-size: 1rem;
+  }
+
+  /* Saving state */
+  #album-modal.open #album-rec-saving {
+    background: rgba(0,0,0,0.03);
+    border-radius: 10px;
+    padding: 1.25rem;
+    text-align: center;
+  }
+  #album-modal.open #album-rec-saving .side-label {
+    font-size: 1.1rem;
+  }
+
+  /* ── Full-page Settings ── */
+  #settings-modal.open {
+    display: flex;
+    align-items: stretch;
+    padding: 0;
+    background: linear-gradient(165deg, var(--cream) 0%, var(--paper) 100%);
+    overflow: hidden;
+  }
+  #settings-modal.open > .modal {
+    max-width: 100%;
+    width: 100%;
+    margin: 0;
+    border: none;
+    border-radius: 0;
+    box-shadow: none;
+    background: transparent;
+    padding: 0;
+    transform: none;
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+  }
+  #settings-modal .modal-x { display: none; }
+  #settings-modal.open > .modal > h2 { display: none; }
+  #settings-modal.open > .modal > .btn-ghost:last-child { display: none; }
+
+  .settings-nav {
+    width: 220px;
+    background: rgba(0,0,0,0.04);
+    border-right: 1px solid rgba(0,0,0,0.08);
+    padding: 1.25rem 0;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+  }
+  .settings-nav-title {
+    font-family: var(--display-font);
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: var(--ink);
+    padding: 0 1.25rem 1rem;
+    border-bottom: 1px solid rgba(0,0,0,0.08);
+    margin-bottom: 0.5rem;
+  }
+  .settings-nav-item {
+    padding: 0.6rem 1.25rem;
+    font-size: 0.88rem;
+    color: var(--muted);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    border-left: 3px solid transparent;
+    transition: all 0.1s;
+    font-family: var(--body-font);
+    background: none;
+    border-top: none;
+    border-bottom: none;
+    border-right: none;
+    width: 100%;
+    text-align: left;
+  }
+  .settings-nav-item:hover { color: var(--ink); background: rgba(0,0,0,0.03); }
+  .settings-nav-item.active {
+    color: var(--ink);
+    font-weight: 600;
+    background: rgba(212,162,78,0.1);
+    border-left-color: var(--amber);
+  }
+  .settings-nav .settings-nav-back {
+    margin-top: auto;
+    padding: 1rem 1.25rem;
+    border-top: 1px solid rgba(0,0,0,0.08);
+  }
+  .settings-nav .settings-nav-back button {
+    font-size: 0.82rem;
+    color: var(--muted);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    background: none;
+    border: none;
+    font-family: var(--body-font);
+    padding: 0;
+  }
+  .settings-nav .settings-nav-back button:hover { color: var(--ink); }
+
+  .settings-panel-area {
+    flex: 1;
+    padding: 1.5rem 2.5rem;
+    overflow-y: auto;
+  }
+  .settings-panel-title {
+    font-family: var(--display-font);
+    font-size: 1.3rem;
+    font-weight: 700;
+    color: var(--ink);
+    margin-bottom: 1.25rem;
+  }
+
+  #settings-modal.open .settings-group {
+    display: none;
+    border: none;
+    margin: 0;
+  }
+  #settings-modal.open .settings-group.active-group {
+    display: block;
+  }
+  #settings-modal.open .settings-group.active-group > summary {
+    display: none;
+  }
+  #settings-modal.open .settings-group.active-group .settings-group-body {
+    padding: 0;
+  }
+
+  body.settings-open .main-content { display: none; }
+  body.settings-open .multi-select-bar { display: none !important; }
+
   .main-content::-webkit-scrollbar { display: none; }
   .album-grid-wrap::-webkit-scrollbar { width: 6px; }
   .album-grid-wrap::-webkit-scrollbar-track { background: transparent; }
@@ -1330,6 +1654,22 @@
     /* On mobile the hero is never shown, so keep the library visible even when has-hero is active */
     .main-content.has-hero .album-grid-wrap { display: block !important; flex: 1 !important; }
     .np-return-btn { display: none !important; }
+
+    #album-modal.open #modal-detail {
+      flex-direction: column;
+      overflow-y: auto;
+      gap: 1rem;
+    }
+    .album-detail-left {
+      flex: none;
+      max-width: 100%;
+    }
+    #album-modal.open .modal-art {
+      max-width: 200px;
+    }
+
+    .settings-nav { width: 180px; }
+    .settings-panel-area { padding: 1rem 1.5rem; }
   }
 
   /* ── Small Tablet (480px to 768px) ── */
@@ -1727,94 +2067,98 @@
   <div class="modal">
     <button class="modal-x" onclick="closeModal()" title="Close">✕</button>
     <div id="modal-detail">
-      <div class="modal-header">
-        <img id="modal-art" class="modal-art" src="" alt="" onerror="this.style.display='none'">
-        <div style="flex:1"><div style="display:flex;align-items:center;gap:0.4rem"><div class="modal-title" id="modal-title" title="Tap to edit"></div><button id="modal-favorite-btn" class="modal-favorite-btn" onclick="toggleModalFavorite()" title="Favorite" style="font-size:0.9rem;background:none;border:none;cursor:pointer;color:rgba(0,0,0,0.3);padding:0;margin:0">&#x2661;</button></div><div class="modal-artist" id="modal-artist" title="Tap to edit"></div><div class="modal-meta" id="modal-meta"></div></div>
-      </div>
-      <div id="modal-rating" class="star-rating" style="margin-bottom:0.3rem"></div>
-      <div id="modal-notes-section" style="margin-bottom:0.5rem">
-        <div id="modal-notes-display" style="display:none;font-size:0.75rem;color:var(--muted);padding:0.4rem 0.5rem;background:rgba(0,0,0,0.03);border-radius:4px;border:1px solid rgba(0,0,0,0.06);cursor:pointer;white-space:pre-wrap;line-height:1.4" onclick="editAlbumNotes()" title="Click to edit"></div>
-        <button id="modal-notes-add-btn" onclick="editAlbumNotes()" style="font-size:0.68rem;color:var(--muted);background:none;border:1px dashed rgba(0,0,0,0.15);border-radius:4px;padding:0.3rem 0.6rem;cursor:pointer;display:none">+ Add notes</button>
-        <div id="modal-notes-edit" style="display:none">
-          <textarea id="modal-notes-input" rows="3" style="width:100%;font-size:0.75rem;font-family:var(--body-font);border:1px solid var(--shelf);border-radius:4px;padding:0.4rem 0.5rem;resize:vertical;background:var(--cream);color:var(--ink);line-height:1.4" placeholder="Pressing info, condition, where you got it..."></textarea>
-          <div style="display:flex;gap:0.3rem;margin-top:0.3rem">
-            <button class="btn btn-small" onclick="saveAlbumNotes()">Save</button>
-            <button class="btn btn-ghost btn-small" onclick="cancelAlbumNotes()">Cancel</button>
-          </div>
+      <div class="album-detail-left">
+        <button class="back-to-library" onclick="closeModal()">← Back to library</button>
+        <div class="modal-header">
+          <img id="modal-art" class="modal-art" src="" alt="" onerror="this.style.display='none'">
+          <div style="flex:1"><div style="display:flex;align-items:center;gap:0.4rem"><div class="modal-title" id="modal-title" title="Tap to edit"></div><button id="modal-favorite-btn" class="modal-favorite-btn" onclick="toggleModalFavorite()" title="Favorite" style="font-size:0.9rem;background:none;border:none;cursor:pointer;color:rgba(0,0,0,0.3);padding:0;margin:0">&#x2661;</button></div><div class="modal-artist" id="modal-artist" title="Tap to edit"></div><div class="modal-meta" id="modal-meta"></div></div>
         </div>
-      </div>
-      <div class="track-list" id="modal-tracks"></div>
-      <div id="modal-audio-section" style="display:none;margin-bottom:0.6rem">
-        <div class="side-label">Recorded Audio</div>
-        <div id="modal-audio-list"></div>
-      </div>
-      <div id="album-rec-panel" style="display:none">
-        <div id="album-rec-setup">
-          <div class="side-label"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:3px"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>Record Side</div>
-          <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.5rem">
-            <label style="font-size:0.8rem;font-weight:600">Side</label>
-            <select id="album-rec-side" class="form-input" style="width:70px;min-height:36px" onchange="updateRecSideInfo()"></select>
-            <span id="album-rec-side-info" style="font-size:0.72rem;color:var(--muted)"></span>
-          </div>
-          <div style="display:flex;gap:0.4rem">
-            <button class="btn btn-danger" onclick="startAlbumRecording()"><svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" stroke="none" style="vertical-align:-1px;margin-right:2px"><circle cx="12" cy="12" r="9"/></svg>Record</button>
-            <button class="btn btn-ghost" onclick="hideAlbumRecPanel()">Cancel</button>
-          </div>
-        </div>
-        <div id="album-rec-active" style="display:none">
-          <div class="side-label"><svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" stroke="none" style="vertical-align:-1px;margin-right:3px;color:var(--danger,#e74c3c)"><circle cx="12" cy="12" r="9"/></svg>Recording Side <span id="album-rec-active-side">A</span></div>
-          <div class="rec-timer" id="album-rec-timer">00:00</div>
-          <div style="margin-bottom:0.5rem">
-            <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:0.2rem">
-              <span style="font-size:0.72rem;color:var(--muted)">Input level</span>
-              <span id="rec-level-db" style="font-size:0.68rem;color:var(--muted);font-family:monospace">-∞ dB</span>
-            </div>
-            <div style="background:rgba(0,0,0,0.08);border-radius:3px;height:10px;overflow:hidden;position:relative">
-              <div id="rec-level-bar" style="height:100%;width:0%;background:var(--sage);transition:width 0.08s;border-radius:3px"></div>
-              <div style="position:absolute;left:83.3%;top:0;bottom:0;width:1px;background:var(--rust);opacity:0.5"></div>
+        <div id="modal-rating" class="star-rating" style="margin-bottom:0.3rem"></div>
+        <div id="modal-notes-section" style="margin-bottom:0.5rem">
+          <div id="modal-notes-display" style="display:none;font-size:0.75rem;color:var(--muted);padding:0.4rem 0.5rem;background:rgba(0,0,0,0.03);border-radius:4px;border:1px solid rgba(0,0,0,0.06);cursor:pointer;white-space:pre-wrap;line-height:1.4" onclick="editAlbumNotes()" title="Click to edit"></div>
+          <button id="modal-notes-add-btn" onclick="editAlbumNotes()" style="font-size:0.68rem;color:var(--muted);background:none;border:1px dashed rgba(0,0,0,0.15);border-radius:4px;padding:0.3rem 0.6rem;cursor:pointer;display:none">+ Add notes</button>
+          <div id="modal-notes-edit" style="display:none">
+            <textarea id="modal-notes-input" rows="3" style="width:100%;font-size:0.75rem;font-family:var(--body-font);border:1px solid var(--shelf);border-radius:4px;padding:0.4rem 0.5rem;resize:vertical;background:var(--cream);color:var(--ink);line-height:1.4" placeholder="Pressing info, condition, where you got it..."></textarea>
+            <div style="display:flex;gap:0.3rem;margin-top:0.3rem">
+              <button class="btn btn-small" onclick="saveAlbumNotes()">Save</button>
+              <button class="btn btn-ghost btn-small" onclick="cancelAlbumNotes()">Cancel</button>
             </div>
           </div>
-          <div id="album-rec-status-text" style="font-size:0.82rem;font-weight:600;margin-bottom:0.4rem">Waiting for audio…</div>
-          <div id="album-rec-track-log" style="font-size:0.78rem;max-height:120px;overflow-y:auto;margin-bottom:0.5rem"></div>
-          <div style="display:flex;gap:0.4rem;flex-wrap:wrap">
-            <button class="btn" onclick="flipAlbumRecording()" id="btn-album-rec-flip">⟳ Flip</button>
-            <button class="btn btn-danger" onclick="stopAlbumRecording()"><svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" stroke="none" style="vertical-align:-1px;margin-right:2px"><rect x="4" y="4" width="16" height="16" rx="2"/></svg>Stop &amp; Save</button>
-            <button class="btn btn-ghost" onclick="cancelAlbumRecording()">✕ Cancel</button>
-          </div>
         </div>
-        <div id="album-rec-saving" style="display:none"><div class="side-label">💿 Encoding FLAC…</div><p style="font-size:0.82rem;color:var(--muted)">Please wait…</p></div>
-        <div id="album-rec-flip-prompt" style="display:none">
-          <div class="side-label" style="color:var(--sage)">✓ Side <span id="album-rec-done-side">A</span> saved!</div>
-          <p style="font-size:0.82rem;color:var(--muted);margin-bottom:0.5rem">Flip the record and press continue.</p>
-          <div style="display:flex;gap:0.4rem">
-            <button class="btn btn-accent" onclick="startNextSideRecording()"><svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" stroke="none" style="vertical-align:-1px;margin-right:2px"><circle cx="12" cy="12" r="9"/></svg>Side <span id="album-rec-next-side-label">B</span></button>
-            <button class="btn btn-ghost" onclick="finishAlbumRecSession()">Done</button>
-          </div>
+        <div class="modal-actions">
+          <button class="btn btn-primary" onclick="playAlbumFromModal()" id="btn-modal-play"><svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="none" style="vertical-align:-1px;margin-right:3px"><polygon points="6 3 20 12 6 21"/></svg>Play</button>
+          <button class="btn btn-accent" onclick="playNextFromModal()" id="btn-modal-play-next" title="Insert after current track">Play Next</button>
+          <button class="btn btn-accent" onclick="addToQueueFromModal()" id="btn-modal-queue">+ Queue</button>
+          <button class="btn btn-accent" onclick="showAddToPlaylistMenu()" id="btn-modal-playlist">+ Playlist</button>
+          <button class="btn btn-accent" onclick="showAlbumRecPanel()" id="btn-modal-rec"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:2px"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>Record</button>
+          <label class="btn btn-accent" style="cursor:pointer" title="Upload album artwork"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:2px"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>Photo<input type="file" accept="image/*" style="display:none" onchange="uploadArtwork(event)"></label>
+          <button class="btn btn-accent" onclick="toggleReorderMode()" id="btn-reorder" title="Reorder tracks"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:2px"><polyline points="7 3 7 9 1 6"/><polyline points="17 21 17 15 23 18"/><line x1="7" y1="6" x2="17" y2="18"/></svg>Reorder</button>
+          <button class="btn btn-danger" onclick="deleteAlbum()">Delete</button>
         </div>
       </div>
-      <div class="modal-actions">
-        <button class="btn btn-primary" onclick="playAlbumFromModal()" id="btn-modal-play"><svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="none" style="vertical-align:-1px;margin-right:3px"><polygon points="6 3 20 12 6 21"/></svg>Play</button>
-        <button class="btn btn-accent" onclick="playNextFromModal()" id="btn-modal-play-next" title="Insert after current track">Play Next</button>
-        <button class="btn btn-accent" onclick="addToQueueFromModal()" id="btn-modal-queue">+ Queue</button>
-        <button class="btn btn-accent" onclick="showAddToPlaylistMenu()" id="btn-modal-playlist">+ Playlist</button>
-        <button class="btn btn-accent" onclick="showAlbumRecPanel()" id="btn-modal-rec"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:2px"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>Record</button>
-        <label class="btn btn-accent" style="cursor:pointer" title="Upload album artwork"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:2px"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>Photo<input type="file" accept="image/*" style="display:none" onchange="uploadArtwork(event)"></label>
-        <button class="btn btn-accent" onclick="toggleReorderMode()" id="btn-reorder" title="Reorder tracks"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:2px"><polyline points="7 3 7 9 1 6"/><polyline points="17 21 17 15 23 18"/><line x1="7" y1="6" x2="17" y2="18"/></svg>Reorder</button>
-        <button class="btn btn-danger" onclick="deleteAlbum()">Delete</button>
-        <button class="btn btn-ghost" onclick="closeModal()" style="margin-left:auto">Close</button>
-      </div>
-      <details class="modal-fp-section">
-        <summary><svg class="sg-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 6 15 12 9 18"/></svg> Fingerprinting</summary>
-        <div class="fp-actions">
-          <button class="btn btn-accent" onclick="reFingerprintAlbum(currentAlbumId)" id="btn-modal-fingerprint" title="Fingerprint all tracks from recorded audio"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:2px"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>Fingerprint</button>
-          <button class="btn btn-accent" onclick="toggleBoundaryEdit()" id="btn-boundary-edit" title="Edit track boundaries"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:2px"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><line x1="20" y1="4" x2="8.12" y2="15.88"/><line x1="14.47" y1="14.48" x2="20" y2="20"/><line x1="8.12" y1="8.12" x2="12" y2="12"/></svg>Boundaries</button>
-          <button class="btn btn-danger" onclick="clearAlbumFingerprints()" title="Clear learned fingerprints"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:2px"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>Clear FP</button>
+      <div class="album-detail-right">
+        <div class="track-list" id="modal-tracks"></div>
+        <div id="modal-audio-section" style="display:none;margin-bottom:0.6rem">
+          <div class="side-label">Recorded Audio</div>
+          <div id="modal-audio-list"></div>
         </div>
-      </details>
-      <div id="modal-playlist-menu" style="display:none;margin-top:0.4rem;padding:0.5rem;background:rgba(0,0,0,0.04);border:1px solid rgba(0,0,0,0.08);border-radius:6px">
-        <div style="font-size:0.72rem;color:var(--muted);margin-bottom:0.3rem">Add to playlist:</div>
-        <div id="modal-playlist-options" style="max-height:140px;overflow-y:auto"></div>
-        <button onclick="addToNewPlaylistFromModal()" style="width:100%;margin-top:0.3rem;padding:0.35rem;font-size:0.75rem;background:none;border:1px dashed rgba(0,0,0,0.15);border-radius:4px;cursor:pointer;color:var(--muted);font-family:var(--body-font)">+ New Playlist</button>
+        <div id="album-rec-panel" style="display:none">
+          <div id="album-rec-setup">
+            <div class="side-label"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:3px"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>Record Side</div>
+            <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.5rem">
+              <label style="font-size:0.8rem;font-weight:600">Side</label>
+              <select id="album-rec-side" class="form-input" style="width:70px;min-height:36px" onchange="updateRecSideInfo()"></select>
+              <span id="album-rec-side-info" style="font-size:0.72rem;color:var(--muted)"></span>
+            </div>
+            <div style="display:flex;gap:0.4rem">
+              <button class="btn btn-danger" onclick="startAlbumRecording()"><svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" stroke="none" style="vertical-align:-1px;margin-right:2px"><circle cx="12" cy="12" r="9"/></svg>Record</button>
+              <button class="btn btn-ghost" onclick="hideAlbumRecPanel()">Cancel</button>
+            </div>
+          </div>
+          <div id="album-rec-active" style="display:none">
+            <div class="side-label"><svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" stroke="none" style="vertical-align:-1px;margin-right:3px;color:var(--danger,#e74c3c)"><circle cx="12" cy="12" r="9"/></svg>Recording Side <span id="album-rec-active-side">A</span></div>
+            <div class="rec-timer" id="album-rec-timer">00:00</div>
+            <div style="margin-bottom:0.5rem">
+              <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:0.2rem">
+                <span style="font-size:0.72rem;color:var(--muted)">Input level</span>
+                <span id="rec-level-db" style="font-size:0.68rem;color:var(--muted);font-family:monospace">-∞ dB</span>
+              </div>
+              <div style="background:rgba(0,0,0,0.08);border-radius:3px;height:10px;overflow:hidden;position:relative">
+                <div id="rec-level-bar" style="height:100%;width:0%;background:var(--sage);transition:width 0.08s;border-radius:3px"></div>
+                <div style="position:absolute;left:83.3%;top:0;bottom:0;width:1px;background:var(--rust);opacity:0.5"></div>
+              </div>
+            </div>
+            <div id="album-rec-status-text" style="font-size:0.82rem;font-weight:600;margin-bottom:0.4rem">Waiting for audio…</div>
+            <div id="album-rec-track-log" style="font-size:0.78rem;max-height:120px;overflow-y:auto;margin-bottom:0.5rem"></div>
+            <div style="display:flex;gap:0.4rem;flex-wrap:wrap">
+              <button class="btn" onclick="flipAlbumRecording()" id="btn-album-rec-flip">⟳ Flip</button>
+              <button class="btn btn-danger" onclick="stopAlbumRecording()"><svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" stroke="none" style="vertical-align:-1px;margin-right:2px"><rect x="4" y="4" width="16" height="16" rx="2"/></svg>Stop &amp; Save</button>
+              <button class="btn btn-ghost" onclick="cancelAlbumRecording()">✕ Cancel</button>
+            </div>
+          </div>
+          <div id="album-rec-saving" style="display:none"><div class="side-label">💿 Encoding FLAC…</div><p style="font-size:0.82rem;color:var(--muted)">Please wait…</p></div>
+          <div id="album-rec-flip-prompt" style="display:none">
+            <div class="side-label" style="color:var(--sage)">✓ Side <span id="album-rec-done-side">A</span> saved!</div>
+            <p style="font-size:0.82rem;color:var(--muted);margin-bottom:0.5rem">Flip the record and press continue.</p>
+            <div style="display:flex;gap:0.4rem">
+              <button class="btn btn-accent" onclick="startNextSideRecording()"><svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" stroke="none" style="vertical-align:-1px;margin-right:2px"><circle cx="12" cy="12" r="9"/></svg>Side <span id="album-rec-next-side-label">B</span></button>
+              <button class="btn btn-ghost" onclick="finishAlbumRecSession()">Done</button>
+            </div>
+          </div>
+        </div>
+        <details class="modal-fp-section">
+          <summary><svg class="sg-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 6 15 12 9 18"/></svg> Fingerprinting</summary>
+          <div class="fp-actions">
+            <button class="btn btn-accent" onclick="reFingerprintAlbum(currentAlbumId)" id="btn-modal-fingerprint" title="Fingerprint all tracks from recorded audio"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:2px"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>Fingerprint</button>
+            <button class="btn btn-accent" onclick="toggleBoundaryEdit()" id="btn-boundary-edit" title="Edit track boundaries"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:2px"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><line x1="20" y1="4" x2="8.12" y2="15.88"/><line x1="14.47" y1="14.48" x2="20" y2="20"/><line x1="8.12" y1="8.12" x2="12" y2="12"/></svg>Boundaries</button>
+            <button class="btn btn-danger" onclick="clearAlbumFingerprints()" title="Clear learned fingerprints"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:2px"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>Clear FP</button>
+          </div>
+        </details>
+        <div id="modal-playlist-menu" style="display:none;margin-top:0.4rem;padding:0.5rem;background:rgba(0,0,0,0.04);border:1px solid rgba(0,0,0,0.08);border-radius:6px">
+          <div style="font-size:0.72rem;color:var(--muted);margin-bottom:0.3rem">Add to playlist:</div>
+          <div id="modal-playlist-options" style="max-height:140px;overflow-y:auto"></div>
+          <button onclick="addToNewPlaylistFromModal()" style="width:100%;margin-top:0.3rem;padding:0.35rem;font-size:0.75rem;background:none;border:1px dashed rgba(0,0,0,0.15);border-radius:4px;cursor:pointer;color:var(--muted);font-family:var(--body-font)">+ New Playlist</button>
+        </div>
       </div>
     </div>
   </div>
@@ -1892,12 +2236,26 @@
 
 <!-- Settings Modal -->
 <div class="modal-overlay" id="settings-modal" onclick="if(event.target===this)hideSettings()">
-  <div class="modal" style="max-width:420px">
+  <div class="modal">
     <button class="modal-x" onclick="hideSettings()" title="Close">✕</button>
-    <h2 style="font-family:var(--display-font);font-size:1rem;margin-bottom:0.8rem">⚙ Settings</h2>
 
-    <!-- Audio group -->
-    <details class="settings-group" open>
+    <!-- Settings Navigation Sidebar -->
+    <div class="settings-nav">
+      <div class="settings-nav-title">Settings</div>
+      <button class="settings-nav-item active" data-group="audio" onclick="switchSettingsGroup('audio')">♪ Audio</button>
+      <button class="settings-nav-item" data-group="library" onclick="switchSettingsGroup('library')">📚 Library</button>
+      <button class="settings-nav-item" data-group="personalization" onclick="switchSettingsGroup('personalization')">🎨 Personalization</button>
+      <button class="settings-nav-item" data-group="system" onclick="switchSettingsGroup('system')">⚙ System</button>
+      <div class="settings-nav-back"><button onclick="hideSettings()">← Back to library</button></div>
+    </div>
+
+    <!-- Settings Content Panel -->
+    <div class="settings-panel-area">
+      <div class="settings-panel-title" id="settings-panel-title">Audio</div>
+      <h2 style="font-family:var(--display-font);font-size:1rem;margin-bottom:0.8rem">⚙ Settings</h2>
+
+      <!-- Audio group -->
+      <details class="settings-group active-group" data-group="audio" open>
       <summary><svg class="sg-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 6 15 12 9 18"/></svg> Audio</summary>
       <div class="settings-group-body">
         <div class="settings-section"><h3>AirPlay Devices</h3><div id="settings-device-list" style="margin-bottom:0.5rem"><div style="color:var(--muted);font-size:0.82rem">Press scan to find devices</div></div><button class="btn" onclick="scanDevices()">⟳ Scan for Devices</button><div style="margin-top:0.7rem;padding-top:0.5rem;border-top:1px solid rgba(0,0,0,0.08)"><h4 style="font-size:0.78rem;color:var(--muted);margin-bottom:0.3rem">Hidden Devices</h4><div id="hidden-device-list" style="font-size:0.82rem;color:var(--muted)">Scan to manage</div></div></div>
@@ -1928,8 +2286,8 @@
       </div>
     </details>
 
-    <!-- Library group -->
-    <details class="settings-group">
+      <!-- Library group -->
+      <details class="settings-group" data-group="library">
       <summary><svg class="sg-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 6 15 12 9 18"/></svg> Library</summary>
       <div class="settings-group-body">
         <div class="settings-section"><h3>Discogs</h3>
@@ -1998,8 +2356,8 @@
       </div>
     </details>
 
-    <!-- Personalization group -->
-    <details class="settings-group">
+      <!-- Personalization group -->
+      <details class="settings-group" data-group="personalization">
       <summary><svg class="sg-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 6 15 12 9 18"/></svg> Personalization</summary>
       <div class="settings-group-body">
         <div class="settings-section">
@@ -2023,8 +2381,8 @@
       </div>
     </details>
 
-    <!-- System group -->
-    <details class="settings-group">
+      <!-- System group -->
+      <details class="settings-group" data-group="system">
       <summary><svg class="sg-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 6 15 12 9 18"/></svg> System</summary>
       <div class="settings-group-body">
         <div class="settings-section"><h3>Updates</h3>
@@ -2074,7 +2432,8 @@
       </div>
     </details>
 
-    <button class="btn btn-ghost" onclick="hideSettings()" style="width:100%;margin-top:0.5rem">Close</button>
+      <button class="btn btn-ghost" onclick="hideSettings()" style="width:100%;margin-top:0.5rem">Close</button>
+    </div>
   </div>
 </div>
 
@@ -4206,8 +4565,9 @@ async function openAlbumDetail(id){
   const recBtn=document.getElementById('btn-modal-rec');
   if(_recAlbumId&&_recStartTime&&_recAlbumId!==id){recBtn.disabled=true;recBtn.title='Recording in progress on another album'}else{recBtn.disabled=false;recBtn.title=''}
   document.getElementById('album-modal').classList.add('open');
+  document.body.classList.add('album-detail-open');
 }
-function closeModal(){document.getElementById('album-modal').classList.remove('open');currentAlbumId=null}
+function closeModal(){document.getElementById('album-modal').classList.remove('open');document.body.classList.remove('album-detail-open');currentAlbumId=null}
 function editAlbumMetadata(albumId, field){
   var modal=document.getElementById('album-modal');
   if(!modal.classList.contains('open'))return;
@@ -4636,7 +4996,7 @@ async function selectResult(idx){const r=window._searchResults[idx];if(!r)return
 async function saveRelease(){if(!_pendingRelease)return;const r=await fetch('/api/catalog/release',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({release:_pendingRelease})}).then(r=>r.json());if(r.ok){hideAddForm();loadCatalog()}else showError(r.error||'Failed to save')}
 async function submitManual(){const t=document.getElementById('m-album-title').value.trim(),a=document.getElementById('m-artist').value.trim();if(!t||!a){showError('Album title and artist required');return}const ta=document.getElementById('m-tracks-a').value.split('\n').map(s=>s.trim()).filter(Boolean).map((x,i)=>({title:x,side:'A',track_number:String(i+1)}));const tb=document.getElementById('m-tracks-b').value.split('\n').map(s=>s.trim()).filter(Boolean).map((x,i)=>({title:x,side:'B',track_number:String(i+1)}));const tracks=[...ta,...tb];if(!tracks.length){showError('Enter at least one track');return}const r=await fetch('/api/catalog/manual',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({album_title:t,album_artist:a,year:parseInt(document.getElementById('m-year').value)||null,genre:document.getElementById('m-genre').value.trim()||null,label:document.getElementById('m-label').value.trim()||null,notes:document.getElementById('m-notes').value.trim()||null,tracks})}).then(r=>r.json());if(r.ok){hideAddForm();loadCatalog()}else showError(r.error||'Failed')}
 
-function showSettings(){document.getElementById('settings-modal').classList.add('open');loadBluetoothPaired();document.getElementById('setting-app-name').value=document.getElementById('app-name').textContent}
+function showSettings(){document.getElementById('settings-modal').classList.add('open');document.body.classList.add('settings-open');loadBluetoothPaired();document.getElementById('setting-app-name').value=document.getElementById('app-name').textContent}
 async function loadCertInfo(){
   try{var r=await fetch('/api/system/cert-info').then(d=>d.json());
   var el=document.getElementById('cert-info');
@@ -4662,7 +5022,15 @@ function setTheme(t){
   fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({theme:t})});
 }
 function applyTheme(t){if(!t||t==='classic'){document.documentElement.removeAttribute('data-theme')}else{document.documentElement.setAttribute('data-theme',t)}document.querySelectorAll('.theme-swatch').forEach(function(s){s.classList.toggle('active',s.dataset.theme===(t||'classic'))})}
-function hideSettings(){document.getElementById('settings-modal').classList.remove('open')}
+function hideSettings(){document.getElementById('settings-modal').classList.remove('open');document.body.classList.remove('settings-open')}
+function switchSettingsGroup(group){
+  document.querySelectorAll('#settings-modal .settings-group').forEach(function(g){g.classList.remove('active-group');g.removeAttribute('open')});
+  var target=document.querySelector('#settings-modal .settings-group[data-group="'+group+'"]');
+  if(target){target.classList.add('active-group');target.setAttribute('open','')}
+  document.querySelectorAll('.settings-nav-item').forEach(function(n){n.classList.toggle('active',n.dataset.group===group)});
+  var titles={audio:'Audio',library:'Library',personalization:'Personalization',system:'System'};
+  document.getElementById('settings-panel-title').textContent=titles[group]||group;
+}
 function showStats(){document.getElementById('stats-modal').classList.add('open');loadStats()}
 function hideStats(){document.getElementById('stats-modal').classList.remove('open')}
 async function loadStats(){try{const r=await fetch('/api/catalog/stats').then(resp=>resp.json());document.getElementById('stat-plays').textContent=r.total_plays||0;document.getElementById('stat-albums').textContent=r.total_albums||0;document.getElementById('stat-tracks').textContent=r.total_tracks||0;document.getElementById('stat-hours').textContent=(r.total_listening_hours||0).toFixed(1);renderTopAlbums(r.top_albums||[]);renderTopTracks(r.top_tracks||[]);renderRecentPlays(r.recent_plays||[])}catch(e){showError('Failed to load stats')}}
