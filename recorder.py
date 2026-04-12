@@ -416,50 +416,71 @@ def _pcm_to_wav(pcm: bytes) -> bytes:
 def _find_music_start(pcm: bytes) -> int:
     """
     Scan the first few seconds of PCM audio and return the byte offset
-    where actual music begins (after the needle-drop transient).
+    where the needle-drop transient ends (the quiet valley after it).
 
-    The needle drop pattern is: silence, then a short burst (70-350ms),
-    then a return to near-silence, then sustained music. We detect the
-    first point where audio is sustained (3+ consecutive 100ms windows
-    with RMS above the vinyl-noise floor).
+    Pattern across all vinyl recordings:
+      1. Needle hits groove: sharp burst (70-500ms, up to 75% peak)
+      2. Burst decays into a quiet valley (vinyl surface noise only)
+      3. Actual music begins
+
+    Strategy: compute RMS in 100ms windows over the first 3 seconds,
+    find the initial burst (peak window), then find where it settles
+    to the quiet valley (the minimum RMS point after the burst decays).
+    Trim to that valley so playback starts from clean vinyl noise
+    just before the music.
 
     Returns a frame-aligned byte offset to trim to, or 0 if no trim needed.
     """
     BYTES_PER_FRAME = CHANNELS * 2
     BYTES_PER_SEC = SAMPLE_RATE * BYTES_PER_FRAME
 
-    # Only scan the first 5 seconds (needle drop + lead-in is never longer)
-    scan_limit = min(len(pcm), 5 * BYTES_PER_SEC)
+    scan_limit = min(len(pcm), 3 * BYTES_PER_SEC)
     if scan_limit < BYTES_PER_SEC:
-        return 0  # too short to have a meaningful lead-in
+        return 0
 
     WINDOW_MS = 100
     WINDOW_BYTES = int(SAMPLE_RATE * WINDOW_MS / 1000) * BYTES_PER_FRAME
-    RMS_THRESHOLD = 0.015   # sustained music floor (~1.5% of full scale)
-    SUSTAIN_COUNT = 3       # need 3 consecutive windows (300ms) to confirm music
 
-    consecutive = 0
-    music_start_byte = 0
-
+    # Build RMS profile of first 3 seconds
+    rms_values = []
     for pos in range(0, scan_limit - WINDOW_BYTES, WINDOW_BYTES):
         block = np.frombuffer(pcm[pos:pos + WINDOW_BYTES], dtype=np.int16)
         rms = float(np.sqrt(np.mean((block.astype(np.float32) / 32768.0) ** 2)))
+        rms_values.append(rms)
 
-        if rms >= RMS_THRESHOLD:
-            if consecutive == 0:
-                music_start_byte = pos
-            consecutive += 1
-            if consecutive >= SUSTAIN_COUNT:
-                # Music confirmed at music_start_byte.
-                # Back up 50ms for safety (don't clip the first note's attack).
-                safety = int(0.05 * BYTES_PER_SEC)
-                trim_to = max(0, music_start_byte - safety)
-                trim_to = trim_to - (trim_to % BYTES_PER_FRAME)  # frame-align
-                return trim_to
-        else:
-            consecutive = 0
+    if len(rms_values) < 5:
+        return 0
 
-    return 0  # couldn't find sustained music, don't trim
+    # Find peak in the first 500ms (5 windows) -- this is the needle drop
+    burst_end = min(5, len(rms_values))
+    peak_rms = max(rms_values[:burst_end])
+    peak_idx = rms_values[:burst_end].index(peak_rms)
+
+    # If the peak is very low (< 0.5%), there's no real needle drop
+    if peak_rms < 0.005:
+        return 0
+
+    # Find the quiet valley: the minimum RMS point after the burst
+    # Search from after the peak through to 2.5s
+    search_start = peak_idx + 1
+    search_end = min(len(rms_values), 25)  # up to 2.5s
+
+    if search_start >= search_end:
+        return 0
+
+    valley_slice = rms_values[search_start:search_end]
+    valley_idx_local = valley_slice.index(min(valley_slice))
+    valley_idx = search_start + valley_idx_local
+
+    # Only trim if the valley is significantly quieter than the peak
+    # (confirms it's a needle drop, not just music starting immediately)
+    if rms_values[valley_idx] > peak_rms * 0.3:
+        return 0  # no clear dip, probably not a needle drop
+
+    # Trim to the valley point
+    trim_byte = valley_idx * WINDOW_BYTES
+    trim_byte = trim_byte - (trim_byte % BYTES_PER_FRAME)  # frame-align
+    return trim_byte
 
 
 def trim_needle_drop_flac(flac_path: str) -> dict:
