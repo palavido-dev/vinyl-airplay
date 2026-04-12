@@ -3,7 +3,7 @@
 **A Raspberry Pi-powered vinyl jukebox that records, recognizes, and streams your records -so you can enjoy them without the wear.**
 
 <p align="center">
-  <img src="screenshots/IMG_0153.JPG" width="700" alt="Vinyl Streamer setup -turntable, touchscreen, and HiFiBerry DAC2 ADC Pro">
+  <img src="screenshots/IMG_0486.JPG" width="700" alt="Vinyl Streamer setup -turntable, touchscreen, and HiFiBerry DAC2 ADC Pro">
 </p>
 
 Vinyl Streamer captures audio from your turntable through a line-level audio interface, learns your record collection through audio fingerprinting, and streams lossless audio to AirPlay and Bluetooth speakers throughout your home. It also records full album sides as FLAC files, turning your Pi into a vinyl jukebox -play back your entire collection at CD quality without ever touching the physical records.
