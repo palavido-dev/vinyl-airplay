@@ -411,6 +411,138 @@ def _pcm_to_wav(pcm: bytes) -> bytes:
     return buf.getvalue()
 
 
+# ── Needle Drop Detection ─────────────────────────────────────────────────────
+
+def _find_music_start(pcm: bytes) -> int:
+    """
+    Scan the first few seconds of PCM audio and return the byte offset
+    where actual music begins (after the needle-drop transient).
+
+    The needle drop pattern is: silence, then a short burst (70-350ms),
+    then a return to near-silence, then sustained music. We detect the
+    first point where audio is sustained (3+ consecutive 100ms windows
+    with RMS above the vinyl-noise floor).
+
+    Returns a frame-aligned byte offset to trim to, or 0 if no trim needed.
+    """
+    BYTES_PER_FRAME = CHANNELS * 2
+    BYTES_PER_SEC = SAMPLE_RATE * BYTES_PER_FRAME
+
+    # Only scan the first 5 seconds (needle drop + lead-in is never longer)
+    scan_limit = min(len(pcm), 5 * BYTES_PER_SEC)
+    if scan_limit < BYTES_PER_SEC:
+        return 0  # too short to have a meaningful lead-in
+
+    WINDOW_MS = 100
+    WINDOW_BYTES = int(SAMPLE_RATE * WINDOW_MS / 1000) * BYTES_PER_FRAME
+    RMS_THRESHOLD = 0.015   # sustained music floor (~1.5% of full scale)
+    SUSTAIN_COUNT = 3       # need 3 consecutive windows (300ms) to confirm music
+
+    consecutive = 0
+    music_start_byte = 0
+
+    for pos in range(0, scan_limit - WINDOW_BYTES, WINDOW_BYTES):
+        block = np.frombuffer(pcm[pos:pos + WINDOW_BYTES], dtype=np.int16)
+        rms = float(np.sqrt(np.mean((block.astype(np.float32) / 32768.0) ** 2)))
+
+        if rms >= RMS_THRESHOLD:
+            if consecutive == 0:
+                music_start_byte = pos
+            consecutive += 1
+            if consecutive >= SUSTAIN_COUNT:
+                # Music confirmed at music_start_byte.
+                # Back up 50ms for safety (don't clip the first note's attack).
+                safety = int(0.05 * BYTES_PER_SEC)
+                trim_to = max(0, music_start_byte - safety)
+                trim_to = trim_to - (trim_to % BYTES_PER_FRAME)  # frame-align
+                return trim_to
+        else:
+            consecutive = 0
+
+    return 0  # couldn't find sustained music, don't trim
+
+
+def trim_needle_drop_flac(flac_path: str) -> dict:
+    """
+    Post-process an existing FLAC file: decode, detect and trim the
+    needle-drop transient, re-encode. Returns info about what was trimmed.
+
+    Used for the one-time cleanup of existing recordings.
+    Returns: {"trimmed_secs": float, "success": bool, "error": str|None}
+    """
+    flac_path = Path(flac_path)
+    if not flac_path.exists():
+        return {"trimmed_secs": 0, "success": False, "error": "File not found"}
+
+    # Decode FLAC to raw PCM
+    cmd = [
+        "ffmpeg", "-hide_banner", "-loglevel", "error",
+        "-i", str(flac_path),
+        "-f", "s16le", "-acodec", "pcm_s16le",
+        "-ar", str(SAMPLE_RATE), "-ac", str(CHANNELS),
+        "pipe:1",
+    ]
+    try:
+        result = subprocess.run(cmd, capture_output=True, timeout=300)
+        if result.returncode != 0:
+            return {"trimmed_secs": 0, "success": False,
+                    "error": result.stderr.decode()[:200]}
+        pcm = result.stdout
+    except Exception as e:
+        return {"trimmed_secs": 0, "success": False, "error": str(e)}
+
+    trim_pos = _find_music_start(pcm)
+    if trim_pos == 0:
+        return {"trimmed_secs": 0, "success": True, "error": None}
+
+    trimmed_secs = trim_pos / (SAMPLE_RATE * CHANNELS * 2)
+
+    # Trim
+    pcm = pcm[trim_pos:]
+
+    # Apply 50ms fade-in
+    fade_samples = int(SAMPLE_RATE * 0.05)
+    fade_bytes = fade_samples * CHANNELS * 2
+    if len(pcm) > fade_bytes:
+        arr = np.frombuffer(pcm[:fade_bytes], dtype=np.int16).copy()
+        ramp = np.repeat(
+            np.linspace(0.0, 1.0, fade_samples, dtype=np.float32),
+            CHANNELS,
+        )
+        arr = (arr.astype(np.float32) * ramp).astype(np.int16)
+        pcm = arr.tobytes() + pcm[fade_bytes:]
+
+    # Read original FLAC metadata
+    probe_cmd = [
+        "ffprobe", "-hide_banner", "-loglevel", "error",
+        "-show_entries", "format_tags",
+        "-of", "json", str(flac_path),
+    ]
+    metadata = {}
+    try:
+        probe = subprocess.run(probe_cmd, capture_output=True, timeout=10)
+        if probe.returncode == 0:
+            import json
+            info = json.loads(probe.stdout)
+            tags = info.get("format", {}).get("tags", {})
+            metadata = {
+                "title": tags.get("TITLE", tags.get("title", "")),
+                "artist": tags.get("ARTIST", tags.get("artist", "")),
+                "album": tags.get("ALBUM", tags.get("album", "")),
+                "year": tags.get("DATE", tags.get("date", "")),
+                "genre": tags.get("GENRE", tags.get("genre", "")),
+                "disc": tags.get("DISC", tags.get("disc", "")),
+            }
+    except Exception:
+        pass
+
+    # Re-encode to FLAC (overwrite original)
+    if encode_flac(pcm, flac_path, metadata):
+        return {"trimmed_secs": trimmed_secs, "success": True, "error": None}
+    else:
+        return {"trimmed_secs": 0, "success": False, "error": "FLAC encode failed"}
+
+
 # ── FLAC Encoding ─────────────────────────────────────────────────────────────
 
 DEFAULT_AUDIO_DIR = Path(__file__).parent / "album_audio"
@@ -619,29 +751,21 @@ class AlbumRecorder:
 
             boundaries = list(self._track_boundaries)
 
-        # ── Trim leading silence (before needle audio) ────────────────
-        TRIM_THRESHOLD = 0.008          # RMS below this = silence
-        TRIM_BLOCK     = SAMPLE_RATE * CHANNELS * 2  # 1-second blocks (16-bit stereo)
-        FADE_TAIL      = int(0.1 * SAMPLE_RATE * CHANNELS * 2)  # 0.1s buffer
-
-        lead_pos = 0
+        # ── Trim leading noise + needle drop ─────────────────────────
+        # The needle drop creates a short transient (70-350ms, up to 75%
+        # peak) followed by a return to near-silence before the actual
+        # music starts. Simple RMS thresholds mistake it for audio.
+        # Strategy: scan in 100ms windows, find the first point where
+        # audio is *sustained* (3+ consecutive windows above threshold),
+        # then trim everything before that point with a short fade-in.
         pcm_len = len(pcm)
-        while lead_pos + TRIM_BLOCK <= pcm_len:
-            block = np.frombuffer(pcm[lead_pos:lead_pos + TRIM_BLOCK], dtype=np.int16)
-            rms = float(np.sqrt(np.mean((block.astype(np.float32) / 32768.0) ** 2)))
-            if rms >= TRIM_THRESHOLD:
-                # Found audio — back up a small buffer so we don't clip the attack
-                lead_pos = max(0, lead_pos - FADE_TAIL)
-                lead_pos = lead_pos - (lead_pos % 4)  # frame-align
-                break
-            lead_pos += TRIM_BLOCK
-        else:
-            lead_pos = 0  # don't trim if everything is quiet
+        lead_pos = _find_music_start(pcm)
 
         if lead_pos > 0:
             lead_trimmed_secs = lead_pos / (SAMPLE_RATE * CHANNELS * 2)
             pcm = pcm[lead_pos:]
-            print(f"[album-rec] Trimmed {lead_trimmed_secs:.1f}s leading silence")
+            print(f"[album-rec] Trimmed {lead_trimmed_secs:.2f}s "
+                  f"(needle drop + lead-in)")
 
             # Shift all track boundaries back by the trimmed amount
             for b in boundaries:
@@ -651,6 +775,18 @@ class AlbumRecorder:
                 b["start_secs"] = max(0.0, b["start_secs"] - lead_trimmed_secs)
                 if b["end_secs"] is not None:
                     b["end_secs"] = max(0.0, b["end_secs"] - lead_trimmed_secs)
+
+            # Apply a 50ms fade-in at the new start to avoid any residual click
+            fade_samples = int(SAMPLE_RATE * 0.05)
+            fade_bytes = fade_samples * CHANNELS * 2
+            if len(pcm) > fade_bytes:
+                arr = np.frombuffer(pcm[:fade_bytes], dtype=np.int16).copy()
+                ramp = np.repeat(
+                    np.linspace(0.0, 1.0, fade_samples, dtype=np.float32),
+                    CHANNELS,
+                )
+                arr = (arr.astype(np.float32) * ramp).astype(np.int16)
+                pcm = arr.tobytes() + pcm[fade_bytes:]
 
         # ── Trim trailing silence ──────────────────────────────────────
 

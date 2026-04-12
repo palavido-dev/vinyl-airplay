@@ -3527,6 +3527,69 @@ async def play_album_audio(album_id: int, audio_id: int, request: Request):
     return FileResponse(str(path), media_type="audio/flac", filename=path.name)
 
 
+@app.post("/api/album-audio/trim-needle-drops")
+async def trim_all_needle_drops():
+    """
+    One-time cleanup: scan all recorded FLAC files for needle-drop
+    transients and trim them. Also updates track timestamps in the DB.
+    """
+    loop = asyncio.get_event_loop()
+    albums = cat.get_all_albums()
+    results = []
+
+    for album in albums:
+        audio_files = cat.get_album_audio(album["id"])
+        if not audio_files:
+            continue
+        all_tracks = cat.get_album_tracks(album["id"])
+
+        for af in audio_files:
+            path = af["file_path"]
+            info = await loop.run_in_executor(
+                None, rec.trim_needle_drop_flac, path
+            )
+            trimmed = info["trimmed_secs"]
+            results.append({
+                "album": album["title"],
+                "side": af["side"],
+                "file": Path(path).name,
+                "trimmed_secs": round(trimmed, 3),
+                "success": info["success"],
+                "error": info.get("error"),
+            })
+
+            # Update track timestamps if we trimmed
+            if info["success"] and trimmed > 0:
+                side_tracks = [t for t in all_tracks if t["side"] == af["side"]]
+                for t in side_tracks:
+                    new_start = max(0.0, (t.get("start_secs") or 0.0) - trimmed)
+                    new_end = max(0.0, (t.get("end_secs") or 0.0) - trimmed)
+                    cat.update_track_timestamps(t["id"], new_start, new_end)
+
+                # Update duration in album_audio table
+                new_dur = max(0.0, (af.get("duration_secs") or 0.0) - trimmed)
+                try:
+                    db = cat.get_db()
+                    db.execute(
+                        "UPDATE album_audio SET duration_secs = ? WHERE id = ?",
+                        (new_dur, af["id"])
+                    )
+                    db.commit()
+                    db.close()
+                except Exception as e:
+                    print(f"[trim] Failed to update duration: {e}")
+
+    total_trimmed = sum(r["trimmed_secs"] for r in results if r["success"])
+    trimmed_count = sum(1 for r in results if r["success"] and r["trimmed_secs"] > 0)
+    return {
+        "ok": True,
+        "files_processed": len(results),
+        "files_trimmed": trimmed_count,
+        "total_secs_trimmed": round(total_trimmed, 2),
+        "details": results,
+    }
+
+
 @app.delete("/api/album-audio/{album_id}")
 async def delete_album_audio_route(album_id: int):
     """Delete all recorded audio for an album."""
