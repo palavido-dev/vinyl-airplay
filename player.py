@@ -34,6 +34,12 @@ CHUNK_FRAMES = 4096
 CHUNK_BYTES  = CHUNK_FRAMES * BYTES_PER_SAMPLE  # 16,384 bytes
 CHUNK_SECS   = CHUNK_FRAMES / SAMPLE_RATE       # ~0.0929s
 
+# Anti-pop fade duration: 30ms ramp eliminates the voltage discontinuity
+# that causes an audible pop when ALSA output opens or playback starts.
+FADE_MS     = 30
+FADE_FRAMES = int(SAMPLE_RATE * FADE_MS / 1000)   # ~1323 samples
+FADE_BYTES  = FADE_FRAMES * BYTES_PER_SAMPLE       # silence pre-fill size
+
 
 # ── Playlist Entry ───────────────────────────────────────────────────────────
 
@@ -486,6 +492,7 @@ class Player:
         self._seek_target = 0.0
         self._side_change_requested = False
         self._side_change_target = (0, 0.0)
+        self._needs_fade_in = True  # ramp first chunk to avoid pop
 
         self._restart_playback = False
 
@@ -570,6 +577,7 @@ class Player:
                             self._ffmpeg = None
                         if not self._start_ffmpeg(entry.audio_path, target):
                             break
+                        self._needs_fade_in = True
                         self._check_track_boundary()
                         continue
 
@@ -593,6 +601,13 @@ class Player:
 
                 # Convert to float32 for processing
                 audio_f32 = np.frombuffer(data, dtype=np.int16).reshape(-1, CHANNELS).astype(np.float32) / 32767.0
+
+                # Anti-pop fade-in: ramp first chunk from silence
+                if self._needs_fade_in:
+                    self._needs_fade_in = False
+                    n = min(FADE_FRAMES, len(audio_f32))
+                    ramp = np.linspace(0.0, 1.0, n, dtype=np.float32).reshape(-1, 1)
+                    audio_f32[:n] *= ramp
 
                 # Crossfade: blend with next side when approaching end
                 if (self._crossfade_secs > 0
@@ -696,6 +711,16 @@ class Player:
                 self._kill_next_ffmpeg()
                 self._restart_playback = True
             # Loop continues with next side
+
+        # Anti-pop: send a brief silence buffer so ALSA output drains
+        # cleanly instead of cutting off mid-sample
+        try:
+            silence = b'\x00' * (FADE_FRAMES * BYTES_PER_SAMPLE)
+            for stream in self.streams:
+                stream.put(silence)
+            time.sleep(FADE_MS / 1000.0)
+        except Exception:
+            pass
 
         # Playback finished
         if not self._stop_event.is_set():

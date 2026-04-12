@@ -386,6 +386,13 @@ class LocalOutputStream:
              "-r", str(self._samplerate), "-c", str(self._channels), "-"],
             stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
         )
+        # Pre-fill with ~30ms of silence so the ALSA device settles
+        # before real audio arrives (prevents open-device pop)
+        try:
+            silence = b'\x00' * (int(self._samplerate * 0.03) * self._channels * 2)
+            self._proc.stdin.write(silence)
+        except Exception:
+            pass
         print(f"[local-out] Opened aplay pipe to {self._alsa_device}")
 
     def put(self, pcm_bytes):
