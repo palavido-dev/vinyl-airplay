@@ -1138,6 +1138,7 @@
 
   #album-modal.open .modal-actions {
     padding-top: 0.5rem;
+    justify-content: center;
   }
   #album-modal.open .modal-actions .btn {
     padding: 0.35rem 0.65rem;
@@ -1147,6 +1148,9 @@
 
   #album-modal.open .modal-fp-section {
     margin-top: 0.6rem;
+  }
+  #album-modal.open .fp-actions {
+    justify-content: center;
   }
 
   body.album-detail-open .main-content { display: none; }
@@ -1196,10 +1200,16 @@
     font-size: 0.85rem !important;
   }
 
-  /* Recording buttons - larger touch targets */
+  /* Recording buttons - larger touch targets, centered */
   #album-modal.open #album-rec-active .btn {
     padding: 0.6rem 1.2rem;
     font-size: 0.88rem;
+  }
+  #album-modal.open #album-rec-active > div:last-child {
+    justify-content: center;
+  }
+  #album-modal.open #album-rec-flip-prompt > div {
+    justify-content: center;
   }
 
   /* Setup panel (pre-recording) */
