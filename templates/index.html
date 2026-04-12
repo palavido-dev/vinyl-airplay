@@ -999,15 +999,15 @@
     display: flex;
     flex: 1;
     gap: 2rem;
-    padding: 1.5rem 2.5rem;
+    padding: 1rem 2rem;
     overflow: hidden;
   }
 
   .album-detail-left {
-    flex: 0 0 380px;
+    flex: 0 0 280px;
     display: flex;
     flex-direction: column;
-    gap: 0.75rem;
+    gap: 0.4rem;
     overflow-y: auto;
   }
 
@@ -1022,7 +1022,7 @@
     background: none;
     border: none;
     font-family: var(--body-font);
-    margin-bottom: 0.5rem;
+    margin-bottom: 0.25rem;
   }
   .album-detail-left .back-to-library:hover { color: var(--ink); }
 
@@ -1030,27 +1030,27 @@
     width: 100%;
     height: auto;
     aspect-ratio: 1;
-    max-width: 380px;
+    max-width: 280px;
     border-radius: 8px;
     box-shadow: 0 8px 32px rgba(0,0,0,0.2);
   }
 
   #album-modal.open .modal-header {
     flex-direction: column;
-    gap: 1rem;
+    gap: 0.5rem;
     margin-bottom: 0;
   }
 
   #album-modal.open .modal-title {
-    font-size: 1.5rem;
+    font-size: 1.2rem;
   }
 
   #album-modal.open .modal-artist {
-    font-size: 1rem;
+    font-size: 0.9rem;
   }
 
   #album-modal.open .modal-meta {
-    font-size: 0.82rem;
+    font-size: 0.78rem;
   }
 
   .album-detail-right {
@@ -1073,7 +1073,12 @@
   }
 
   #album-modal.open .modal-actions {
-    padding-top: 0.8rem;
+    padding-top: 0.5rem;
+  }
+  #album-modal.open .modal-actions .btn {
+    padding: 0.35rem 0.65rem;
+    font-size: 0.75rem;
+    min-height: 34px;
   }
 
   #album-modal.open .modal-fp-section {
