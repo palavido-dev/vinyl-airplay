@@ -68,8 +68,7 @@ But it goes further than just streaming live vinyl. Every album you teach it get
 The Pi mounts right on the back of the touchscreen with the NVMe HAT, keeping the whole setup compact:
 
 <p align="center">
-  <img src="screenshots/IMG_0154.JPG" width="500" alt="Pi 5 with NVMe HAT mounted on the back of the touchscreen">
-  <img src="screenshots/IMG_0155.JPG" width="500" alt="Close-up of Pi ports and cabling behind the screen">
+  <img src="screenshots/IMG_0485.JPG" width="500" alt="Pi 5 mounted on the back of the touchscreen">
 </p>
 
 ### Speaker Compatibility
