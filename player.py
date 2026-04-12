@@ -34,11 +34,15 @@ CHUNK_FRAMES = 4096
 CHUNK_BYTES  = CHUNK_FRAMES * BYTES_PER_SAMPLE  # 16,384 bytes
 CHUNK_SECS   = CHUNK_FRAMES / SAMPLE_RATE       # ~0.0929s
 
-# Anti-pop fade duration: 30ms ramp eliminates the voltage discontinuity
-# that causes an audible pop when ALSA output opens or playback starts.
-FADE_MS     = 30
-FADE_FRAMES = int(SAMPLE_RATE * FADE_MS / 1000)   # ~1323 samples
-FADE_BYTES  = FADE_FRAMES * BYTES_PER_SAMPLE       # silence pre-fill size
+# Anti-pop fade: 500ms covers the needle-drop transient that gets captured
+# at the start of each side's recording (typically 70-350ms, up to 75% peak).
+# The lead-in groove before music starts is usually 1-2s, so 500ms is safe.
+FADE_IN_MS     = 500
+FADE_IN_FRAMES = int(SAMPLE_RATE * FADE_IN_MS / 1000)  # ~22050 samples
+
+# Short silence pre-fill for ALSA device settling (used in LocalOutputStream)
+SILENCE_MS     = 30
+SILENCE_FRAMES = int(SAMPLE_RATE * SILENCE_MS / 1000)
 
 
 # ── Playlist Entry ───────────────────────────────────────────────────────────
@@ -492,7 +496,7 @@ class Player:
         self._seek_target = 0.0
         self._side_change_requested = False
         self._side_change_target = (0, 0.0)
-        self._needs_fade_in = True  # ramp first chunk to avoid pop
+        self._fade_in_remaining = FADE_IN_FRAMES  # frames left to ramp
 
         self._restart_playback = False
 
@@ -527,6 +531,13 @@ class Player:
 
             # Fire initial track boundary check
             self._check_track_boundary()
+
+            # Set fade-in: full 500ms at start of side (covers needle drop),
+            # short 30ms if resuming mid-side (just anti-click)
+            if self._position < 1.0:
+                self._fade_in_remaining = FADE_IN_FRAMES
+            else:
+                self._fade_in_remaining = SILENCE_FRAMES
 
             # Real-time feed loop
             side_changed = False
@@ -577,7 +588,8 @@ class Player:
                             self._ffmpeg = None
                         if not self._start_ffmpeg(entry.audio_path, target):
                             break
-                        self._needs_fade_in = True
+                        # Short fade for seeks (just anti-click, not needle drop)
+                        self._fade_in_remaining = SILENCE_FRAMES
                         self._check_track_boundary()
                         continue
 
@@ -602,12 +614,19 @@ class Player:
                 # Convert to float32 for processing
                 audio_f32 = np.frombuffer(data, dtype=np.int16).reshape(-1, CHANNELS).astype(np.float32) / 32767.0
 
-                # Anti-pop fade-in: ramp first chunk from silence
-                if self._needs_fade_in:
-                    self._needs_fade_in = False
-                    n = min(FADE_FRAMES, len(audio_f32))
-                    ramp = np.linspace(0.0, 1.0, n, dtype=np.float32).reshape(-1, 1)
-                    audio_f32[:n] *= ramp
+                # Anti-pop fade-in: ramp over ~500ms to suppress needle drop
+                if self._fade_in_remaining > 0:
+                    n = len(audio_f32)
+                    # Where we are in the overall fade (0.0 = start, 1.0 = done)
+                    offset = FADE_IN_FRAMES - self._fade_in_remaining
+                    apply = min(n, self._fade_in_remaining)
+                    ramp = np.linspace(
+                        offset / FADE_IN_FRAMES,
+                        (offset + apply) / FADE_IN_FRAMES,
+                        apply, dtype=np.float32,
+                    ).reshape(-1, 1)
+                    audio_f32[:apply] *= ramp
+                    self._fade_in_remaining -= apply
 
                 # Crossfade: blend with next side when approaching end
                 if (self._crossfade_secs > 0
@@ -715,10 +734,10 @@ class Player:
         # Anti-pop: send a brief silence buffer so ALSA output drains
         # cleanly instead of cutting off mid-sample
         try:
-            silence = b'\x00' * (FADE_FRAMES * BYTES_PER_SAMPLE)
+            silence = b'\x00' * (SILENCE_FRAMES * BYTES_PER_SAMPLE)
             for stream in self.streams:
                 stream.put(silence)
-            time.sleep(FADE_MS / 1000.0)
+            time.sleep(SILENCE_MS / 1000.0)
         except Exception:
             pass
 
