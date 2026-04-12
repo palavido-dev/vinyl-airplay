@@ -213,6 +213,70 @@
   }
   .status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); flex-shrink: 0; }
   .status-dot.on { background: var(--sage); box-shadow: 0 0 6px rgba(107,143,113,0.5); }
+  /* ── Recording Strip ── */
+  .rec-strip {
+    display: none;
+    flex-shrink: 0;
+    background: linear-gradient(180deg, #3a1a14 0%, #2e1510 100%);
+    border-top: 2px solid var(--rust);
+    padding: 0.35rem 0.9rem;
+    align-items: center;
+    gap: 0.6rem;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  .rec-strip.visible { display: flex; }
+  .rec-strip:hover { background: #3f1e17; }
+  .rec-strip-dot {
+    width: 10px; height: 10px; border-radius: 50%;
+    background: var(--rust);
+    animation: rec-pulse 1.2s infinite;
+    flex-shrink: 0;
+  }
+  @keyframes rec-pulse {
+    0%, 100% { opacity: 1; box-shadow: 0 0 4px rgba(193,85,58,0.6); }
+    50% { opacity: 0.3; box-shadow: none; }
+  }
+  .rec-strip-label {
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: var(--rust);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    flex-shrink: 0;
+  }
+  .rec-strip-info {
+    font-size: 0.78rem;
+    color: var(--cream);
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .rec-strip-side {
+    font-size: 0.68rem;
+    font-weight: 600;
+    color: var(--cream);
+    background: rgba(193,85,58,0.4);
+    padding: 0.15rem 0.5rem;
+    border-radius: 3px;
+    flex-shrink: 0;
+  }
+  .rec-strip-timer {
+    font-size: 0.82rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    color: var(--cream);
+    flex-shrink: 0;
+    font-family: var(--body-font);
+  }
+  .rec-strip-arrow {
+    font-size: 0.75rem;
+    color: var(--muted);
+    flex-shrink: 0;
+  }
+
   .np-bar {
     flex-shrink: 0;
     background: linear-gradient(180deg, #352218 0%, #2C1810 100%);
@@ -1984,6 +2048,14 @@
   </div>
 </div>
 
+<div class="rec-strip" id="rec-strip" onclick="jumpToRecording()">
+  <div class="rec-strip-dot"></div>
+  <span class="rec-strip-label">REC</span>
+  <span class="rec-strip-info" id="rec-strip-info">--</span>
+  <span class="rec-strip-side" id="rec-strip-side">Side A</span>
+  <span class="rec-strip-timer" id="rec-strip-timer">00:00</span>
+  <span class="rec-strip-arrow">&#10095;</span>
+</div>
 <div class="np-bar hidden" id="np-footer">
   <div class="np-row">
     <div class="np-art-placeholder" id="np-art-wrap" style="cursor:pointer;">💿</div>
@@ -3590,7 +3662,27 @@ function initSwipeGestures(){
 async function playerRepeat(){const r=await fetch('/api/player/repeat',{method:'POST'}).then(r=>r.json());if(r.ok)updateRepeatButton(r.repeat_mode)}
 function updateRepeatButton(mode){var btn=document.getElementById('np-repeat');if(!btn)return;var repeatSvg='<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>';var repeatOneSvg='<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/><text x="12" y="15" text-anchor="middle" fill="currentColor" stroke="none" font-size="8" font-weight="bold">1</text></svg>';if(mode==='album'){btn.style.opacity='1';btn.innerHTML=repeatSvg;btn.title='Repeat album'}else if(mode==='track'){btn.style.opacity='1';btn.innerHTML=repeatOneSvg;btn.title='Repeat track'}else{btn.style.opacity='0.4';btn.innerHTML=repeatSvg;btn.title='Repeat off'}}
 function updateVinylSpin(state){var w=document.getElementById('np-art-wrap');if(!w)return;var img=w.querySelector('img');var el=img||w;if(state==='playing'){el.classList.add('vinyl-spinning');el.classList.remove('paused','vinyl-recording')}else if(state==='paused'){el.classList.add('vinyl-spinning','paused');el.classList.remove('vinyl-recording')}else{el.classList.remove('vinyl-spinning','paused','vinyl-recording')}}
-function setRecordingIndicator(active){var w=document.getElementById('np-art-wrap');if(!w)return;var img=w.querySelector('img');var el=img||w;if(active){el.classList.add('vinyl-recording');el.classList.remove('vinyl-spinning','paused')}else{el.classList.remove('vinyl-recording')}}
+var _recStripInterval=null;
+function setRecordingIndicator(active){
+  var w=document.getElementById('np-art-wrap');if(w){var img=w.querySelector('img');var el=img||w;if(active){el.classList.add('vinyl-recording');el.classList.remove('vinyl-spinning','paused')}else{el.classList.remove('vinyl-recording')}}
+  var strip=document.getElementById('rec-strip');if(!strip)return;
+  if(active){
+    strip.classList.add('visible');
+    var album=_recAlbumId?_catalogAlbums.find(function(a){return a.id===_recAlbumId}):null;
+    document.getElementById('rec-strip-info').textContent=album?(album.title+' -- '+album.artist):'Recording...';
+    document.getElementById('rec-strip-side').textContent='Side '+(_recSide||'A');
+    clearInterval(_recStripInterval);
+    _recStripInterval=setInterval(function(){
+      if(!_recStartTime){clearInterval(_recStripInterval);return}
+      var s=Math.floor((Date.now()-_recStartTime)/1000);
+      document.getElementById('rec-strip-timer').textContent=String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0');
+    },1000);
+  }else{
+    strip.classList.remove('visible');
+    clearInterval(_recStripInterval);_recStripInterval=null;
+  }
+}
+function jumpToRecording(){if(_recAlbumId){openAlbumDetail(_recAlbumId)}}
 function playerSeekClick(e){const b=e.currentTarget,r=b.getBoundingClientRect(),pct=(e.clientX-r.left)/r.width,pts=document.getElementById('np-time-dur').textContent.split(':'),dur=parseInt(pts[0])*60+parseInt(pts[1]);fetch('/api/player/seek',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({position_secs:pct*dur})})}
 
 var _queuePanelOpen=false;
