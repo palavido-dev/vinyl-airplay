@@ -1071,8 +1071,8 @@
     flex: 0 0 280px;
     display: flex;
     flex-direction: column;
-    gap: 0.4rem;
-    overflow-y: auto;
+    gap: 0.3rem;
+    overflow: hidden;
   }
 
   .album-detail-left .back-to-library {
@@ -1086,7 +1086,8 @@
     background: none;
     border: none;
     font-family: var(--body-font);
-    margin-bottom: 0.25rem;
+    margin-bottom: 0.15rem;
+    flex-shrink: 0;
   }
   .album-detail-left .back-to-library:hover { color: var(--ink); }
 
@@ -1095,6 +1096,8 @@
     height: auto;
     aspect-ratio: 1;
     max-width: 280px;
+    max-height: 30vh;
+    object-fit: cover;
     border-radius: 8px;
     box-shadow: 0 8px 32px rgba(0,0,0,0.2);
   }
@@ -1103,6 +1106,9 @@
     flex-direction: column;
     gap: 0.5rem;
     margin-bottom: 0;
+    flex: 1 1 0;
+    min-height: 0;
+    overflow: hidden;
   }
 
   #album-modal.open .modal-title {
@@ -1136,9 +1142,16 @@
     padding: 0.5rem 0;
   }
 
+  #album-modal.open #modal-rating {
+    flex-shrink: 0;
+  }
+  #album-modal.open #modal-notes-section {
+    flex-shrink: 0;
+  }
   #album-modal.open .modal-actions {
-    padding-top: 0.5rem;
+    padding-top: 0.4rem;
     justify-content: center;
+    flex-shrink: 0;
   }
   #album-modal.open .modal-actions .btn {
     padding: 0.35rem 0.65rem;
@@ -2160,8 +2173,8 @@
           <img id="modal-art" class="modal-art" src="" alt="" onerror="this.style.display='none'">
           <div style="flex:1"><div style="display:flex;align-items:center;gap:0.4rem"><div class="modal-title" id="modal-title" title="Tap to edit"></div><button id="modal-favorite-btn" class="modal-favorite-btn" onclick="toggleModalFavorite()" title="Favorite" style="font-size:0.9rem;background:none;border:none;cursor:pointer;color:rgba(0,0,0,0.3);padding:0;margin:0">&#x2661;</button></div><div class="modal-artist" id="modal-artist" title="Tap to edit"></div><div class="modal-meta" id="modal-meta"></div></div>
         </div>
-        <div id="modal-rating" class="star-rating" style="margin-bottom:0.3rem"></div>
-        <div id="modal-notes-section" style="margin-bottom:0.5rem">
+        <div id="modal-rating" class="star-rating" style="margin-bottom:0.15rem"></div>
+        <div id="modal-notes-section" style="margin-bottom:0.2rem">
           <div id="modal-notes-display" style="display:none;font-size:0.75rem;color:var(--muted);padding:0.4rem 0.5rem;background:rgba(0,0,0,0.03);border-radius:4px;border:1px solid rgba(0,0,0,0.06);cursor:pointer;white-space:pre-wrap;line-height:1.4" onclick="editAlbumNotes()" title="Click to edit"></div>
           <button id="modal-notes-add-btn" onclick="editAlbumNotes()" style="font-size:0.68rem;color:var(--muted);background:none;border:1px dashed rgba(0,0,0,0.15);border-radius:4px;padding:0.3rem 0.6rem;cursor:pointer;display:none">+ Add notes</button>
           <div id="modal-notes-edit" style="display:none">
