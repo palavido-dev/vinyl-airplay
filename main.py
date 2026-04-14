@@ -1469,7 +1469,8 @@ async def rename_device(device_id: str, body: dict = {}):
 
 @app.get("/api/audio-devices")
 async def audio_devices():
-    return {"devices": state.audio_devices}
+    return {"devices": state.audio_devices,
+            "current_index": state.settings.get("audio_device_index")}
 
 
 # ── Browser Stream Routes ─────────────────────────────────────────────────────
@@ -1757,6 +1758,9 @@ async def update_settings(body: dict):
         state.settings["app_name"] = str(body["app_name"])[:40]
     if "theme" in body:
         state.settings["theme"] = str(body["theme"])
+    if "audio_device_index" in body:
+        v = body["audio_device_index"]
+        state.settings["audio_device_index"] = None if v in (None, "", "null") else int(v)
     save_settings(state.settings)
     return {"ok": True}
 

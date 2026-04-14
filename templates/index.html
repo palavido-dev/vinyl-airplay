@@ -2373,7 +2373,7 @@
           <div class="form-row" style="margin-top:0.3rem"><label>Default device</label><div style="display:flex;gap:0.4rem;align-items:center"><select class="form-input" id="auto-stream-device-select" onchange="saveAutoStreamSettings()" style="flex:1"><option value="">— Select —</option></select><button class="btn btn-ghost" onclick="scanAutoStreamDevices()" style="padding:0.3rem 0.5rem">↺</button></div></div>
           <div id="auto-stream-status" style="font-size:0.72rem;color:var(--muted);margin-top:0.2rem"></div>
         </div>
-        <div class="settings-section"><h3>Audio Input</h3><select class="form-input" id="audio-select"><option value="">Loading…</option></select></div>
+        <div class="settings-section"><h3>Audio Input</h3><select class="form-input" id="audio-select" onchange="saveAudioDevice()"><option value="">Loading…</option></select></div>
         <div class="settings-section"><h3>Playback</h3>
           <div class="form-row"><label>Crossfade</label>
             <div style="display:flex;align-items:center;gap:0.5rem">
@@ -5265,7 +5265,8 @@ async function downloadManifest(){
     st.textContent='Error: '+e.message;
   }
 }
-async function loadAudioDevices(){try{const d=await fetch('/api/audio-devices').then(r=>r.json());document.getElementById('audio-select').innerHTML=d.devices.map(d=>`<option value="${d.index}">${esc(d.name)}</option>`).join('')}catch(e){}}
+async function loadAudioDevices(){try{const d=await fetch('/api/audio-devices').then(r=>r.json());const sel=document.getElementById('audio-select');const saved=(d.current_index!==undefined&&d.current_index!==null)?String(d.current_index):'';sel.innerHTML='<option value="">(none / default)</option>'+d.devices.map(dv=>`<option value="${dv.index}"${String(dv.index)===saved?' selected':''}>${esc(dv.name)}</option>`).join('')}catch(e){}}
+function saveAudioDevice(){const v=document.getElementById('audio-select').value;const idx=v===''?null:parseInt(v,10);fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({audio_device_index:idx})}).then(()=>showToast('Audio input saved')).catch(()=>showToast('Failed to save audio input'))}
 
 // ── Bluetooth Management ──
 async function scanBluetoothDevices(){

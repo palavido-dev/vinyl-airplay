@@ -1,0 +1,1082 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=1440, initial-scale=1.0, user-scalable=no">
+<title>Vinyl Streamer - Kiosk Layout Mockups</title>
+<style>
+  :root {
+    --walnut: #3E2723;
+    --walnut-mid: #5D4037;
+    --amber: #D4A24E;
+    --cream: #F5EBD8;
+    --paper: #EDE0CA;
+    --ink: #2C1810;
+    --sage: #6B8F71;
+    --rust: #C1553A;
+    --muted: #7A6652;
+    --shelf: #8B6F47;
+    --gold: #C9A84C;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'Georgia', 'Times New Roman', serif;
+    background: var(--walnut);
+    color: var(--ink);
+    width: 1440px;
+    height: 900px;
+    overflow: hidden;
+  }
+
+  /* --- Mockup Switcher --- */
+  .mockup-switcher {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    z-index: 9999;
+    background: #1a1a2e;
+    padding: 8px 16px;
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    font-family: -apple-system, sans-serif;
+    font-size: 13px;
+    color: #ccc;
+    border-bottom: 2px solid var(--amber);
+  }
+  .mockup-switcher span { font-weight: 600; color: var(--amber); margin-right: 8px; }
+  .mockup-switcher button {
+    padding: 6px 14px;
+    border: 1px solid #444;
+    background: #2a2a3e;
+    color: #ccc;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 13px;
+    font-family: -apple-system, sans-serif;
+    transition: all 0.15s;
+  }
+  .mockup-switcher button:hover { background: #3a3a5e; }
+  .mockup-switcher button.active {
+    background: var(--amber);
+    color: var(--walnut);
+    border-color: var(--amber);
+    font-weight: 600;
+  }
+  .mockup-switcher .label-badge {
+    margin-left: auto;
+    background: var(--rust);
+    color: white;
+    padding: 3px 10px;
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  .mockup-view { display: none; }
+  .mockup-view.active { display: flex; }
+
+  /* --- Shared Frame --- */
+  .frame {
+    width: 1440px;
+    height: 900px;
+    display: flex;
+    flex-direction: column;
+    margin: 0;
+    padding-top: 40px; /* space for switcher */
+  }
+
+  .app-header {
+    background: var(--walnut);
+    color: var(--cream);
+    padding: 8px 16px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 14px;
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+    flex-shrink: 0;
+  }
+  .app-header .brand {
+    font-size: 16px;
+    font-weight: 700;
+    letter-spacing: -0.3px;
+    white-space: nowrap;
+  }
+  .app-header .brand-sub {
+    color: var(--muted);
+    font-size: 12px;
+    margin-left: 4px;
+  }
+  .header-spacer { flex: 1; }
+  .header-btn {
+    width: 34px; height: 34px;
+    border-radius: 50%;
+    border: 1px solid rgba(255,255,255,0.15);
+    background: rgba(255,255,255,0.05);
+    color: var(--cream);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 15px;
+    cursor: pointer;
+  }
+  .header-btn.active-view {
+    background: var(--amber);
+    color: var(--walnut);
+    border-color: var(--amber);
+  }
+  .toggle-group {
+    display: flex;
+    border: 1px solid rgba(255,255,255,0.2);
+    border-radius: 6px;
+    overflow: hidden;
+  }
+  .toggle-btn {
+    padding: 5px 12px;
+    background: transparent;
+    color: var(--cream);
+    border: none;
+    font-size: 12px;
+    font-family: inherit;
+    cursor: pointer;
+    opacity: 0.5;
+  }
+  .toggle-btn.active { opacity: 1; background: rgba(255,255,255,0.1); }
+
+  .np-bar {
+    background: var(--walnut);
+    color: var(--cream);
+    padding: 8px 16px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-shrink: 0;
+    border-top: 1px solid rgba(255,255,255,0.08);
+  }
+  .np-art-small {
+    width: 48px; height: 48px;
+    border-radius: 4px;
+    background: var(--walnut-mid);
+    background-image: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><circle cx="24" cy="24" r="18" fill="%235D4037"/><circle cx="24" cy="24" r="6" fill="%233E2723"/></svg>');
+    background-size: cover;
+  }
+  .np-info { flex: 1; min-width: 0; }
+  .np-title { font-size: 13px; font-weight: 700; color: var(--cream); }
+  .np-artist { font-size: 11px; color: var(--muted); }
+  .transport { display: flex; gap: 6px; align-items: center; }
+  .transport-btn {
+    width: 36px; height: 36px;
+    border-radius: 50%;
+    border: none;
+    background: rgba(255,255,255,0.08);
+    color: var(--cream);
+    font-size: 14px;
+    cursor: pointer;
+  }
+  .transport-btn.play {
+    width: 44px; height: 44px;
+    background: var(--amber);
+    color: var(--walnut);
+    font-size: 18px;
+  }
+  .eq-sliders {
+    display: flex;
+    gap: 20px;
+    align-items: center;
+    font-size: 10px;
+    color: var(--muted);
+    margin-left: 16px;
+  }
+  .eq-slider-group { display: flex; align-items: center; gap: 6px; }
+  .eq-slider-group input[type=range] { width: 100px; accent-color: var(--amber); }
+
+  /* --- Full-screen content area --- */
+  .full-page {
+    flex: 1;
+    overflow: hidden;
+    display: flex;
+  }
+
+  /* ===== ALBUM DETAIL MOCKUP ===== */
+  .album-detail-page {
+    background: linear-gradient(165deg, var(--cream) 0%, var(--paper) 100%);
+    padding: 28px 40px;
+    gap: 40px;
+    width: 100%;
+  }
+
+  .album-detail-left {
+    flex: 0 0 420px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  .album-art-large {
+    width: 100%;
+    aspect-ratio: 1;
+    border-radius: 8px;
+    background: #c9a060;
+    background-image: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400"><rect fill="%23c9a060" width="400" height="400"/><text x="50%" y="35%" text-anchor="middle" font-family="Georgia" font-size="32" fill="%233E2723" font-weight="bold">Texas Sun</text><text x="50%" y="50%" text-anchor="middle" font-family="Georgia" font-size="18" fill="%235D4037">Khruangbin %26 Leon Bridges</text><circle cx="200" cy="280" r="60" fill="%23D4A24E" opacity="0.6"/><circle cx="200" cy="280" r="25" fill="%233E2723" opacity="0.4"/></svg>');
+    background-size: cover;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+  }
+  .album-meta-block {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .album-meta-title {
+    font-size: 28px;
+    font-weight: 700;
+    color: var(--ink);
+    line-height: 1.15;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .album-meta-title .fav-btn {
+    font-size: 18px;
+    opacity: 0.3;
+    cursor: pointer;
+    border: none;
+    background: none;
+  }
+  .album-meta-artist {
+    font-size: 18px;
+    color: var(--muted);
+  }
+  .album-meta-info {
+    font-size: 13px;
+    color: var(--muted);
+    display: flex;
+    gap: 8px;
+  }
+  .album-meta-info span + span::before {
+    content: "\00b7";
+    margin-right: 8px;
+  }
+  .star-rating {
+    font-size: 18px;
+    color: var(--muted);
+    opacity: 0.4;
+    letter-spacing: 2px;
+  }
+  .notes-link {
+    font-size: 12px;
+    color: var(--muted);
+    border: 1px solid rgba(0,0,0,0.1);
+    border-radius: 4px;
+    padding: 4px 10px;
+    display: inline-block;
+    width: fit-content;
+    cursor: pointer;
+  }
+  .action-row {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-top: 4px;
+  }
+  .btn {
+    padding: 8px 16px;
+    border-radius: 6px;
+    border: none;
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .btn-primary { background: var(--amber); color: var(--walnut); }
+  .btn-accent { background: var(--walnut); color: var(--cream); }
+  .btn-danger { background: var(--rust); color: white; }
+  .btn-ghost {
+    background: transparent;
+    border: 1px solid rgba(0,0,0,0.15);
+    color: var(--ink);
+  }
+  .badge {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+  }
+  .badge-catalog { background: var(--sage); color: white; }
+  .badge-unlearned { background: rgba(0,0,0,0.08); color: var(--muted); }
+
+  .album-detail-right {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    min-width: 0;
+  }
+  .tracklist-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    padding-bottom: 8px;
+    border-bottom: 2px solid var(--shelf);
+    margin-bottom: 0;
+  }
+  .tracklist-header h3 { font-size: 14px; color: var(--ink); font-weight: 700; }
+  .tracklist-header .side-label { font-size: 12px; color: var(--muted); }
+
+  .side-heading {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--sage);
+    padding: 12px 0 6px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .track-row {
+    display: flex;
+    align-items: center;
+    padding: 8px 0;
+    border-bottom: 1px solid rgba(0,0,0,0.05);
+    font-size: 14px;
+    gap: 12px;
+  }
+  .track-num {
+    width: 24px;
+    text-align: center;
+    color: var(--muted);
+    font-size: 12px;
+    flex-shrink: 0;
+  }
+  .track-name { flex: 1; color: var(--ink); }
+  .track-status { font-size: 11px; color: var(--muted); }
+  .track-duration {
+    font-size: 12px;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+    width: 40px;
+    text-align: right;
+    flex-shrink: 0;
+  }
+
+  .back-link {
+    font-size: 13px;
+    color: var(--muted);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    margin-bottom: 12px;
+    font-family: -apple-system, sans-serif;
+  }
+  .back-link:hover { color: var(--ink); }
+
+  /* ===== RECORDING MOCKUP ===== */
+  .recording-page {
+    background: linear-gradient(165deg, var(--cream) 0%, var(--paper) 100%);
+    padding: 28px 40px;
+    gap: 40px;
+    width: 100%;
+  }
+  .recording-left {
+    flex: 0 0 420px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  .recording-right {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+  }
+  .rec-section-title {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--ink);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding-bottom: 8px;
+    border-bottom: 2px solid var(--shelf);
+  }
+  .rec-controls {
+    background: rgba(193,85,58,0.06);
+    border: 1px solid rgba(193,85,58,0.15);
+    border-radius: 10px;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  .rec-timer-big {
+    font-size: 64px;
+    font-weight: 300;
+    color: var(--rust);
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+    font-family: -apple-system, 'Helvetica Neue', sans-serif;
+    line-height: 1;
+  }
+  .rec-side-indicator {
+    text-align: center;
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--ink);
+  }
+  .rec-side-indicator .side-badge {
+    display: inline-block;
+    background: var(--amber);
+    color: var(--walnut);
+    padding: 2px 12px;
+    border-radius: 4px;
+    font-size: 14px;
+    font-weight: 700;
+    margin-right: 6px;
+  }
+  .level-meter {
+    background: rgba(0,0,0,0.06);
+    border-radius: 6px;
+    padding: 12px 16px;
+  }
+  .level-meter-label {
+    font-size: 11px;
+    color: var(--muted);
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 6px;
+  }
+  .level-bar-bg {
+    height: 14px;
+    background: rgba(0,0,0,0.08);
+    border-radius: 7px;
+    position: relative;
+    overflow: hidden;
+  }
+  .level-bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--sage) 0%, var(--amber) 60%, var(--rust) 90%);
+    border-radius: 7px;
+    width: 45%;
+    transition: width 0.1s;
+  }
+  .level-bar-clip {
+    position: absolute;
+    right: 16.7%;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background: var(--rust);
+    opacity: 0.5;
+  }
+  .rec-btn-row {
+    display: flex;
+    gap: 10px;
+    justify-content: center;
+  }
+  .btn-record {
+    background: var(--rust);
+    color: white;
+    padding: 12px 28px;
+    font-size: 16px;
+    border-radius: 8px;
+    border: none;
+    font-family: inherit;
+    font-weight: 700;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .btn-lg {
+    padding: 10px 24px;
+    font-size: 14px;
+  }
+  .rec-track-log {
+    flex: 1;
+    overflow-y: auto;
+  }
+  .rec-track-entry {
+    display: flex;
+    align-items: center;
+    padding: 8px 0;
+    border-bottom: 1px solid rgba(0,0,0,0.05);
+    font-size: 13px;
+    gap: 12px;
+  }
+  .rec-track-entry .track-num {
+    width: 24px;
+    text-align: center;
+    color: var(--muted);
+    font-size: 12px;
+  }
+  .rec-track-entry .track-name { flex: 1; color: var(--ink); }
+  .rec-track-entry .track-time {
+    color: var(--muted);
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+  }
+  .recording-pulse {
+    display: inline-block;
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    background: var(--rust);
+    animation: pulse 1.2s infinite;
+    margin-right: 6px;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+  }
+
+  /* ===== SETTINGS MOCKUP ===== */
+  .settings-page {
+    background: linear-gradient(165deg, var(--cream) 0%, var(--paper) 100%);
+    width: 100%;
+    overflow: hidden;
+  }
+  .settings-columns {
+    display: flex;
+    flex: 1;
+    height: 100%;
+  }
+  .settings-nav {
+    width: 220px;
+    background: rgba(0,0,0,0.04);
+    border-right: 1px solid rgba(0,0,0,0.08);
+    padding: 20px 0;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .settings-nav-title {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--ink);
+    padding: 0 20px 16px;
+    border-bottom: 1px solid rgba(0,0,0,0.08);
+    margin-bottom: 8px;
+  }
+  .settings-nav-item {
+    padding: 10px 20px;
+    font-size: 14px;
+    color: var(--muted);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    border-left: 3px solid transparent;
+    transition: all 0.1s;
+  }
+  .settings-nav-item:hover { color: var(--ink); background: rgba(0,0,0,0.03); }
+  .settings-nav-item.active {
+    color: var(--ink);
+    font-weight: 600;
+    background: rgba(212,162,78,0.1);
+    border-left-color: var(--amber);
+  }
+  .settings-nav-item .nav-icon { font-size: 16px; width: 22px; text-align: center; }
+  .settings-nav .back-link-bottom {
+    margin-top: auto;
+    padding: 16px 20px;
+    border-top: 1px solid rgba(0,0,0,0.08);
+  }
+
+  .settings-panel {
+    flex: 1;
+    padding: 28px 40px;
+    overflow-y: auto;
+  }
+  .settings-panel-title {
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--ink);
+    margin-bottom: 24px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .settings-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+  }
+  .settings-card {
+    background: white;
+    border-radius: 10px;
+    padding: 20px;
+    border: 1px solid rgba(0,0,0,0.06);
+    box-shadow: 0 1px 4px rgba(0,0,0,0.04);
+  }
+  .settings-card h4 {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--ink);
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .settings-card .setting-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 0;
+    border-bottom: 1px solid rgba(0,0,0,0.04);
+    font-size: 13px;
+  }
+  .settings-card .setting-row:last-child { border-bottom: none; }
+  .setting-label { color: var(--ink); }
+  .setting-value { color: var(--muted); font-size: 12px; }
+  .settings-card select, .settings-card input[type=text] {
+    border: 1px solid rgba(0,0,0,0.12);
+    border-radius: 4px;
+    padding: 6px 10px;
+    font-size: 12px;
+    font-family: inherit;
+    background: white;
+    color: var(--ink);
+  }
+  .toggle-switch {
+    width: 40px; height: 22px;
+    background: rgba(0,0,0,0.15);
+    border-radius: 11px;
+    position: relative;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+  .toggle-switch.on { background: var(--sage); }
+  .toggle-switch::after {
+    content: '';
+    position: absolute;
+    width: 18px; height: 18px;
+    border-radius: 50%;
+    background: white;
+    top: 2px;
+    left: 2px;
+    transition: transform 0.15s;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+  }
+  .toggle-switch.on::after { transform: translateX(18px); }
+
+  .device-list { display: flex; flex-direction: column; gap: 8px; }
+  .device-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    background: rgba(0,0,0,0.02);
+    border-radius: 6px;
+    font-size: 13px;
+  }
+  .device-icon { font-size: 16px; }
+  .device-name { flex: 1; color: var(--ink); }
+  .device-status { font-size: 11px; color: var(--sage); }
+
+  .theme-grid-settings {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .theme-swatch-opt {
+    width: 48px; height: 48px;
+    border-radius: 8px;
+    cursor: pointer;
+    border: 2px solid transparent;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .theme-swatch-opt.active { border-color: var(--amber); box-shadow: 0 0 0 2px var(--amber); }
+  .theme-swatch-opt .ts-top { flex: 1; }
+  .theme-swatch-opt .ts-mid { height: 6px; }
+  .theme-swatch-opt .ts-bot { height: 10px; }
+
+  .settings-card-wide {
+    grid-column: 1 / -1;
+  }
+
+  /* === Annotation callouts === */
+  .annotation {
+    position: fixed;
+    z-index: 9998;
+    font-family: -apple-system, sans-serif;
+    font-size: 12px;
+    padding: 6px 12px;
+    border-radius: 6px;
+    background: #1a1a2e;
+    color: #fff;
+    border: 1px solid var(--amber);
+    pointer-events: none;
+    line-height: 1.4;
+    max-width: 200px;
+  }
+  .annotation::before {
+    content: '';
+    position: absolute;
+    width: 8px; height: 8px;
+    background: #1a1a2e;
+    border: 1px solid var(--amber);
+    transform: rotate(45deg);
+  }
+</style>
+</head>
+<body>
+
+<div class="mockup-switcher">
+  <span>Layout Mockups</span>
+  <button class="active" onclick="showMockup('album')">Album Detail</button>
+  <button onclick="showMockup('recording')">Recording</button>
+  <button onclick="showMockup('settings')">Settings</button>
+  <div class="label-badge">Kiosk 1440 x 900</div>
+</div>
+
+<!-- ============ ALBUM DETAIL MOCKUP ============ -->
+<div id="mockup-album" class="mockup-view active">
+  <div class="frame">
+    <div class="app-header">
+      <div class="brand">The Listening Room <span class="brand-sub">139 albums, 70 recorded</span></div>
+      <div class="toggle-group">
+        <button class="toggle-btn">Shelves</button>
+        <button class="toggle-btn active">Library</button>
+      </div>
+      <div class="header-spacer"></div>
+      <div class="header-btn">&#8593;</div>
+      <div class="header-btn">&#9776;</div>
+      <div class="header-btn">&#9835;</div>
+      <div class="header-btn">&#9839;</div>
+      <div class="header-btn">+</div>
+      <div class="header-btn">&#9881;</div>
+    </div>
+
+    <div class="full-page album-detail-page">
+      <div class="album-detail-left">
+        <div class="back-link">&#8592; Back to library</div>
+        <div class="album-art-large"></div>
+        <div class="album-meta-block">
+          <div class="album-meta-title">Texas Sun <button class="fav-btn">&hearts;</button></div>
+          <div class="album-meta-artist">Khruangbin & Leon Bridges</div>
+          <div class="album-meta-info">
+            <span>2023</span>
+            <span>Rock, Funk / Soul</span>
+            <span>Dead Oceans</span>
+          </div>
+          <div class="star-rating">&#9733;&#9733;&#9733;&#9733;&#9733;</div>
+          <div class="notes-link">+ Add notes</div>
+        </div>
+        <div class="action-row">
+          <button class="btn btn-primary">&#9654; Play Next</button>
+          <button class="btn btn-accent">+ Playlist</button>
+          <button class="btn btn-danger">&#9679; Record</button>
+          <button class="btn btn-ghost">&#128247; Photo</button>
+        </div>
+      </div>
+
+      <div class="album-detail-right">
+        <div class="tracklist-header">
+          <h3>Tracklist</h3>
+          <span class="side-label">4 tracks, 20:58</span>
+        </div>
+        <div class="side-heading">Side A</div>
+        <div class="track-row">
+          <span class="track-num">1</span>
+          <span class="track-name">Texas Sun</span>
+          <span class="badge badge-unlearned">unlearned</span>
+          <span class="track-duration">4:13</span>
+        </div>
+        <div class="track-row">
+          <span class="track-num">2</span>
+          <span class="track-name">Midnight</span>
+          <span class="badge badge-unlearned">unlearned</span>
+          <span class="track-duration">5:15</span>
+        </div>
+        <div class="side-heading">Side B</div>
+        <div class="track-row">
+          <span class="track-num">1</span>
+          <span class="track-name">C-Side</span>
+          <span class="badge badge-unlearned">unlearned</span>
+          <span class="track-duration">4:44</span>
+        </div>
+        <div class="track-row">
+          <span class="track-num">2</span>
+          <span class="track-name">Conversion</span>
+          <span class="badge badge-unlearned">unlearned</span>
+          <span class="track-duration">6:46</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="np-bar">
+      <div class="np-art-small"></div>
+      <div class="np-info">
+        <div class="np-title">Excursions</div>
+        <div class="np-artist">A Tribe Called Quest -- The Low End Theory</div>
+      </div>
+      <div class="transport">
+        <button class="transport-btn">&#9198;</button>
+        <button class="transport-btn play">&#9208;</button>
+        <button class="transport-btn">&#9197;</button>
+        <button class="transport-btn">&#9632;</button>
+      </div>
+      <div class="eq-sliders">
+        <div class="eq-slider-group">Bass <input type="range" min="0" max="100" value="50"></div>
+        <div class="eq-slider-group">Treble <input type="range" min="0" max="100" value="50"></div>
+        <div class="eq-slider-group">Vol <input type="range" min="0" max="100" value="75"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ RECORDING MOCKUP ============ -->
+<div id="mockup-recording" class="mockup-view">
+  <div class="frame">
+    <div class="app-header">
+      <div class="brand">The Listening Room <span class="brand-sub">139 albums, 70 recorded</span></div>
+      <div class="toggle-group">
+        <button class="toggle-btn">Shelves</button>
+        <button class="toggle-btn active">Library</button>
+      </div>
+      <div class="header-spacer"></div>
+      <div class="header-btn">&#8593;</div>
+      <div class="header-btn">&#9776;</div>
+      <div class="header-btn">&#9835;</div>
+      <div class="header-btn">&#9839;</div>
+      <div class="header-btn">+</div>
+      <div class="header-btn">&#9881;</div>
+    </div>
+
+    <div class="full-page recording-page">
+      <div class="recording-left">
+        <div class="back-link">&#8592; Back to Texas Sun</div>
+        <div class="album-art-large" style="position:relative;">
+          <div style="position:absolute;top:12px;right:12px;background:var(--rust);color:white;padding:4px 10px;border-radius:4px;font-size:11px;font-weight:700;font-family:-apple-system,sans-serif;display:flex;align-items:center;gap:4px;">
+            <span class="recording-pulse"></span> RECORDING
+          </div>
+        </div>
+        <div class="album-meta-block">
+          <div class="album-meta-title" style="font-size:22px;">Texas Sun</div>
+          <div class="album-meta-artist">Khruangbin & Leon Bridges</div>
+          <div class="album-meta-info"><span>2023</span><span>Dead Oceans</span></div>
+        </div>
+      </div>
+
+      <div class="recording-right">
+        <div class="rec-section-title">
+          <span class="recording-pulse"></span>
+          Recording Session
+        </div>
+
+        <div class="rec-controls">
+          <div class="rec-side-indicator">
+            <span class="side-badge">A</span> Recording Side A
+          </div>
+          <div class="rec-timer-big">03:47</div>
+
+          <div class="level-meter">
+            <div class="level-meter-label">
+              <span>Input Level</span>
+              <span>-12.4 dB</span>
+            </div>
+            <div class="level-bar-bg">
+              <div class="level-bar-fill"></div>
+              <div class="level-bar-clip"></div>
+            </div>
+          </div>
+
+          <div class="rec-btn-row">
+            <button class="btn btn-accent btn-lg">&#8634; Flip Side</button>
+            <button class="btn btn-danger btn-lg" style="font-size:15px;">&#9632; Stop & Save</button>
+            <button class="btn btn-ghost btn-lg">Cancel</button>
+          </div>
+        </div>
+
+        <div class="rec-section-title" style="margin-top:8px;">Detected Tracks</div>
+        <div class="rec-track-log">
+          <div class="rec-track-entry">
+            <span class="track-num">1</span>
+            <span class="track-name">Texas Sun</span>
+            <span class="track-time">0:00 -- 4:13</span>
+            <span class="badge badge-catalog" style="font-size:10px;">matched</span>
+          </div>
+          <div class="rec-track-entry">
+            <span class="track-num">2</span>
+            <span class="track-name" style="color:var(--muted);font-style:italic;">Recording...</span>
+            <span class="track-time">4:15 -- ...</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="np-bar">
+      <div class="np-art-small"></div>
+      <div class="np-info">
+        <div class="np-title" style="color:var(--rust);">&#9679; Recording: Texas Sun -- Side A</div>
+        <div class="np-artist">Khruangbin & Leon Bridges</div>
+      </div>
+      <div class="transport">
+        <button class="transport-btn" disabled style="opacity:0.3;">&#9198;</button>
+        <button class="transport-btn play" style="background:var(--rust);color:white;">&#9632;</button>
+        <button class="transport-btn" disabled style="opacity:0.3;">&#9197;</button>
+      </div>
+      <div class="eq-sliders">
+        <div class="eq-slider-group">Bass <input type="range" min="0" max="100" value="50"></div>
+        <div class="eq-slider-group">Treble <input type="range" min="0" max="100" value="50"></div>
+        <div class="eq-slider-group">Vol <input type="range" min="0" max="100" value="75"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ SETTINGS MOCKUP ============ -->
+<div id="mockup-settings" class="mockup-view">
+  <div class="frame">
+    <div class="app-header">
+      <div class="brand">The Listening Room <span class="brand-sub">139 albums, 70 recorded</span></div>
+      <div class="toggle-group">
+        <button class="toggle-btn">Shelves</button>
+        <button class="toggle-btn active">Library</button>
+      </div>
+      <div class="header-spacer"></div>
+      <div class="header-btn">&#8593;</div>
+      <div class="header-btn">&#9776;</div>
+      <div class="header-btn">&#9835;</div>
+      <div class="header-btn">&#9839;</div>
+      <div class="header-btn">+</div>
+      <div class="header-btn active-view">&#9881;</div>
+    </div>
+
+    <div class="full-page settings-page" style="flex-direction:column;">
+      <div class="settings-columns" style="flex:1;overflow:hidden;">
+        <div class="settings-nav">
+          <div class="settings-nav-title">Settings</div>
+          <div class="settings-nav-item active">
+            <span class="nav-icon">&#9835;</span> Audio
+          </div>
+          <div class="settings-nav-item">
+            <span class="nav-icon">&#128218;</span> Library
+          </div>
+          <div class="settings-nav-item">
+            <span class="nav-icon">&#127912;</span> Personalization
+          </div>
+          <div class="settings-nav-item">
+            <span class="nav-icon">&#9881;</span> System
+          </div>
+          <div class="back-link-bottom">
+            <div class="back-link">&#8592; Back to library</div>
+          </div>
+        </div>
+
+        <div class="settings-panel">
+          <div class="settings-panel-title">&#9835; Audio</div>
+          <div class="settings-grid">
+            <div class="settings-card">
+              <h4>&#128266; AirPlay Devices</h4>
+              <div class="device-list">
+                <div class="device-row">
+                  <span class="device-icon">&#128266;</span>
+                  <span class="device-name">Living Room HomePod</span>
+                  <span class="device-status">&#10003; Connected</span>
+                  <div class="toggle-switch on"></div>
+                </div>
+                <div class="device-row">
+                  <span class="device-icon">&#128266;</span>
+                  <span class="device-name">Kitchen Speaker</span>
+                  <span class="device-status" style="color:var(--muted);">Available</span>
+                  <div class="toggle-switch"></div>
+                </div>
+                <div class="device-row">
+                  <span class="device-icon">&#128266;</span>
+                  <span class="device-name">Bedroom Sonos</span>
+                  <span class="device-status" style="color:var(--muted);">Available</span>
+                  <div class="toggle-switch"></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="settings-card">
+              <h4>&#127897; Vinyl Streaming</h4>
+              <div class="setting-row">
+                <span class="setting-label">Status</span>
+                <span class="badge badge-catalog">Active</span>
+              </div>
+              <div class="setting-row">
+                <span class="setting-label">Audio Input</span>
+                <select><option>USB Audio CODEC (hw:1,0)</option></select>
+              </div>
+              <div class="setting-row">
+                <span class="setting-label">Sample Rate</span>
+                <span class="setting-value">44100 Hz</span>
+              </div>
+              <div style="margin-top:12px;display:flex;gap:8px;">
+                <button class="btn btn-danger" style="font-size:12px;">&#9632; Stop Streaming</button>
+              </div>
+            </div>
+
+            <div class="settings-card">
+              <h4>&#127925; Playback</h4>
+              <div class="setting-row">
+                <span class="setting-label">Crossfade</span>
+                <div style="display:flex;align-items:center;gap:8px;">
+                  <input type="range" min="0" max="10" value="3" style="width:100px;accent-color:var(--amber);">
+                  <span class="setting-value">3s</span>
+                </div>
+              </div>
+              <div class="setting-row">
+                <span class="setting-label">Gapless playback</span>
+                <div class="toggle-switch on"></div>
+              </div>
+            </div>
+
+            <div class="settings-card">
+              <h4>&#127911; Bluetooth</h4>
+              <div class="device-list">
+                <div class="device-row">
+                  <span class="device-icon">&#127911;</span>
+                  <span class="device-name">No devices paired</span>
+                </div>
+              </div>
+              <button class="btn btn-ghost" style="margin-top:10px;font-size:12px;">&#128269; Scan for devices</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="np-bar">
+      <div class="np-art-small"></div>
+      <div class="np-info">
+        <div class="np-title">Excursions</div>
+        <div class="np-artist">A Tribe Called Quest -- The Low End Theory</div>
+      </div>
+      <div class="transport">
+        <button class="transport-btn">&#9198;</button>
+        <button class="transport-btn play">&#9208;</button>
+        <button class="transport-btn">&#9197;</button>
+        <button class="transport-btn">&#9632;</button>
+      </div>
+      <div class="eq-sliders">
+        <div class="eq-slider-group">Bass <input type="range" min="0" max="100" value="50"></div>
+        <div class="eq-slider-group">Treble <input type="range" min="0" max="100" value="50"></div>
+        <div class="eq-slider-group">Vol <input type="range" min="0" max="100" value="75"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+function showMockup(id) {
+  document.querySelectorAll('.mockup-view').forEach(v => v.classList.remove('active'));
+  document.querySelectorAll('.mockup-switcher button').forEach(b => b.classList.remove('active'));
+  document.getElementById('mockup-' + id).classList.add('active');
+  event.target.classList.add('active');
+}
+</script>
+
+</body>
+</html>
