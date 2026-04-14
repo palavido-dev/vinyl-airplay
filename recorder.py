@@ -54,6 +54,9 @@ DURATION_SPLIT_TOLERANCE = 10.0     # seconds past expected track duration befor
                                     # fallback for albums with seamless transitions (no silence gaps)
 STREAM_STALL_SECS = 10.0            # if no audio chunks arrive for this long during recording,
                                     # the audio stream has likely died (USB overflow, ALSA glitch)
+TRIM_BLOCK     = SAMPLE_RATE * CHANNELS * 2  # 1 second of PCM (used for trailing silence trim)
+TRIM_THRESHOLD = 0.002                       # RMS below this = silence (trailing trim)
+FADE_TAIL      = SAMPLE_RATE * CHANNELS * 2  # keep 1s after last audio block (natural fade)
 
 
 # ── Recording Buffer ──────────────────────────────────────────────────────────

@@ -2966,6 +2966,20 @@ async def now_playing():
 async def _auto_finalize_album_side():
     """Called when RecordingBuffer detects end-of-side silence during album recording.
     Encodes the current side to FLAC and notifies the UI."""
+    try:
+        await _auto_finalize_album_side_inner()
+    except Exception as e:
+        import traceback
+        print(f"[auto-finalize] ERROR: {e}")
+        traceback.print_exc()
+        await broadcast("album_recording_status", {
+            "recording": False,
+            "error": True,
+            "message": f"Auto-finalize failed: {e}",
+        })
+
+
+async def _auto_finalize_album_side_inner():
     ar = state.album_recorder
     if not ar or not ar.is_active:
         return
@@ -3281,12 +3295,19 @@ async def album_recording_flip(body: dict):
 
                 cat.correct_side_boundaries(album_id, ar.side, duration)
 
+                all_tracks = cat.get_album_tracks(album_id)
+                album_sides = sorted(set(t.get("side") or "A" for t in all_tracks))
+                idx = album_sides.index(ar.side) if ar.side in album_sides else -1
+                hn = idx >= 0 and idx < len(album_sides) - 1
+                ns = album_sides[idx + 1] if hn else None
                 await broadcast("album_recording_side_saved", {
                     "album_id": album_id,
                     "side": ar.side,
                     "duration_secs": round(duration, 1),
                     "size_mb": round(file_size / (1024 * 1024), 1),
                     "tracks_captured": len(boundaries),
+                    "has_next_side": hn,
+                    "next_side": ns,
                 })
 
         asyncio.create_task(_finish_and_start_next())
@@ -3430,6 +3451,13 @@ async def album_recording_stop():
     # Sanity-check boundaries against catalog durations and correct if needed
     cat.correct_side_boundaries(album_id, ar.side, duration)
 
+    # Check if album has more sides to record
+    all_tracks = cat.get_album_tracks(album_id)
+    album_sides = sorted(set(t.get("side") or "A" for t in all_tracks))
+    current_idx = album_sides.index(ar.side) if ar.side in album_sides else -1
+    has_next_side = current_idx >= 0 and current_idx < len(album_sides) - 1
+    next_side = album_sides[current_idx + 1] if has_next_side else None
+
     await broadcast("album_recording_status", {
         "recording": False,
         "album_id": album_id,
@@ -3442,6 +3470,8 @@ async def album_recording_stop():
         "duration_secs": round(duration, 1),
         "size_mb": round(file_size / (1024 * 1024), 1),
         "tracks_captured": len(boundaries),
+        "has_next_side": has_next_side,
+        "next_side": next_side,
     })
 
     return {
