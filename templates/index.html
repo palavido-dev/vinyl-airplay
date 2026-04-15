@@ -2210,6 +2210,15 @@
               <select id="album-rec-side" class="form-input" style="width:70px;min-height:36px" onchange="updateRecSideInfo()"></select>
               <span id="album-rec-side-info" style="font-size:0.72rem;color:var(--muted)"></span>
             </div>
+            <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.5rem">
+              <label style="font-size:0.75rem;color:var(--muted);cursor:pointer;display:flex;align-items:center;gap:0.4rem" for="rec-play-audio-toggle">
+                Play audio while recording
+                <span id="rec-play-audio-switch" class="toggle-switch" onclick="toggleRecPlayAudio()" style="display:inline-block;width:32px;height:18px;background:rgba(0,0,0,0.15);border-radius:9px;position:relative;cursor:pointer;transition:background 0.2s;vertical-align:middle;flex-shrink:0">
+                  <span style="position:absolute;top:2px;left:2px;width:14px;height:14px;background:#fff;border-radius:50%;transition:transform 0.2s;box-shadow:0 1px 3px rgba(0,0,0,0.2)"></span>
+                </span>
+              </label>
+            </div>
+            <div id="rec-device-picker" style="display:none"></div>
             <div style="display:flex;gap:0.4rem">
               <button class="btn btn-danger" onclick="startAlbumRecording()"><svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" stroke="none" style="vertical-align:-1px;margin-right:2px"><circle cx="12" cy="12" r="9"/></svg>Record</button>
               <button class="btn btn-ghost" onclick="hideAlbumRecPanel()">Cancel</button>
@@ -4996,7 +5005,7 @@ async function deleteTrack(tid,title){
 function toggleBoundaryEdit(){_boundaryEditMode=!_boundaryEditMode;document.getElementById('btn-boundary-edit').classList.toggle('btn-accent',_boundaryEditMode);renderModalTracks(window._modalTracks||[],false,_boundaryEditMode)}
 async function saveBoundary(trackId){const stElem=document.getElementById(`boundary-start-${trackId}`);const endElem=document.getElementById(`boundary-end-${trackId}`);if(!stElem||!endElem)return;const st=parseTimeToSecs(stElem.value);const end=parseTimeToSecs(endElem.value);if(st===null||end===null){showError('Invalid time format. Use MM:SS.s');return}if(st>=end){showError('Start time must be before end time');return}const resp=await fetch(`/api/catalog/track/${trackId}/boundaries`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({start_secs:st,end_secs:end})}).then(r=>r.json());if(resp.ok){showToast('Boundary saved');if(currentAlbumId)refreshModalTracks(currentAlbumId)}else showError(resp.error||'Failed to save')}
 
-function showAlbumRecPanel(){document.getElementById('album-rec-panel').style.display='block';var setup=document.getElementById('album-rec-setup');if(_recSetupHTML)setup.innerHTML=_recSetupHTML;setup.style.display='block';document.getElementById('album-rec-active').style.display='none';document.getElementById('album-rec-saving').style.display='none';document.getElementById('album-rec-flip-prompt').style.display='none';var sel=document.getElementById('album-rec-side');if(sel){var sides=[...new Set((window._modalTracks||[]).map(t=>t.side||'A'))].sort();if(!sides.length)sides=['A','B'];sel.innerHTML=sides.map(s=>'<option value="'+s+'">'+s+'</option>').join('')}updateRecSideInfo()}
+function showAlbumRecPanel(){document.getElementById('album-rec-panel').style.display='block';var setup=document.getElementById('album-rec-setup');setup.style.display='block';document.getElementById('album-rec-active').style.display='none';document.getElementById('album-rec-saving').style.display='none';document.getElementById('album-rec-flip-prompt').style.display='none';var sel=document.getElementById('album-rec-side');if(sel){var sides=[...new Set((window._modalTracks||[]).map(t=>t.side||'A'))].sort();if(!sides.length)sides=['A','B'];sel.innerHTML=sides.map(s=>'<option value="'+s+'">'+s+'</option>').join('')}updateRecSideInfo();var sw=document.getElementById('rec-play-audio-switch');if(sw){sw.style.background=_recPlayAudio?'var(--sage)':'rgba(0,0,0,0.15)';sw.querySelector('span').style.transform=_recPlayAudio?'translateX(14px)':'translateX(0)'}var picker=document.getElementById('rec-device-picker');if(picker){picker.style.display=_recPlayAudio?'block':'none';if(_recPlayAudio)loadRecDevicePicker()}}
 function updateRecSideInfo(){const side=document.getElementById('album-rec-side').value;const tracks=(window._modalTracks||[]).filter(t=>t.side===side);document.getElementById('album-rec-side-info').textContent=tracks.length?`${tracks.length} track${tracks.length>1?'s':''} on Side ${side}`:''}
 function hideAlbumRecPanel(){document.getElementById('album-rec-panel').style.display='none'}
 function restoreAlbumRecPanel(){
@@ -5028,29 +5037,34 @@ var _recSetupHTML=null;
 var _recSide=null;
 var _recStartTime=null,_recAwaitingFlipAlbumId=null,_recAwaitingFlipDoneSide=null,_recAwaitingFlipNextSide=null;
 var _recAlbumId=null;
-async function startAlbumRecording(){
-  var setup=document.getElementById('album-rec-setup');
-  if(!_recSetupHTML)_recSetupHTML=setup.innerHTML;
-  // Save side before potentially replacing HTML
-  _recSide=document.getElementById('album-rec-side')?.value||'A';
-  // If already streaming, skip device picker and go straight to recording
-  if(_isStreaming){beginRecordingWithDevice(null);return}
-  // Show device picker for monitoring during recording
-  var side=_recSide;
-  _recOutputDevice=null;
-  // Build a mini device picker inline
-  var setup=document.getElementById('album-rec-setup');
-  setup.innerHTML='<div style="font-size:0.82rem;color:var(--ink);font-weight:600;margin-bottom:0.3rem">Play audio while recording?</div><div style="color:var(--muted);font-size:0.72rem;margin-bottom:0.5rem">Loading devices\u2026</div>';
+var _recPlayAudio=false;
+function toggleRecPlayAudio(){
+  _recPlayAudio=!_recPlayAudio;
+  var sw=document.getElementById('rec-play-audio-switch');
+  if(sw){
+    sw.style.background=_recPlayAudio?'var(--sage)':'rgba(0,0,0,0.15)';
+    sw.querySelector('span').style.transform=_recPlayAudio?'translateX(14px)':'translateX(0)';
+  }
+  var picker=document.getElementById('rec-device-picker');
+  if(_recPlayAudio){
+    picker.style.display='block';
+    loadRecDevicePicker();
+  }else{
+    picker.style.display='none';
+  }
+  fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({rec_play_audio:_recPlayAudio})});
+}
+async function loadRecDevicePicker(){
+  var picker=document.getElementById('rec-device-picker');
+  picker.innerHTML='<div style="color:var(--muted);font-size:0.72rem;padding:0.3rem 0">Loading devices...</div>';
   var d=await fetch('/api/devices').then(function(r){return r.json()});
   var devices=(d.devices||[]).filter(function(dev){return !dev.hidden&&dev.paired!==false});
-  var html='<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:0.6rem">';
-  html+='<div class="output-device-card" onclick="beginRecordingWithDevice(null)" style="min-width:80px;padding:0.4rem 0.5rem;cursor:pointer"><div class="output-device-icon">🔇</div><div class="output-device-name" style="font-size:0.72rem">No audio</div></div>';
+  var html='<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:0.4rem">';
   devices.forEach(function(dev,idx){
     var name=dev.custom_name||dev.name;
     var icon=guessDeviceIcon(dev.name,dev.type);
     var isLocal=dev.type==='local';
-    var j=JSON.stringify(dev).replace(/'/g,"\\'").replace(/"/g,'&quot;');
-    html+='<div class="output-device-card" onclick="beginRecordingWithDevice('+idx+')" style="min-width:80px;padding:0.4rem 0.5rem;cursor:pointer" data-rec-dev="'+idx+'">'
+    html+='<div class="output-device-card" onclick="selectRecDevice('+idx+')" style="min-width:80px;padding:0.4rem 0.5rem;cursor:pointer" data-rec-dev="'+idx+'" id="rec-dev-card-'+idx+'">'
       +'<div class="output-device-icon">'+icon+'</div>'
       +'<div class="output-device-name" style="font-size:0.72rem">'+esc(name)+'</div>'
       +(isLocal?'<div class="device-type-badge local">Local</div>'
@@ -5059,9 +5073,25 @@ async function startAlbumRecording(){
       +'</div>';
   });
   html+='</div>';
-  html+='<button class="btn" onclick="showAlbumRecPanel()" style="font-size:0.78rem">\u2190 Back</button>';
   window._recDeviceList=devices;
-  setup.innerHTML='<div style="font-size:0.82rem;color:var(--ink);margin-bottom:0.4rem;font-weight:600">Play audio while recording Side '+side+'?</div>'+html;
+  picker.innerHTML=html;
+  // Auto-select first device
+  if(devices.length>0) selectRecDevice(0);
+}
+var _selectedRecDevIdx=null;
+function selectRecDevice(idx){
+  _selectedRecDevIdx=idx;
+  var cards=document.querySelectorAll('#rec-device-picker .output-device-card');
+  cards.forEach(function(c,i){c.style.outline=i===idx?'2px solid var(--amber)':'none';c.style.outlineOffset=i===idx?'-2px':'0'});
+}
+async function startAlbumRecording(){
+  _recSide=document.getElementById('album-rec-side')?.value||'A';
+  // If already streaming, skip device picker and go straight to recording
+  if(_isStreaming){beginRecordingWithDevice(null);return}
+  // If play audio is off (default), skip straight to recording with no audio
+  if(!_recPlayAudio){beginRecordingWithDevice(null);return}
+  // Play audio is on: use the selected device
+  beginRecordingWithDevice(_selectedRecDevIdx);
 }
 async function beginRecordingWithDevice(devIdx){
   var side=_recSide||document.getElementById('album-rec-side')?.value||'A';
@@ -5360,6 +5390,7 @@ async function init(){
     if(d.settings.device_volumes)window._deviceVolumes=d.settings.device_volumes;
     if(d.settings.app_name){document.getElementById('app-name').textContent=d.settings.app_name;document.title=d.settings.app_name}
     if(d.settings.theme)applyTheme(d.settings.theme);
+    if(d.settings.rec_play_audio){_recPlayAudio=true;var sw=document.getElementById('rec-play-audio-switch');if(sw){sw.style.background='var(--sage)';sw.querySelector('span').style.transform='translateX(14px)'}}
   }
   if(d.storage)updateStorageInfo(d.storage);
   if(d.album_recording){_recAlbumId=d.album_recording.album_id;_recSide=d.album_recording.side;if(!_recStartTime)_recStartTime=Date.now()}

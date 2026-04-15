@@ -1761,6 +1761,8 @@ async def update_settings(body: dict):
     if "audio_device_index" in body:
         v = body["audio_device_index"]
         state.settings["audio_device_index"] = None if v in (None, "", "null") else int(v)
+    if "rec_play_audio" in body:
+        state.settings["rec_play_audio"] = bool(body["rec_play_audio"])
     save_settings(state.settings)
     return {"ok": True}
 
