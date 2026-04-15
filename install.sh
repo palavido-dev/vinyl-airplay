@@ -37,12 +37,12 @@ if [[ ! $UPDATE_MODE ]]; then
     . /etc/os-release
     if [[ "$ID" == "raspbian" ]] || [[ "$ID" == "debian" ]]; then
       VERSION_NUM=$(echo "$VERSION_ID" | cut -d. -f1)
-      if [[ "$VERSION_NUM" -lt 13 ]] && [[ "$ID" != "raspbian" ]]; then
-        error "Debian 13 or later required (found $VERSION_ID)"
+      if [[ "$VERSION_NUM" -lt 12 ]]; then
+        error "Debian/Raspberry Pi OS 12 (Bookworm) or later required (found $VERSION_ID)"
       fi
       success "Compatible OS detected: $PRETTY_NAME"
     else
-      error "Raspberry Pi OS or Debian 13+ required (found $PRETTY_NAME)"
+      error "Raspberry Pi OS or Debian 12+ required (found $PRETTY_NAME)"
     fi
   else
     error "Cannot determine OS version"
