@@ -34,6 +34,7 @@ from fastapi.templating import Jinja2Templates
 import catalog as cat
 import recorder as rec
 import player as plr
+import exporter as exp
 
 # ── Audio Config ──────────────────────────────────────────────────────────────
 
@@ -252,6 +253,7 @@ class AppState:
         self.airplay_metadata: Optional[MediaMetadata] = None
         self.bluetooth_manager = None  # initialized after BluetoothManager is defined
         self.available_bt_devices: list = []
+        self.loop = None  # event loop ref for background thread broadcasts
 
 
 state = AppState()
@@ -1150,6 +1152,7 @@ async def lifespan(app: FastAPI):
         print("[auto-stream] Watcher started on boot")
     # Backfill any missing track durations from MusicBrainz (non-blocking)
     loop = asyncio.get_event_loop()
+    state.loop = loop
     loop.run_in_executor(None, cat.backfill_all_missing_durations)
     yield
     if state.stop_event: state.stop_event.set()
@@ -3640,6 +3643,99 @@ async def delete_album_audio_single(album_id: int, audio_id: int):
     if not ok:
         return {"ok": False, "error": "Audio not found"}
     return {"ok": True}
+
+
+# ── Audio Export (AAC / MP3) ──────────────────────────────────────────────────
+
+def _export_broadcast(msg: dict):
+    """Broadcast export progress to all WebSocket clients."""
+    import asyncio
+    text = json.dumps(msg)
+    loop = state.loop
+    if loop and loop.is_running():
+        async def _send():
+            dead = []
+            for ws in list(state.ws_clients):
+                try:
+                    await ws.send_text(text)
+                except Exception:
+                    dead.append(ws)
+            for ws in dead:
+                if ws in state.ws_clients:
+                    state.ws_clients.remove(ws)
+        asyncio.run_coroutine_threadsafe(_send(), loop)
+
+
+@app.post("/api/export/album/{album_id}")
+async def api_export_album(album_id: int, request: Request):
+    """Export all tracks for a single album to M4A or MP3."""
+    body = await request.json() if request.headers.get("content-type", "").startswith("application/json") else {}
+    fmt = body.get("format", "m4a")
+    if fmt not in ("m4a", "mp3"):
+        return {"ok": False, "error": "Format must be m4a or mp3"}
+
+    export_dir = exp.DEFAULT_EXPORT_DIR.resolve()
+    loop = asyncio.get_event_loop()
+
+    result = await loop.run_in_executor(
+        None, exp.export_album, album_id, fmt, export_dir, None
+    )
+    return result
+
+
+@app.post("/api/export/bulk")
+async def api_export_bulk(request: Request):
+    """Start bulk export of all albums with recordings. Returns job_id."""
+    body = await request.json() if request.headers.get("content-type", "").startswith("application/json") else {}
+    fmt = body.get("format", "m4a")
+    if fmt not in ("m4a", "mp3"):
+        return {"ok": False, "error": "Format must be m4a or mp3"}
+
+    # Store event loop reference for WebSocket broadcasts
+    state.loop = asyncio.get_event_loop()
+    export_dir = exp.DEFAULT_EXPORT_DIR.resolve()
+    job_id = exp.bulk_export(fmt=fmt, export_dir=export_dir, ws_broadcast=_export_broadcast)
+    return {"ok": True, "job_id": job_id}
+
+
+@app.get("/api/export/status/{job_id}")
+async def api_export_status(job_id: str):
+    """Check progress of a bulk export job."""
+    status = exp.get_export_status(job_id)
+    if not status:
+        return {"ok": False, "error": "Job not found"}
+    return {"ok": True, **status}
+
+
+@app.get("/api/export/stats")
+async def api_export_stats():
+    """Get export directory stats: total files, size, albums exported."""
+    export_dir = exp.DEFAULT_EXPORT_DIR.resolve()
+    if not export_dir.exists():
+        return {"ok": True, "total_files": 0, "total_size": 0, "artists": []}
+
+    total_files = 0
+    total_size = 0
+    artists = set()
+
+    for root, dirs, files in os.walk(export_dir):
+        for f in files:
+            fp = Path(root) / f
+            if fp.suffix in (".m4a", ".mp3"):
+                total_files += 1
+                total_size += fp.stat().st_size
+        # Top-level dirs are artist names
+        if Path(root) == export_dir:
+            artists = set(dirs)
+
+    return {
+        "ok": True,
+        "total_files": total_files,
+        "total_size": total_size,
+        "total_size_mb": round(total_size / (1024 * 1024), 1),
+        "artist_count": len(artists),
+        "export_dir": str(export_dir),
+    }
 
 
 # ── Catalog Playback (Player) ────────────────────────────────────────────────

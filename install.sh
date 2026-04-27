@@ -90,6 +90,7 @@ apt-get install -y \
   dnsmasq \
   "$WPASUPPLICANT_PKG" \
   git \
+  samba \
   || error "Failed to install system dependencies"
 success "System dependencies installed ($CHROMIUM_PKG, $WPASUPPLICANT_PKG)"
 
@@ -275,6 +276,36 @@ WantedBy=graphical.target
 EOF
 success "Kiosk service created"
 
+# Set up Samba share for exported audio
+info "Setting up Samba share for audio exports..."
+EXPORT_DIR="/opt/vinyl-streamer/exports"
+mkdir -p "$EXPORT_DIR"
+chown listen:listen "$EXPORT_DIR"
+chmod 755 "$EXPORT_DIR"
+
+# Add vinyl-exports share if not already present
+if ! grep -q "\[vinyl-exports\]" /etc/samba/smb.conf 2>/dev/null; then
+  cat >> /etc/samba/smb.conf <<SAMBA
+
+[vinyl-exports]
+    comment = Vinyl Streamer Exported Audio
+    path = ${EXPORT_DIR}
+    browsable = yes
+    read only = yes
+    guest ok = yes
+    force user = listen
+    create mask = 0644
+    directory mask = 0755
+SAMBA
+  success "Samba share configured"
+else
+  success "Samba share already configured"
+fi
+
+systemctl enable smbd 2>/dev/null || true
+systemctl restart smbd 2>/dev/null || true
+success "Samba service enabled"
+
 # Enable and start services
 info "Enabling services..."
 systemctl daemon-reload
@@ -304,6 +335,7 @@ echo "Vinyl Streamer is ready to use."
 echo ""
 echo "Web UI:    http://<your-pi-ip>:8080"
 echo "Mobile:    https://<your-pi-ip>:8443  (install CA cert from Settings for barcode scanning)"
+echo "Exports:   \\\\$(hostname)\\vinyl-exports  (map as network drive on Windows)"
 echo "Kiosk:     Enable with: sudo systemctl start vinyl-kiosk.service"
 echo ""
 echo "Services:"

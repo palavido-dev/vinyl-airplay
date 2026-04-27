@@ -2190,6 +2190,7 @@
           <button class="btn btn-accent" onclick="playNextFromModal()" id="btn-modal-play-next" title="Insert after current track">Play Next</button>
           <button class="btn btn-accent" onclick="addToQueueFromModal()" id="btn-modal-queue">+ Queue</button>
           <button class="btn btn-accent" onclick="showAddToPlaylistMenu()" id="btn-modal-playlist">+ Playlist</button>
+          <button class="btn btn-accent" onclick="exportAlbum()" id="btn-modal-export" style="display:none"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:2px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Export</button>
           <button class="btn btn-accent" onclick="showAlbumRecPanel()" id="btn-modal-rec"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:2px"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>Record</button>
           <label class="btn btn-accent" style="cursor:pointer" title="Upload album artwork"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:2px"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>Photo<input type="file" accept="image/*" style="display:none" onchange="uploadArtwork(event)"></label>
           <button class="btn btn-accent" onclick="toggleReorderMode()" id="btn-reorder" title="Reorder tracks"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:2px"><polyline points="7 3 7 9 1 6"/><polyline points="17 21 17 15 23 18"/><line x1="7" y1="6" x2="17" y2="18"/></svg>Reorder</button>
@@ -2444,6 +2445,27 @@
             <button class="btn" onclick="downloadManifest()" style="text-align:left">📋 Download Manifest JSON</button>
           </div>
           <div id="export-status" style="display:none;font-size:0.75rem;margin-top:0.3rem"></div>
+        </div>
+        <div class="settings-section"><h3>Export to MP3 / AAC</h3>
+          <p style="font-size:0.75rem;color:var(--muted);margin-bottom:0.5rem;line-height:1.4">Convert all your vinyl recordings to iTunes-ready files. Tracks are split, tagged with metadata and album art, and organized by artist/album. Access the exported files from any computer on your network at <strong>\\<span id="export-hostname">vinyl</span>\vinyl-exports</strong></p>
+          <div style="display:flex;gap:0.4rem;align-items:center;margin-bottom:0.5rem">
+            <label style="font-size:0.75rem;font-weight:600">Format</label>
+            <select class="form-input" id="bulk-export-format" style="width:auto;min-height:32px;font-size:0.8rem">
+              <option value="m4a">AAC 256kbps (.m4a) - iTunes / Apple Music</option>
+              <option value="mp3">MP3 320kbps (.mp3) - Universal</option>
+            </select>
+          </div>
+          <div style="display:flex;gap:0.4rem;align-items:center">
+            <button class="btn btn-accent" id="bulk-export-btn" onclick="startBulkExport()">Export All Albums</button>
+            <span id="bulk-export-stats" style="font-size:0.72rem;color:var(--muted)"></span>
+          </div>
+          <div id="bulk-export-progress" style="display:none;margin-top:0.5rem">
+            <div style="background:var(--muted-bg,rgba(128,128,128,0.15));border-radius:4px;overflow:hidden;height:6px;margin:0.3rem 0">
+              <div id="bulk-export-bar" style="height:100%;background:var(--amber);width:0%;transition:width 0.3s"></div>
+            </div>
+            <div id="bulk-export-label" style="font-size:0.72rem;color:var(--cream)"></div>
+          </div>
+          <div id="bulk-export-result" style="display:none;font-size:0.75rem;margin-top:0.3rem;line-height:1.4"></div>
         </div>
         <div class="settings-section"><h3>Backup and Restore</h3>
           <p style="font-size:0.75rem;color:var(--muted);margin-bottom:0.5rem;line-height:1.4">Back up your settings and EQ adjustments, or restore from a previous backup.</p>
@@ -2833,6 +2855,7 @@ function handleEvent(d){
   if(d.event==='level')onLevel(d);
   if(d.event==='sync_progress')onSyncProgress(d);
   if(d.event==='artwork_fetch_progress')onArtworkFetchProgress(d);
+  if(d.event==='export_progress')handleExportProgress(d);
   if(d.eq)applyEQValues(d.eq.bass,d.eq.treble,d.eq.volume);
 }
 
@@ -4688,6 +4711,7 @@ async function openAlbumDetail(id){
   window._modalAlbumHasAudio=(ad.audio&&ad.audio.length)?true:false;
   renderModalTracks(window._modalTracks,false,false);
   document.getElementById('btn-modal-play').style.display=(ad.audio&&ad.audio.length)?'':'none';
+  document.getElementById('btn-modal-export').style.display=(ad.audio&&ad.audio.length)?'':'none';
   document.getElementById('btn-modal-queue').style.display=(ad.audio&&ad.audio.length&&_playerActive)?'':'none';
   loadAlbumAudio(id);
   if(_recAlbumId===id&&_recStartTime){restoreAlbumRecPanel()}else if(_recAwaitingFlipAlbumId===id&&_recAwaitingFlipNextSide){restoreAlbumRecFlipPrompt()}else{hideAlbumRecPanel()}
@@ -5295,6 +5319,87 @@ async function downloadManifest(){
     st.textContent='Error: '+e.message;
   }
 }
+// ── Audio Export (AAC / MP3) ──
+var _exportJobId=null;
+async function exportAlbum(){
+  if(!currentAlbumId)return;
+  var fmt=prompt('Export format:\n\n1) AAC 256kbps (.m4a) for iTunes / Apple Music\n2) MP3 320kbps (.mp3)\n\nEnter 1 or 2:','1');
+  if(!fmt)return;
+  fmt=fmt.trim()==='2'?'mp3':'m4a';
+  var btn=document.getElementById('btn-modal-export');
+  btn.disabled=true;btn.textContent='Exporting...';
+  try{
+    var r=await fetch('/api/export/album/'+currentAlbumId,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({format:fmt})}).then(r=>r.json());
+    if(r.ok){
+      var msg=r.tracks_exported+' track'+(r.tracks_exported!==1?'s':'')+' exported as '+fmt.toUpperCase();
+      if(r.tracks_failed)msg+=' ('+r.tracks_failed+' failed)';
+      showToast(msg);
+    }else{
+      showToast(r.error||'Export failed','error');
+    }
+  }catch(e){showToast('Export error: '+e.message,'error')}
+  btn.disabled=false;btn.innerHTML='<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:2px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Export';
+}
+async function startBulkExport(){
+  var fmt=document.getElementById('bulk-export-format').value;
+  var btn=document.getElementById('bulk-export-btn');
+  btn.disabled=true;btn.textContent='Starting...';
+  document.getElementById('bulk-export-progress').style.display='block';
+  document.getElementById('bulk-export-result').style.display='none';
+  try{
+    var r=await fetch('/api/export/bulk',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({format:fmt})}).then(r=>r.json());
+    if(r.ok){
+      _exportJobId=r.job_id;
+      btn.textContent='Exporting...';
+      document.getElementById('bulk-export-label').textContent='Starting export...';
+    }else{
+      showToast(r.error||'Failed to start export','error');
+      btn.disabled=false;btn.textContent='Export All Albums';
+    }
+  }catch(e){showToast('Error: '+e.message,'error');btn.disabled=false;btn.textContent='Export All Albums'}
+}
+function handleExportProgress(msg){
+  if(msg.status==='running'){
+    var pct=msg.percent||0;
+    document.getElementById('bulk-export-bar').style.width=pct+'%';
+    var label=msg.current_album||'';
+    if(msg.total_albums)label+=' ('+msg.album_index+'/'+msg.total_albums+')';
+    if(msg.current_track)label+=' - '+msg.current_track;
+    document.getElementById('bulk-export-label').textContent=label;
+  }else if(msg.status==='done'){
+    document.getElementById('bulk-export-bar').style.width='100%';
+    document.getElementById('bulk-export-label').textContent='';
+    document.getElementById('bulk-export-progress').style.display='none';
+    var res=document.getElementById('bulk-export-result');
+    res.style.display='block';
+    var elapsed=msg.elapsed_secs?Math.round(msg.elapsed_secs/60)+'m ':'';
+    res.innerHTML='<span style="color:var(--sage)">Done!</span> '+msg.tracks_exported+' tracks from '+msg.total_albums+' albums exported in '+elapsed+(msg.tracks_failed?' ('+msg.tracks_failed+' failed)':'');
+    var btn=document.getElementById('bulk-export-btn');
+    btn.disabled=false;btn.textContent='Export All Albums';
+    _exportJobId=null;
+    loadExportStats();
+  }else if(msg.status==='error'){
+    document.getElementById('bulk-export-progress').style.display='none';
+    var res=document.getElementById('bulk-export-result');
+    res.style.display='block';
+    res.innerHTML='<span style="color:var(--rust)">Error:</span> '+(msg.error||'Unknown error');
+    var btn=document.getElementById('bulk-export-btn');
+    btn.disabled=false;btn.textContent='Export All Albums';
+    _exportJobId=null;
+  }
+}
+async function loadExportStats(){
+  try{
+    var r=await fetch('/api/export/stats').then(r=>r.json());
+    if(r.ok&&r.total_files>0){
+      document.getElementById('bulk-export-stats').textContent=r.total_files+' files, '+r.total_size_mb+' MB exported';
+    }
+    // Set hostname
+    var hn=location.hostname.replace(/\.local$/,'');
+    document.getElementById('export-hostname').textContent=hn;
+  }catch(e){}
+}
+
 async function loadAudioDevices(){try{const d=await fetch('/api/audio-devices').then(r=>r.json());const sel=document.getElementById('audio-select');const saved=(d.current_index!==undefined&&d.current_index!==null)?String(d.current_index):'';sel.innerHTML='<option value="">(none / default)</option>'+d.devices.map(dv=>`<option value="${dv.index}"${String(dv.index)===saved?' selected':''}>${esc(dv.name)}</option>`).join('')}catch(e){}}
 function saveAudioDevice(){const v=document.getElementById('audio-select').value;const idx=v===''?null:parseInt(v,10);fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({audio_device_index:idx})}).then(()=>showToast('Audio input saved')).catch(()=>showToast('Failed to save audio input'))}
 
@@ -5396,6 +5501,7 @@ async function init(){
   if(d.album_recording){_recAlbumId=d.album_recording.album_id;_recSide=d.album_recording.side;if(!_recStartTime)_recStartTime=Date.now()}
   initSwipeGestures();
   loadCertInfo();
+  loadExportStats();
   await loadCatalog();
   switchView('library');
 }
