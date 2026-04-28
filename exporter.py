@@ -132,7 +132,8 @@ def export_track_to_file(
     if has_art:
         cmd += ["-map", "0:a", "-map", "1:0"]
         if fmt == "m4a":
-            cmd += ["-disposition:v:0", "attached_pic"]
+            # M4A needs MJPEG codec for cover art, not raw copy
+            cmd += ["-c:v", "mjpeg", "-disposition:v:0", "attached_pic"]
         elif fmt == "mp3":
             cmd += ["-c:v", "copy", "-id3v2_version", "3"]
 
