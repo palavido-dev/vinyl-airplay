@@ -3738,6 +3738,113 @@ async def api_export_stats():
     }
 
 
+@app.get("/api/export/browse")
+async def api_export_browse(path: str = ""):
+    """Browse the export directory. Returns folders and files at the given subpath."""
+    export_dir = exp.DEFAULT_EXPORT_DIR.resolve()
+    target = (export_dir / path).resolve()
+
+    # Prevent directory traversal
+    if not str(target).startswith(str(export_dir)):
+        return {"ok": False, "error": "Invalid path"}
+    if not target.exists():
+        return {"ok": False, "error": "Path not found"}
+
+    if target.is_file():
+        return {"ok": True, "type": "file", "name": target.name,
+                "size": target.stat().st_size}
+
+    folders = []
+    files = []
+    for item in sorted(target.iterdir()):
+        if item.name.startswith("."):
+            continue
+        if item.is_dir():
+            # Count audio files inside
+            count = sum(1 for f in item.rglob("*") if f.suffix in (".m4a", ".mp3"))
+            folders.append({"name": item.name, "track_count": count})
+        elif item.suffix in (".m4a", ".mp3"):
+            files.append({"name": item.name, "size": item.stat().st_size,
+                          "size_mb": round(item.stat().st_size / (1024*1024), 1)})
+
+    return {"ok": True, "path": path, "folders": folders, "files": files}
+
+
+@app.get("/api/export/download")
+async def api_export_download(path: str):
+    """Download a single exported file."""
+    export_dir = exp.DEFAULT_EXPORT_DIR.resolve()
+    target = (export_dir / path).resolve()
+
+    if not str(target).startswith(str(export_dir)):
+        return JSONResponse({"ok": False, "error": "Invalid path"}, status_code=400)
+    if not target.is_file():
+        return JSONResponse({"ok": False, "error": "File not found"}, status_code=404)
+
+    media_type = "audio/mp4" if target.suffix == ".m4a" else "audio/mpeg"
+    return FileResponse(str(target), filename=target.name, media_type=media_type)
+
+
+@app.get("/api/export/download-album")
+async def api_export_download_album(path: str):
+    """Download an entire album folder as a ZIP file."""
+    import zipfile
+    import io
+
+    export_dir = exp.DEFAULT_EXPORT_DIR.resolve()
+    target = (export_dir / path).resolve()
+
+    if not str(target).startswith(str(export_dir)):
+        return JSONResponse({"ok": False, "error": "Invalid path"}, status_code=400)
+    if not target.is_dir():
+        return JSONResponse({"ok": False, "error": "Folder not found"}, status_code=404)
+
+    # Stream the zip so we don't buffer huge files in memory
+    def zip_generator():
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_STORED) as zf:
+            for fp in sorted(target.rglob("*")):
+                if fp.is_file() and fp.suffix in (".m4a", ".mp3"):
+                    arcname = fp.relative_to(target)
+                    zf.write(fp, arcname)
+        buf.seek(0)
+        yield buf.read()
+
+    zip_name = f"{target.name}.zip"
+    return StreamingResponse(
+        zip_generator(),
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{zip_name}"'},
+    )
+
+
+@app.get("/api/export/download-all")
+async def api_export_download_all():
+    """Download all exports as a single ZIP file."""
+    import zipfile
+    import io
+
+    export_dir = exp.DEFAULT_EXPORT_DIR.resolve()
+    if not export_dir.exists():
+        return JSONResponse({"ok": False, "error": "No exports"}, status_code=404)
+
+    def zip_generator():
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_STORED) as zf:
+            for fp in sorted(export_dir.rglob("*")):
+                if fp.is_file() and fp.suffix in (".m4a", ".mp3"):
+                    arcname = fp.relative_to(export_dir)
+                    zf.write(fp, arcname)
+        buf.seek(0)
+        yield buf.read()
+
+    return StreamingResponse(
+        zip_generator(),
+        media_type="application/zip",
+        headers={"Content-Disposition": 'attachment; filename="vinyl-exports.zip"'},
+    )
+
+
 # ── Catalog Playback (Player) ────────────────────────────────────────────────
 
 async def _stop_playback():

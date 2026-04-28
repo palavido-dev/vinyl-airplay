@@ -2447,7 +2447,7 @@
           <div id="export-status" style="display:none;font-size:0.75rem;margin-top:0.3rem"></div>
         </div>
         <div class="settings-section"><h3>Export to MP3 / AAC</h3>
-          <p style="font-size:0.75rem;color:var(--muted);margin-bottom:0.5rem;line-height:1.4">Convert all your vinyl recordings to iTunes-ready files. Tracks are split, tagged with metadata and album art, and organized by artist/album. Access the exported files from any computer on your network at <strong>\\<span id="export-hostname">vinyl</span>\vinyl-exports</strong></p>
+          <p style="font-size:0.75rem;color:var(--muted);margin-bottom:0.5rem;line-height:1.4">Convert all your vinyl recordings to iTunes-ready files. Tracks are split, tagged with metadata and album art, and organized by artist/album.</p>
           <div style="display:flex;gap:0.4rem;align-items:center;margin-bottom:0.5rem">
             <label style="font-size:0.75rem;font-weight:600">Format</label>
             <select class="form-input" id="bulk-export-format" style="width:auto;min-height:32px;font-size:0.8rem">
@@ -2466,6 +2466,21 @@
             <div id="bulk-export-label" style="font-size:0.72rem;color:var(--cream)"></div>
           </div>
           <div id="bulk-export-result" style="display:none;font-size:0.75rem;margin-top:0.3rem;line-height:1.4"></div>
+        </div>
+        <div class="settings-section"><h3>Download Exports</h3>
+          <p style="font-size:0.75rem;color:var(--muted);margin-bottom:0.5rem;line-height:1.4">Browse and download your exported files. You can grab individual tracks, full albums, or everything at once.</p>
+          <div id="export-browser" style="margin-top:0.3rem">
+            <div id="export-browser-loading" style="font-size:0.75rem;color:var(--muted)">Loading...</div>
+            <div id="export-browser-empty" style="display:none;font-size:0.75rem;color:var(--muted)">No exports yet. Run an export above first.</div>
+            <div id="export-browser-content" style="display:none">
+              <div id="export-breadcrumb" style="font-size:0.72rem;margin-bottom:0.4rem;display:flex;align-items:center;gap:0.2rem"></div>
+              <div id="export-file-list" style="max-height:280px;overflow-y:auto;border:1px solid rgba(128,128,128,0.15);border-radius:6px"></div>
+              <div style="margin-top:0.5rem;display:flex;gap:0.4rem">
+                <button class="btn btn-accent" id="export-download-all-btn" onclick="downloadAllExports()" style="font-size:0.72rem;padding:0.25rem 0.5rem">Download All (.zip)</button>
+                <span id="export-download-all-size" style="font-size:0.72rem;color:var(--muted);align-self:center"></span>
+              </div>
+            </div>
+          </div>
         </div>
         <div class="settings-section"><h3>Backup and Restore</h3>
           <p style="font-size:0.75rem;color:var(--muted);margin-bottom:0.5rem;line-height:1.4">Back up your settings and EQ adjustments, or restore from a previous backup.</p>
@@ -5377,7 +5392,7 @@ function handleExportProgress(msg){
     var btn=document.getElementById('bulk-export-btn');
     btn.disabled=false;btn.textContent='Export All Albums';
     _exportJobId=null;
-    loadExportStats();
+    loadExportStats();browseExports(_exportBrowsePath);
   }else if(msg.status==='error'){
     document.getElementById('bulk-export-progress').style.display='none';
     var res=document.getElementById('bulk-export-result');
@@ -5393,12 +5408,61 @@ async function loadExportStats(){
     var r=await fetch('/api/export/stats').then(r=>r.json());
     if(r.ok&&r.total_files>0){
       document.getElementById('bulk-export-stats').textContent=r.total_files+' files, '+r.total_size_mb+' MB exported';
+      document.getElementById('export-download-all-size').textContent=r.total_files+' files, '+r.total_size_mb+' MB';
     }
-    // Set hostname
-    var hn=location.hostname.replace(/\.local$/,'');
-    document.getElementById('export-hostname').textContent=hn;
   }catch(e){}
+  browseExports('');
 }
+var _exportBrowsePath='';
+async function browseExports(path){
+  _exportBrowsePath=path;
+  var loading=document.getElementById('export-browser-loading');
+  var empty=document.getElementById('export-browser-empty');
+  var content=document.getElementById('export-browser-content');
+  try{
+    var r=await fetch('/api/export/browse?path='+encodeURIComponent(path)).then(r=>r.json());
+    loading.style.display='none';
+    if(!r.ok||(!r.folders.length&&!r.files.length)){
+      empty.style.display='block';content.style.display='none';return;
+    }
+    empty.style.display='none';content.style.display='block';
+    // Breadcrumb
+    var bc=document.getElementById('export-breadcrumb');
+    var parts=path?path.split('/'):[]; var crumbs='<a href="#" onclick="browseExports(\'\');return false" style="color:var(--amber);text-decoration:none;font-weight:600">Exports</a>';
+    var buildPath='';
+    for(var i=0;i<parts.length;i++){
+      buildPath+=(i?'/':'')+parts[i];
+      crumbs+=' <span style="color:var(--muted)">/</span> <a href="#" onclick="browseExports(\''+buildPath.replace(/'/g,"\\'")+'\');return false" style="color:var(--amber);text-decoration:none">'+esc(parts[i])+'</a>';
+    }
+    bc.innerHTML=crumbs;
+    // File list
+    var list=document.getElementById('export-file-list');
+    var html='';
+    for(var f of r.folders){
+      var fp=path?(path+'/'+f.name):f.name;
+      html+='<div style="display:flex;align-items:center;padding:0.35rem 0.5rem;border-bottom:1px solid rgba(128,128,128,0.1);cursor:pointer" onclick="browseExports(\''+fp.replace(/'/g,"\\'")+'\')">'
+        +'<span style="margin-right:0.4rem">&#128193;</span>'
+        +'<span style="flex:1;font-size:0.8rem">'+esc(f.name)+'</span>'
+        +'<span style="font-size:0.7rem;color:var(--muted);margin-right:0.5rem">'+f.track_count+' tracks</span>'
+        +'<button class="btn" style="font-size:0.68rem;padding:0.15rem 0.4rem;background:var(--amber);color:var(--charcoal)" onclick="event.stopPropagation();downloadAlbumZip(\''+fp.replace(/'/g,"\\'")+'\')">ZIP</button>'
+        +'</div>';
+    }
+    for(var f of r.files){
+      var fp=path?(path+'/'+f.name):f.name;
+      html+='<div style="display:flex;align-items:center;padding:0.35rem 0.5rem;border-bottom:1px solid rgba(128,128,128,0.1)">'
+        +'<span style="margin-right:0.4rem">&#127925;</span>'
+        +'<span style="flex:1;font-size:0.8rem">'+esc(f.name)+'</span>'
+        +'<span style="font-size:0.7rem;color:var(--muted);margin-right:0.5rem">'+f.size_mb+' MB</span>'
+        +'<a href="/api/export/download?path='+encodeURIComponent(fp)+'" download style="font-size:0.68rem;padding:0.15rem 0.4rem;background:var(--sage);color:var(--charcoal);border-radius:4px;text-decoration:none;font-weight:600">DL</a>'
+        +'</div>';
+    }
+    list.innerHTML=html;
+    // Show/hide download all button based on whether we have files
+    document.getElementById('export-download-all-btn').style.display=r.folders.length||r.files.length?'':'none';
+  }catch(e){loading.style.display='none';empty.style.display='block';content.style.display='none'}
+}
+function downloadAlbumZip(path){window.location='/api/export/download-album?path='+encodeURIComponent(path)}
+function downloadAllExports(){window.location='/api/export/download-all'}
 
 async function loadAudioDevices(){try{const d=await fetch('/api/audio-devices').then(r=>r.json());const sel=document.getElementById('audio-select');const saved=(d.current_index!==undefined&&d.current_index!==null)?String(d.current_index):'';sel.innerHTML='<option value="">(none / default)</option>'+d.devices.map(dv=>`<option value="${dv.index}"${String(dv.index)===saved?' selected':''}>${esc(dv.name)}</option>`).join('')}catch(e){}}
 function saveAudioDevice(){const v=document.getElementById('audio-select').value;const idx=v===''?null:parseInt(v,10);fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({audio_device_index:idx})}).then(()=>showToast('Audio input saved')).catch(()=>showToast('Failed to save audio input'))}
