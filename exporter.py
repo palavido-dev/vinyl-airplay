@@ -55,21 +55,37 @@ def _get_flac_duration(path: str) -> float:
         return 0.0
 
 
-def _resolve_track_bounds(track: dict, side_duration: float):
+def _resolve_track_bounds(track: dict, side_duration: float,
+                          prev_end: float = None):
     """Return (start_secs, duration_secs) for extracting a track from a side FLAC.
 
-    Handles the last-track edge case where end_secs == start_secs or is None.
+    Handles edge cases:
+      - Last track where end_secs == start_secs or is None
+      - Track whose start_secs >= side duration (bad timestamp data)
+      - Falls back to catalog duration_secs when timestamps are unusable
     """
     start = track.get("start_secs") or 0.0
     end = track.get("end_secs")
+    catalog_dur = track.get("duration_secs") or 0
 
-    # Last track on side: end equals start, is None, or is zero
+    # If start is at or past the file end, try to compute from previous track
+    if start >= side_duration:
+        if prev_end is not None and prev_end < side_duration:
+            start = prev_end
+        elif catalog_dur > 0:
+            # Work backwards from file end
+            start = max(0, side_duration - catalog_dur)
+        else:
+            start = max(0, side_duration - 60)  # last resort
+
+    # Determine end point
     if end is None or end <= start:
         end = side_duration
 
     duration = end - start
     if duration <= 0:
-        duration = side_duration - start
+        # Use catalog duration as fallback
+        duration = catalog_dur if catalog_dur > 0 else (side_duration - start)
 
     return start, max(duration, 0.1)
 
@@ -101,6 +117,8 @@ def export_track_to_file(
     fmt: str = "m4a",
     artwork_path: Optional[str] = None,
     total_tracks_on_album: int = 0,
+    prev_end: float = None,
+    override_track_num: int = None,
 ) -> dict:
     """Export a single track from a side FLAC to M4A or MP3.
 
@@ -113,7 +131,7 @@ def export_track_to_file(
     if not os.path.isfile(flac_path):
         return {"ok": False, "error": f"FLAC not found: {flac_path}"}
 
-    start, duration = _resolve_track_bounds(track, side_duration)
+    start, duration = _resolve_track_bounds(track, side_duration, prev_end)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -146,7 +164,7 @@ def export_track_to_file(
     album_title = album.get("title") or "Unknown"
     year = album.get("year") or ""
     genre = album.get("genre") or ""
-    track_num = track.get("track_number") or "1"
+    track_num = str(override_track_num) if override_track_num else (track.get("track_number") or "1")
 
     cmd += [
         "-metadata", f"title={title}",
@@ -240,6 +258,9 @@ def export_album(
     results = []
     errors = []
 
+    # Track the previous track's end per side for fallback computation
+    prev_end_by_side = {}
+
     for i, track in enumerate(tracks):
         side = track.get("side", "A")
         if side not in side_map:
@@ -247,13 +268,10 @@ def export_album(
             continue
 
         sf = side_map[side]
-        tnum = track.get("track_number") or str(i + 1)
-        # Zero-pad track number for sorting
-        try:
-            tnum_int = int(tnum)
-        except ValueError:
-            tnum_int = i + 1
-        tnum_str = f"{tnum_int:02d}"
+
+        # Use continuous numbering across all sides for iTunes
+        album_track_num = i + 1
+        tnum_str = f"{album_track_num:02d}"
 
         title = _safe_filename(track.get("title") or "Unknown")
         filename = f"{tnum_str} - {title}.{preset['ext']}"
@@ -268,6 +286,9 @@ def export_album(
                 "percent": int(i / total_tracks * 100),
             })
 
+        # Resolve bounds with prev_end fallback for last-track edge case
+        prev_end = prev_end_by_side.get(side)
+
         result = export_track_to_file(
             track=track,
             album=album,
@@ -277,7 +298,17 @@ def export_album(
             fmt=fmt,
             artwork_path=artwork,
             total_tracks_on_album=total_tracks,
+            prev_end=prev_end,
+            override_track_num=album_track_num,
         )
+
+        # Update prev_end for next track on this side
+        t_end = track.get("end_secs")
+        t_start = track.get("start_secs") or 0
+        if t_end and t_end > t_start:
+            prev_end_by_side[side] = t_end
+        else:
+            prev_end_by_side[side] = t_start
 
         if result["ok"]:
             results.append({
