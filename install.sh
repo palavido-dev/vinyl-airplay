@@ -164,6 +164,7 @@ info "Setting up HTTPS certificates for mobile access..."
 MKCERT_BIN="/usr/local/bin/mkcert"
 CERT_DIR="/opt/vinyl-streamer/certs"
 mkdir -p "$CERT_DIR"
+chown listen:listen "$CERT_DIR"
 
 if [[ ! -f "$MKCERT_BIN" ]]; then
   MKCERT_VERSION="v1.4.4"
