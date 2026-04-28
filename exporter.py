@@ -91,18 +91,26 @@ def _resolve_track_bounds(track: dict, side_duration: float,
 
 
 def _get_artwork_path(album: dict) -> Optional[str]:
-    """Return the best available artwork path for an album."""
+    """Return the best available artwork path for an album (absolute)."""
+    # The app may store relative paths (e.g. "artwork/album_14_user.jpg").
+    # Resolve them relative to the app's source directory.
+    app_dir = Path(__file__).parent.resolve()
+
     for key in ("user_artwork_path", "artwork_path"):
         p = album.get(key)
-        if p and os.path.isfile(p):
-            return p
-    # Try the artwork directory
-    for key in ("user_artwork_path", "artwork_path"):
-        p = album.get(key)
-        if p:
-            candidate = Path("artwork") / Path(p).name
-            if candidate.exists():
-                return str(candidate)
+        if not p:
+            continue
+        # Try as-is (absolute or CWD-relative)
+        if os.path.isfile(p):
+            return str(Path(p).resolve())
+        # Try relative to the app directory
+        candidate = app_dir / p
+        if candidate.is_file():
+            return str(candidate)
+        # Try just the filename in the artwork subdir
+        candidate2 = app_dir / "artwork" / Path(p).name
+        if candidate2.is_file():
+            return str(candidate2)
     return None
 
 
