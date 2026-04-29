@@ -35,6 +35,80 @@ _INSTALL_EXPORT = Path("/opt/vinyl-streamer/exports")
 DEFAULT_EXPORT_DIR = _INSTALL_EXPORT if _INSTALL_EXPORT.exists() else Path("exports")
 
 
+def get_album_export_info(album_id: int, fmt: str = "m4a",
+                          export_dir: Optional[Path] = None) -> dict:
+    """Check if an album has exported files. Returns file count, total size, and path."""
+    album = cat.get_album(album_id)
+    if not album:
+        return {"exported": False, "file_count": 0}
+
+    base_dir = export_dir or DEFAULT_EXPORT_DIR.resolve()
+    artist_dir = _safe_filename(album.get("artist") or "Unknown Artist")
+    album_name = _safe_filename(album.get("title") or "Unknown Album")
+    year = album.get("year")
+    album_folder = f"{album_name} ({year})" if year else album_name
+    out_dir = base_dir / artist_dir / album_folder
+
+    if not out_dir.exists():
+        return {"exported": False, "file_count": 0}
+
+    files = [f for f in out_dir.iterdir()
+             if f.suffix in (".m4a", ".mp3") and f.stat().st_size > 0]
+    total_size = sum(f.stat().st_size for f in files)
+    fmt_found = files[0].suffix[1:] if files else ""
+
+    return {
+        "exported": len(files) > 0,
+        "file_count": len(files),
+        "total_size": total_size,
+        "total_size_mb": round(total_size / (1024 * 1024), 1),
+        "format": fmt_found,
+        "path": str(out_dir),
+        "relative_path": f"{artist_dir}/{album_folder}",
+    }
+
+
+def get_all_export_status(export_dir: Optional[Path] = None) -> dict:
+    """Scan export directory and return a map of album_id -> export info.
+    Matches by artist+album folder names against the catalog."""
+    base_dir = export_dir or DEFAULT_EXPORT_DIR.resolve()
+    if not base_dir.exists():
+        return {}
+
+    # Build a lookup from (artist_folder, album_folder) to album_id
+    all_albums = cat.get_all_albums()
+    folder_to_id = {}
+    for a in all_albums:
+        artist_f = _safe_filename(a.get("artist") or "Unknown Artist")
+        album_n = _safe_filename(a.get("title") or "Unknown Album")
+        year = a.get("year")
+        album_f = f"{album_n} ({year})" if year else album_n
+        folder_to_id[(artist_f, album_f)] = a["id"]
+
+    result = {}
+    for artist_path in base_dir.iterdir():
+        if not artist_path.is_dir():
+            continue
+        for album_path in artist_path.iterdir():
+            if not album_path.is_dir():
+                continue
+            key = (artist_path.name, album_path.name)
+            aid = folder_to_id.get(key)
+            if aid is None:
+                continue
+            files = [f for f in album_path.iterdir()
+                     if f.suffix in (".m4a", ".mp3") and f.stat().st_size > 0]
+            if files:
+                total_size = sum(f.stat().st_size for f in files)
+                result[aid] = {
+                    "file_count": len(files),
+                    "format": files[0].suffix[1:],
+                    "total_size_mb": round(total_size / (1024 * 1024), 1),
+                    "relative_path": f"{artist_path.name}/{album_path.name}",
+                }
+    return result
+
+
 def _safe_filename(name: str) -> str:
     """Sanitize a string for use as a filename."""
     # Replace characters that are problematic on Windows/Mac/Linux
@@ -210,6 +284,7 @@ def export_album(
     fmt: str = "m4a",
     export_dir: Optional[Path] = None,
     on_progress: Optional[Callable] = None,
+    force: bool = False,
 ) -> dict:
     """Export all tracks for an album to M4A or MP3.
 
@@ -285,6 +360,23 @@ def export_album(
         filename = f"{tnum_str} - {title}.{preset['ext']}"
         out_path = out_dir / filename
 
+        # Skip if file already exists and has reasonable size (> 10 KB)
+        if not force and out_path.exists() and out_path.stat().st_size > 10240:
+            results.append({
+                "track": track.get("title", ""),
+                "path": str(out_path),
+                "size": out_path.stat().st_size,
+                "skipped": True,
+            })
+            # Still update prev_end for next track
+            t_end = track.get("end_secs")
+            t_start = track.get("start_secs") or 0
+            if t_end and t_end > t_start:
+                prev_end_by_side[side] = t_end
+            else:
+                prev_end_by_side[side] = t_start
+            continue
+
         if on_progress:
             on_progress({
                 "step": "encoding",
@@ -335,11 +427,16 @@ def export_album(
             "percent": 100,
         })
 
+    skipped = sum(1 for r in results if r.get("skipped"))
+    encoded = len(results) - skipped
+
     return {
         "ok": True,
         "album": f"{album.get('artist', '')} - {album.get('title', '')}",
         "format": fmt,
         "tracks_exported": len(results),
+        "tracks_encoded": encoded,
+        "tracks_skipped": skipped,
         "tracks_failed": len(errors),
         "output_dir": str(out_dir),
         "files": results,

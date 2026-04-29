@@ -3677,8 +3677,9 @@ async def api_export_album(album_id: int, request: Request):
     export_dir = exp.DEFAULT_EXPORT_DIR.resolve()
     loop = asyncio.get_event_loop()
 
+    force = body.get("force", False)
     result = await loop.run_in_executor(
-        None, exp.export_album, album_id, fmt, export_dir, None
+        None, lambda: exp.export_album(album_id, fmt, export_dir, force=force)
     )
     return result
 
@@ -3736,6 +3737,20 @@ async def api_export_stats():
         "artist_count": len(artists),
         "export_dir": str(export_dir),
     }
+
+
+@app.get("/api/export/album-status/{album_id}")
+async def api_export_album_status(album_id: int):
+    """Check if an album has exported files."""
+    info = exp.get_album_export_info(album_id)
+    return {"ok": True, **info}
+
+
+@app.get("/api/export/all-status")
+async def api_export_all_status():
+    """Get export status for all albums (used for badges)."""
+    status = exp.get_all_export_status()
+    return {"ok": True, "albums": {str(k): v for k, v in status.items()}}
 
 
 @app.get("/api/export/browse")
