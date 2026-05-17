@@ -1190,7 +1190,7 @@ async def serve_artwork(filename: str):
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
-    resp = TEMPLATES.TemplateResponse("index.html", {"request": request})
+    resp = TEMPLATES.TemplateResponse(request, "index.html")
     resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
     resp.headers["Pragma"] = "no-cache"
     return resp
