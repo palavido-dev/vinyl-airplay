@@ -31,7 +31,7 @@ info "Vinyl Streamer Installer"
 echo ""
 
 # Check OS version
-if [[ ! $UPDATE_MODE ]]; then
+if [[ "$UPDATE_MODE" != "true" ]]; then
   info "Checking OS compatibility..."
   if [[ -f /etc/os-release ]]; then
     . /etc/os-release
@@ -131,7 +131,7 @@ fi
 cd /opt/vinyl-streamer
 
 # Create user
-if [[ ! $UPDATE_MODE ]]; then
+if [[ "$UPDATE_MODE" != "true" ]]; then
   if ! id "listen" &>/dev/null; then
     info "Creating 'listen' user..."
     useradd -r -s /usr/sbin/nologin -d /opt/vinyl-streamer -m listen || error "Failed to create user"
@@ -314,7 +314,7 @@ systemctl enable vinyl-airplay.service || error "Failed to enable main service"
 systemctl enable vinyl-wifi-setup.service || error "Failed to enable WiFi setup service"
 success "Services enabled"
 
-if [[ ! $UPDATE_MODE ]]; then
+if [[ "$UPDATE_MODE" != "true" ]]; then
   info "Starting services..."
   systemctl start vinyl-airplay.service || error "Failed to start main service"
   systemctl start vinyl-wifi-setup.service || error "Failed to start WiFi setup service"
