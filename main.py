@@ -53,7 +53,7 @@ def _capture_channels(device_index=None) -> int:
     except Exception:
         return 2  # safe stereo fallback
 BITS          = 16
-BLOCK_SIZE    = 8192   # larger blocks = fewer callbacks = less overflow on Pi
+BLOCK_SIZE    = 4608   # larger blocks = fewer callbacks, smoother timing for streaming
 INPUT_LATENCY = 0.5    # seconds — large ALSA buffer absorbs USB timing jitter
                        # (Scarlett 2i2 4th Gen triggers retire_capture_urb warnings
                        # on the Pi's USB host controller; a bigger buffer keeps the
@@ -68,13 +68,28 @@ TEMPLATES     = Jinja2Templates(directory="templates")
 
 
 def load_settings() -> dict:
+    defaults = {
+        "saved_devices": [],
+        "volume": 80,
+        "audio_device_index": None,
+        "bass": 0,
+        "treble": 0,
+        "discogs_token": "",
+        "hidden_devices": [],
+        "auto_stream_enabled": False,
+        "auto_stream_device": None,
+        "device_names": {},
+        "audio_storage_path": "",
+        "device_volumes": {},
+        "http_stream_enabled": False,
+        "http_stream_bitrate_kbps": 256,
+    }
     if SETTINGS_FILE.exists():
         s = json.loads(SETTINGS_FILE.read_text())
+        for k, v in defaults.items():
+            s.setdefault(k, v)
         return s
-    return {"saved_devices": [], "volume": 80, "audio_device_index": None,
-            "bass": 0, "treble": 0, "discogs_token": "", "hidden_devices": [],
-            "auto_stream_enabled": False, "auto_stream_device": None,
-            "device_names": {}, "audio_storage_path": "", "device_volumes": {}}
+    return defaults
 
 
 def save_settings(s: dict):
@@ -217,6 +232,220 @@ class EQ:
             return np.clip(x64,-1.0,1.0).astype(np.float32)
 
 
+# ── Native HTTP MP3 Stream ───────────────────────────────────────────────────
+
+class LiveMP3Broadcaster:
+    """Encodes live PCM to MP3 once and fans out bytes to any number of clients."""
+
+    ALLOWED_BITRATES = {128, 192, 256, 320}
+    # Tune chunk size for ffmpeg and smoother streaming (use 1152 samples per MP3 frame for 44.1kHz stereo)
+    # 1152 samples * 2 channels * 2 bytes/sample = 4608 bytes
+    PCM_CHUNK_BYTES = 4608
+    PCM_CHUNK_SECS = PCM_CHUNK_BYTES / (SAMPLE_RATE * CHANNELS * (BITS // 8))
+
+    def __init__(self):
+        self.enabled = False
+        self.bitrate_kbps = 256
+        self._proc = None
+        self._running = threading.Event()
+        self._input_lock = threading.Lock()
+        # Further increase buffer size for more robust streaming (e.g., 16384 chunks)
+        self._input_chunks = collections.deque(maxlen=16384)
+        # Pre-fill input buffer with silence to avoid underruns at startup
+        silence = b"\x00" * self.PCM_CHUNK_BYTES
+        for _ in range(128):
+            self._input_chunks.append(silence)
+        self._clients_lock = threading.Lock()
+        self._clients = {}
+        self._client_seq = 0
+        self._feeder_thread = None
+        self._reader_thread = None
+
+    @classmethod
+    def sanitize_bitrate(cls, value) -> int:
+        try:
+            v = int(value)
+        except Exception:
+            return 256
+        return v if v in cls.ALLOWED_BITRATES else 256
+
+    def is_running(self) -> bool:
+        return self._running.is_set() and self._proc is not None
+
+    def configure(self, enabled: bool, bitrate_kbps: int):
+        bitrate_kbps = self.sanitize_bitrate(bitrate_kbps)
+        should_restart = self.is_running() and self.bitrate_kbps != bitrate_kbps
+        self.enabled = bool(enabled)
+        self.bitrate_kbps = bitrate_kbps
+
+        if not self.enabled:
+            self.stop()
+            return
+        if should_restart or not self.is_running():
+            self.start()
+
+    def start(self):
+        self.stop()
+        cmd = [
+            "ffmpeg",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-nostdin",
+            "-f",
+            "s16le",
+            "-ar",
+            str(SAMPLE_RATE),
+            "-ac",
+            str(CHANNELS),
+            "-i",
+            "pipe:0",
+            "-acodec",
+            "libmp3lame",
+            "-b:a",
+            f"{self.bitrate_kbps}k",
+            "-f",
+            "mp3",
+            "pipe:1",
+        ]
+        try:
+            self._proc = subprocess.Popen(
+                cmd,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                bufsize=0,
+            )
+        except Exception as e:
+            self._proc = None
+            print(f"[http-stream] Failed to start ffmpeg encoder: {e}")
+            return
+
+        self._running.set()
+        self._feeder_thread = threading.Thread(target=self._feed_loop, name="http-mp3-feed", daemon=True)
+        self._reader_thread = threading.Thread(target=self._read_loop, name="http-mp3-read", daemon=True)
+        self._feeder_thread.start()
+        self._reader_thread.start()
+        print(f"[http-stream] Encoder started at {self.bitrate_kbps} kbps")
+
+    def stop(self):
+        self._running.clear()
+        with self._input_lock:
+            self._input_chunks.clear()
+
+        proc = self._proc
+        self._proc = None
+        if not proc:
+            return
+        try:
+            if proc.stdin:
+                proc.stdin.close()
+        except Exception:
+            pass
+        try:
+            proc.terminate()
+            proc.wait(timeout=1.5)
+        except Exception:
+            try:
+                proc.kill()
+            except Exception:
+                pass
+        print("[http-stream] Encoder stopped")
+
+    def put(self, pcm_bytes: bytes):
+        if not self.enabled or not pcm_bytes:
+            return
+        if not self.is_running():
+            self.start()
+            if not self.is_running():
+                return
+        with self._input_lock:
+            chunk = self.PCM_CHUNK_BYTES
+            for i in range(0, len(pcm_bytes), chunk):
+                self._input_chunks.append(pcm_bytes[i:i + chunk])
+
+    def register_client(self) -> int:
+        with self._clients_lock:
+            self._client_seq += 1
+            cid = self._client_seq
+            # Further increase per-client buffer size (e.g., 8192 chunks)
+            self._clients[cid] = collections.deque(maxlen=8192)
+            return cid
+
+    def unregister_client(self, client_id: int):
+        with self._clients_lock:
+            self._clients.pop(client_id, None)
+
+    def get_chunk(self, client_id: int) -> Optional[bytes]:
+        with self._clients_lock:
+            q = self._clients.get(client_id)
+            if q is None:
+                return None
+            if q:
+                return q.popleft()
+            return b""
+
+    def _broadcast(self, data: bytes):
+        if not data:
+            return
+        with self._clients_lock:
+            for q in self._clients.values():
+                q.append(data)
+
+    def _feed_loop(self):
+        silence = b"\x00" * self.PCM_CHUNK_BYTES
+        # Pre-buffer: wait until at least 2 seconds of audio is available
+        prebuffer_chunks = int(2.0 / self.PCM_CHUNK_SECS)
+        while len(self._input_chunks) < prebuffer_chunks and self._running.is_set():
+            time.sleep(self.PCM_CHUNK_SECS / 2)
+
+        next_tick = time.monotonic()
+        while self._running.is_set():
+            proc = self._proc
+            if not proc or proc.poll() is not None:
+                break
+
+            with self._input_lock:
+                pcm = self._input_chunks.popleft() if self._input_chunks else None
+            # Always send a full chunk of silence if no PCM is available
+            if pcm is None or len(pcm) == 0:
+                pcm = silence
+            elif len(pcm) < self.PCM_CHUNK_BYTES:
+                pcm = pcm + (b"\x00" * (self.PCM_CHUNK_BYTES - len(pcm)))
+
+            try:
+                proc.stdin.write(pcm)
+            except Exception:
+                break
+
+            # Log underruns every 5 seconds
+
+            # Sleep exactly PCM_CHUNK_SECS per chunk for real-time pacing
+            next_tick += self.PCM_CHUNK_SECS
+            delay = next_tick - time.monotonic()
+            if delay > 0:
+                time.sleep(delay)
+            else:
+                next_tick = time.monotonic()
+
+        self._running.clear()
+
+    def _read_loop(self):
+        while self._running.is_set():
+            proc = self._proc
+            if not proc or proc.poll() is not None:
+                break
+            try:
+                data = proc.stdout.read(4096)
+            except Exception:
+                break
+            if not data:
+                time.sleep(0.01)
+                continue
+            self._broadcast(data)
+        self._running.clear()
+
+
 # ── Global State ──────────────────────────────────────────────────────────────
 
 class AppState:
@@ -254,6 +483,16 @@ class AppState:
         self.bluetooth_manager = None  # initialized after BluetoothManager is defined
         self.available_bt_devices: list = []
         self.loop = None  # event loop ref for background thread broadcasts
+        self.live_mp3 = LiveMP3Broadcaster()
+        self.album_encoding = {
+            "in_progress": False,
+            "album_id": None,
+            "side": None,
+            "started_at": None,
+            "finished_at": None,
+            "ok": None,
+            "message": "",
+        }
 
 
 state = AppState()
@@ -735,6 +974,9 @@ def make_callback(streams, eq, fp_buffer):
         audio = eq.process(audio_in)
         pcm   = (audio*32767).astype(np.int16).tobytes()
         for s in streams: s.put(pcm)
+        state.live_mp3.put(pcm)
+        # Diagnostic: print timestamp for PCM production
+        print(f"[pcm_producer] PCM produced at {time.time():.3f}")
     return callback
 
 
@@ -990,17 +1232,27 @@ async def _run_stream_inner(targets, audio_device_index, volume):
         except Exception as e:
             print(f"[bluetooth] Failed to open {address}: {e}")
 
+    http_only = False
     if not confs and not local_streams and not bt_streams:
-        await broadcast("error", {"message": "No paired devices found on network"})
-        state.stop_event=None
-        return
+        if state.settings.get("http_stream_enabled"):
+            http_only = True
+            print("[http-stream] No playback targets selected; running capture for /live.mp3 only")
+        else:
+            await broadcast("error", {"message": "No paired devices found on network"})
+            state.stop_event=None
+            return
 
     # Only mark streaming=True now that we have confirmed devices
     state.is_streaming   = True
-    state.active_devices = [d["name"] for d in targets]
+    state.active_devices = [d["name"] for d in targets] if targets else ["HTTP MP3"]
+    status_message = (
+        "Streaming (HTTP MP3 live URL active)"
+        if http_only
+        else f"Streaming to {len(confs) + len(local_streams) + len(bt_streams)} device(s)"
+    )
     await broadcast("status", {
         "streaming": True, "devices": state.active_devices,
-        "message": f"Streaming to {len(confs) + len(local_streams) + len(bt_streams)} device(s)"
+        "message": status_message
     })
 
     audio_streams = {conf.identifier: AsyncAudioStream() for conf in confs}
@@ -1035,6 +1287,15 @@ async def _run_stream_inner(targets, audio_device_index, volume):
 
     def _on_level(rms):
         state.rec_level = rms
+        # Broadcast real-time input level to all WebSocket clients using main_loop
+        try:
+            db = 20 * math.log10(max(rms, 1e-8))
+            asyncio.run_coroutine_threadsafe(
+                broadcast("level", {"db": db, "rms": rms}),
+                main_loop
+            )
+        except Exception:
+            pass
 
     def _on_audio_detected():
         """Fires when startup gate opens — needle dropped, new side starting."""
@@ -1150,6 +1411,10 @@ async def lifespan(app: FastAPI):
     if state.settings.get("auto_stream_enabled"):
         state.auto_stream_task = asyncio.create_task(_auto_stream_watcher())
         print("[auto-stream] Watcher started on boot")
+    state.live_mp3.configure(
+        state.settings.get("http_stream_enabled", False),
+        state.settings.get("http_stream_bitrate_kbps", 256),
+    )
     # Backfill any missing track durations from MusicBrainz (non-blocking)
     loop = asyncio.get_event_loop()
     state.loop = loop
@@ -1171,6 +1436,7 @@ async def lifespan(app: FastAPI):
         state.stream_task.cancel()
         try: await state.stream_task
         except (asyncio.CancelledError, Exception): pass
+    state.live_mp3.stop()
 
 
 app = FastAPI(lifespan=lifespan)
@@ -1478,6 +1744,42 @@ async def audio_devices():
 
 # ── Browser Stream Routes ─────────────────────────────────────────────────────
 
+@app.get("/live.mp3")
+async def stream_live_mp3():
+    """Persistent MP3 URL for live turntable audio (silence when no input)."""
+    if not state.settings.get("http_stream_enabled", False):
+        return JSONResponse(
+            status_code=404,
+            content={"ok": False, "error": "HTTP live streaming is disabled in Settings"},
+        )
+
+    client_id = state.live_mp3.register_client()
+
+    async def generate():
+        try:
+            while True:
+                chunk = state.live_mp3.get_chunk(client_id)
+                if chunk is None:
+                    break
+                if chunk:
+                    yield chunk
+                else:
+                    await asyncio.sleep(0.02)
+        finally:
+            state.live_mp3.unregister_client(client_id)
+
+    # Prevent seeking by disabling Range requests and setting headers
+    return StreamingResponse(
+        generate(),
+        media_type="audio/mpeg",
+        headers={
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Pragma": "no-cache",
+            "Accept-Ranges": "none",  # Prevent HTTP clients from seeking
+            "X-Content-Duration": "live",  # Optional: mark as live
+        },
+    )
+
 @app.post("/api/stream/create")
 async def create_browser_stream():
     """Create a new browser audio stream and return its stream_id."""
@@ -1626,6 +1928,7 @@ async def get_status():
         "player":           state.player.get_status() if state.player else {"state": "stopped"},
         "storage":          storage_info,
         "album_recording":  rec_info,
+        "input_level":      state.rec_level,
     }
 
 
@@ -1757,6 +2060,12 @@ async def update_settings(body: dict):
         if state.player:
             state.player.set_crossfade(cf)
         save_settings(state.settings)
+    if "http_stream_enabled" in body:
+        state.settings["http_stream_enabled"] = bool(body["http_stream_enabled"])
+    if "http_stream_bitrate_kbps" in body:
+        state.settings["http_stream_bitrate_kbps"] = LiveMP3Broadcaster.sanitize_bitrate(
+            body["http_stream_bitrate_kbps"]
+        )
     if "app_name" in body:
         state.settings["app_name"] = str(body["app_name"])[:40]
     if "theme" in body:
@@ -1766,6 +2075,10 @@ async def update_settings(body: dict):
         state.settings["audio_device_index"] = None if v in (None, "", "null") else int(v)
     if "rec_play_audio" in body:
         state.settings["rec_play_audio"] = bool(body["rec_play_audio"])
+    state.live_mp3.configure(
+        state.settings.get("http_stream_enabled", False),
+        state.settings.get("http_stream_bitrate_kbps", 256),
+    )
     save_settings(state.settings)
     return {"ok": True}
 
@@ -3077,6 +3390,96 @@ async def _auto_finalize_album_side_inner():
         })
 
 
+async def _encode_and_save_album_side(ar: rec.AlbumRecorder):
+    """Finalize a recorded side and persist it in the background."""
+    album_id = ar.album_id
+    side = ar.side
+    loop = asyncio.get_event_loop()
+
+    state.album_encoding.update({
+        "in_progress": True,
+        "album_id": album_id,
+        "side": side,
+        "started_at": time.time(),
+        "finished_at": None,
+        "ok": None,
+        "message": f"Encoding Side {side}...",
+    })
+
+    try:
+        path, duration, boundaries = await loop.run_in_executor(None, ar.finish)
+
+        if not path:
+            msg = "Recording too short or encoding failed"
+            state.album_encoding.update({
+                "in_progress": False,
+                "finished_at": time.time(),
+                "ok": False,
+                "message": msg,
+            })
+            await broadcast("album_recording_status", {
+                "recording": False,
+                "album_id": album_id,
+                "side": side,
+                "error": True,
+                "message": msg,
+            })
+            return
+
+        file_size = path.stat().st_size
+        cat.save_album_audio(album_id, side, str(path), duration, file_size)
+
+        for b in boundaries:
+            if b["track_id"] and b["end_secs"] is not None:
+                cat.update_track_timestamps(b["track_id"], b["start_secs"], b["end_secs"])
+
+        cat.correct_side_boundaries(album_id, side, duration)
+
+        all_tracks = cat.get_album_tracks(album_id)
+        album_sides = sorted(set(t.get("side") or "A" for t in all_tracks))
+        current_idx = album_sides.index(side) if side in album_sides else -1
+        has_next_side = current_idx >= 0 and current_idx < len(album_sides) - 1
+        next_side = album_sides[current_idx + 1] if has_next_side else None
+
+        done_msg = f"Side {side} saved -- {duration:.0f}s, {file_size / (1024*1024):.1f} MB"
+        state.album_encoding.update({
+            "in_progress": False,
+            "finished_at": time.time(),
+            "ok": True,
+            "message": done_msg,
+        })
+
+        await broadcast("album_recording_status", {
+            "recording": False,
+            "album_id": album_id,
+            "side": side,
+            "message": done_msg,
+        })
+        await broadcast("album_recording_side_saved", {
+            "album_id": album_id,
+            "side": side,
+            "duration_secs": round(duration, 1),
+            "size_mb": round(file_size / (1024 * 1024), 1),
+            "tracks_captured": len(boundaries),
+            "has_next_side": has_next_side,
+            "next_side": next_side,
+        })
+    except Exception as e:
+        state.album_encoding.update({
+            "in_progress": False,
+            "finished_at": time.time(),
+            "ok": False,
+            "message": f"Encoding failed: {e}",
+        })
+        await broadcast("album_recording_status", {
+            "recording": False,
+            "album_id": album_id,
+            "side": side,
+            "error": True,
+            "message": f"Encoding failed: {e}",
+        })
+
+
 async def _stream_stall_watchdog():
     """Periodically checks whether the audio stream has stopped delivering data.
     USB audio interfaces can silently die after an input overflow (ALSA/URB errors).
@@ -3435,57 +3838,20 @@ async def album_recording_stop():
     if state.rec_buffer and state.rec_buffer.is_active:
         state.rec_buffer.stop()
 
-    loop = asyncio.get_event_loop()
-    path, duration, boundaries = await loop.run_in_executor(None, ar.finish)
-
-    if not path:
-        await broadcast("album_recording_status", {
-            "recording": False,
-            "message": "Recording too short or encoding failed",
-        })
-        return {"ok": False, "error": "Recording too short or encoding failed"}
-
-    file_size = path.stat().st_size
-    cat.save_album_audio(album_id, ar.side, str(path), duration, file_size)
-
-    # Save track timestamps
-    for b in boundaries:
-        if b["track_id"] and b["end_secs"] is not None:
-            cat.update_track_timestamps(b["track_id"], b["start_secs"], b["end_secs"])
-
-    # Sanity-check boundaries against catalog durations and correct if needed
-    cat.correct_side_boundaries(album_id, ar.side, duration)
-
-    # Check if album has more sides to record
-    all_tracks = cat.get_album_tracks(album_id)
-    album_sides = sorted(set(t.get("side") or "A" for t in all_tracks))
-    current_idx = album_sides.index(ar.side) if ar.side in album_sides else -1
-    has_next_side = current_idx >= 0 and current_idx < len(album_sides) - 1
-    next_side = album_sides[current_idx + 1] if has_next_side else None
-
     await broadcast("album_recording_status", {
         "recording": False,
         "album_id": album_id,
-        "message": f"Side {ar.side} saved — {duration:.0f}s, "
-                   f"{file_size / (1024*1024):.1f} MB",
-    })
-    await broadcast("album_recording_side_saved", {
-        "album_id": album_id,
         "side": ar.side,
-        "duration_secs": round(duration, 1),
-        "size_mb": round(file_size / (1024 * 1024), 1),
-        "tracks_captured": len(boundaries),
-        "has_next_side": has_next_side,
-        "next_side": next_side,
+        "message": f"Stop pressed — encoding Side {ar.side} in background...",
     })
+
+    asyncio.create_task(_encode_and_save_album_side(ar))
 
     return {
         "ok": True,
         "side": ar.side,
-        "duration_secs": round(duration, 1),
-        "size_mb": round(file_size / (1024 * 1024), 1),
-        "tracks_captured": len(boundaries),
-        "file_path": str(path),
+        "encoding_in_background": True,
+        "message": f"Encoding Side {ar.side} is running on the server",
     }
 
 
@@ -3494,7 +3860,11 @@ async def album_recording_status():
     """Get current album recording status.
     Returns recording state so the UI can sync after a WebSocket reconnect."""
     if not state.album_recorder:
-        return {"recording": False, "awaiting_flip": False}
+        return {
+            "recording": False,
+            "awaiting_flip": False,
+            "encoding": state.album_encoding,
+        }
     ar = state.album_recorder
     if not ar.is_active:
         # Recorder exists but inactive = side was auto-finalized, awaiting flip
@@ -3516,6 +3886,7 @@ async def album_recording_status():
         "album_id": ar.album_id,
         "side": ar.side,
         "elapsed_secs": round(ar.elapsed_secs, 1),
+            "encoding": state.album_encoding,
         "tracks_captured": ar.track_count,
     }
 
@@ -4027,7 +4398,11 @@ async def _run_playback(album_id: int, targets: list[dict], volume: int,
             browser_streams.append(_browser_streams[stream_id])
             print(f"[player] Added browser stream {stream_id}")
 
+
+    # Always include HTTP MP3 stream if enabled
     all_streams = list(audio_streams.values()) + local_streams + bt_streams + browser_streams
+    if state.settings.get("http_stream_enabled", False):
+        all_streams.append(state.live_mp3)
 
     if not all_streams:
         await broadcast("error", {"message": "No output devices available"})

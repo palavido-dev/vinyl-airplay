@@ -574,8 +574,10 @@ class Player:
                         self._seek_requested = False
                         target = min(self._seek_target, entry.duration_secs)
                         self._position = target
+                        # Update current track index based on new position after seek
                         self._current_track_idx = -1
                         pos_start = target
+                        self._check_track_boundary()
                         bytes_fed = 0
                         t_start = time.monotonic()
                         # Kill only current ffmpeg, keep pre-started next side
