@@ -2384,6 +2384,10 @@
           <label class="device-item" style="border:none;padding:0.3rem 0;gap:0.5rem"><input type="checkbox" id="auto-stream-enabled" onchange="saveAutoStreamSettings()"><span style="font-size:0.82rem">Auto-stream when record plays</span></label>
           <div class="form-row" style="margin-top:0.3rem"><label>Default device</label><div style="display:flex;gap:0.4rem;align-items:center"><select class="form-input" id="auto-stream-device-select" onchange="saveAutoStreamSettings()" style="flex:1"><option value="">— Select —</option></select><button class="btn btn-ghost" onclick="scanAutoStreamDevices()" style="padding:0.3rem 0.5rem">↺</button></div></div>
           <div id="auto-stream-status" style="font-size:0.72rem;color:var(--muted);margin-top:0.2rem"></div>
+          <div class="form-row" style="margin-top:0.5rem"><label>HTTP live stream</label><label class="device-item" style="border:none;padding:0;gap:0.5rem"><input type="checkbox" id="http-stream-enabled" onchange="saveHttpStreamSettings()"><span style="font-size:0.82rem">Enable persistent MP3 URL</span></label></div>
+          <div class="form-row" style="margin-top:0.3rem"><label>Bitrate</label><select class="form-input" id="http-stream-bitrate" onchange="saveHttpStreamSettings()"><option value="128">128 kbps</option><option value="192">192 kbps</option><option value="256">256 kbps</option><option value="320">320 kbps</option></select></div>
+          <div class="form-row" style="margin-top:0.3rem"><label>Stream URL</label><div style="display:flex;gap:0.4rem;align-items:center;flex:1"><input type="text" class="form-input" id="http-stream-url" readonly><button class="btn btn-ghost" onclick="copyHttpStreamUrl()">Copy</button></div></div>
+          <div id="http-stream-status" style="font-size:0.72rem;color:var(--muted);margin-top:0.2rem">Disabled</div>
         </div>
         <div class="settings-section"><h3>Audio Input</h3><select class="form-input" id="audio-select" onchange="saveAudioDevice()"><option value="">Loading…</option></select></div>
         <div class="settings-section"><h3>Playback</h3>
@@ -2854,7 +2858,7 @@ function showToast(msg){
 }
 
 function connectWS(){const p=location.protocol==='https:'?'wss':'ws';ws=new WebSocket(`${p}://${location.host}/ws`);ws.onopen=function(){syncAlbumRecState()};ws.onmessage=e=>{try{handleEvent(JSON.parse(e.data))}catch(err){console.warn('WS',err)}};ws.onclose=()=>setTimeout(connectWS,2000)}
-function syncAlbumRecState(){fetch('/api/album-recording/status').then(r=>r.json()).then(function(d){if(d.awaiting_flip&&d.next_side){clearInterval(_recTimerInterval);_recTimerInterval=null;setRecordingIndicator(false);_recStartTime=null;_recAlbumId=null;_recAwaitingFlipAlbumId=d.album_id||null;_recAwaitingFlipDoneSide=d.side||null;_recAwaitingFlipNextSide=d.next_side;if(currentAlbumId===d.album_id){document.getElementById('album-rec-active').style.display='none';document.getElementById('album-rec-saving').style.display='none';document.getElementById('album-rec-flip-prompt').style.display='block';document.getElementById('album-rec-done-side').textContent=d.side||'?';document.getElementById('album-rec-next-side-label').textContent=d.next_side;showAlbumRecPanel();loadAlbumAudio(d.album_id);loadCatalog()}}else if(!d.recording){clearInterval(_recTimerInterval);_recTimerInterval=null;setRecordingIndicator(false);_recStartTime=null;_recAlbumId=null;_recAwaitingFlipAlbumId=null;_recAwaitingFlipDoneSide=null;_recAwaitingFlipNextSide=null}}).catch(function(){})}
+function syncAlbumRecState(){fetch('/api/album-recording/status').then(r=>r.json()).then(function(d){const enc=!!(d.encoding&&d.encoding.in_progress);if(enc&&currentAlbumId===d.encoding.album_id){showAlbumRecPanel();document.getElementById('album-rec-setup').style.display='none';document.getElementById('album-rec-active').style.display='none';document.getElementById('album-rec-flip-prompt').style.display='none';document.getElementById('album-rec-saving').style.display='block';if(d.encoding.message)document.getElementById('album-rec-status-text').textContent=d.encoding.message}if(d.awaiting_flip&&d.next_side){clearInterval(_recTimerInterval);_recTimerInterval=null;setRecordingIndicator(false);_recStartTime=null;_recAlbumId=null;_recAwaitingFlipAlbumId=d.album_id||null;_recAwaitingFlipDoneSide=d.side||null;_recAwaitingFlipNextSide=d.next_side;if(currentAlbumId===d.album_id){document.getElementById('album-rec-active').style.display='none';document.getElementById('album-rec-saving').style.display='none';document.getElementById('album-rec-flip-prompt').style.display='block';document.getElementById('album-rec-done-side').textContent=d.side||'?';document.getElementById('album-rec-next-side-label').textContent=d.next_side;showAlbumRecPanel();loadAlbumAudio(d.album_id);loadCatalog()}}else if(!d.recording){clearInterval(_recTimerInterval);_recTimerInterval=null;setRecordingIndicator(false);_recStartTime=null;_recAlbumId=null;_recAwaitingFlipAlbumId=null;_recAwaitingFlipDoneSide=null;_recAwaitingFlipNextSide=null;if(!enc)document.getElementById('album-rec-saving').style.display='none'}}).catch(function(){})}
 
 function handleEvent(d){
   if(d.event==='status')setStatus(d);
@@ -2886,8 +2890,44 @@ function setStatus(d){
   document.getElementById('status-text').textContent=msg;
   const bs=document.getElementById('btn-start-stream'),bt=document.getElementById('btn-stop-stream');
   if(bs)bs.style.display=s?'none':'';if(bt)bt.style.display=s?'':'none';
+  if(bs)bs.disabled=false;if(bt)bt.disabled=false;
   if(s&&!_playerActive){_playerSource='vinyl';showNPFooter()}
   if(!s&&_playerSource==='vinyl'&&!_playerActive)hideNPFooter();
+  // Update input bar if input_level is present
+  if (typeof d.input_level === 'number') {
+    const rms = Math.max(d.input_level, 1e-8);
+    const db = 20 * Math.log10(rms);
+    onLevel({db});
+  }
+}
+
+function sleepMs(ms){return new Promise(resolve=>setTimeout(resolve,ms))}
+
+async function refreshStatus(){
+  try{
+    const d=await fetch('/api/status',{cache:'no-store'}).then(r=>r.json());
+    setStatus(d);
+    // Also update input bar if input_level is present
+    if (typeof d.input_level === 'number') {
+      const rms = Math.max(d.input_level, 1e-8);
+      const db = 20 * Math.log10(rms);
+      onLevel({db});
+    }
+    return d;
+  }catch(e){
+    return null;
+  }
+}
+
+async function waitForStreamingState(targetState,maxAttempts,delayMs){
+  const attempts=maxAttempts||12;
+  const delay=delayMs||250;
+  for(let i=0;i<attempts;i++){
+    await refreshStatus();
+    if(!!_isStreaming===!!targetState)return true;
+    await sleepMs(delay);
+  }
+  return !!_isStreaming===!!targetState;
 }
 function showNPFooter(){const f=document.getElementById('np-footer');f.classList.remove('hidden');f.style.display='';document.getElementById('np-hero').classList.add('visible');document.getElementById('main-content').classList.add('has-hero')}
 function hideNPFooter(){const f=document.getElementById('np-footer');f.classList.add('hidden');f.style.display='none';_playerSource=null;var mc=document.getElementById('main-content');document.getElementById('np-hero').classList.remove('visible');mc.classList.remove('has-hero');mc.classList.remove('library-browse');document.body.classList.remove('np-expandable')}
@@ -5157,10 +5197,10 @@ async function beginRecordingWithDevice(devIdx){
   _recAlbumId=currentAlbumId;_recStartTime=Date.now();setRecordingIndicator(true);
   document.getElementById('album-rec-setup').style.display='none';document.getElementById('album-rec-active').style.display='block';document.getElementById('album-rec-active-side').textContent=side;document.getElementById('album-rec-timer').textContent='00:00';document.getElementById('album-rec-track-log').innerHTML='';clearInterval(_recTimerInterval);_recTimerInterval=setInterval(()=>{const s=Math.floor((Date.now()-_recStartTime)/1000);document.getElementById('album-rec-timer').textContent=String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0')},1000)
 }
-async function stopAlbumRecording(keepStream){clearInterval(_recTimerInterval);_recStartTime=null;_recAlbumId=null;setRecordingIndicator(false);document.getElementById('album-rec-active').style.display='none';var r=await fetch('/api/album-recording/stop',{method:'POST'}).then(function(r){return r.json()});if(r.already_finalized){document.getElementById('album-rec-saving').style.display='none';hideAlbumRecPanel();if(currentAlbumId){loadAlbumAudio(currentAlbumId);loadCatalog()}}else{document.getElementById('album-rec-saving').style.display='block'}if(!keepStream&&_recOutputDevice){await fetch('/api/stop',{method:'POST'});_recOutputDevice=null}}
+async function stopAlbumRecording(keepStream){clearInterval(_recTimerInterval);_recStartTime=null;_recAlbumId=null;setRecordingIndicator(false);document.getElementById('album-rec-active').style.display='none';var r=await fetch('/api/album-recording/stop',{method:'POST'}).then(function(r){return r.json()});if(!r.ok){document.getElementById('album-rec-saving').style.display='none';showError(r.error||'Failed to stop and save');return}if(r.already_finalized){document.getElementById('album-rec-saving').style.display='none';hideAlbumRecPanel();if(currentAlbumId){loadAlbumAudio(currentAlbumId);loadCatalog()}}else if(r.encoding_in_background){document.getElementById('album-rec-saving').style.display='block';if(r.message)document.getElementById('album-rec-status-text').textContent=r.message}else{document.getElementById('album-rec-saving').style.display='none'}if(!keepStream&&_recOutputDevice){await fetch('/api/stop',{method:'POST'});_recOutputDevice=null}}
 async function cancelAlbumRecording(){clearInterval(_recTimerInterval);_recTimerInterval=null;_recStartTime=null;_recAlbumId=null;_recAwaitingFlipAlbumId=null;_recAwaitingFlipDoneSide=null;_recAwaitingFlipNextSide=null;setRecordingIndicator(false);await fetch('/api/album-recording/cancel',{method:'POST'});hideAlbumRecPanel()}
 function flipAlbumRecording(){stopAlbumRecording(true)}
-function onAlbumRecStatus(d){if(d.message)document.getElementById('album-rec-status-text').textContent=d.message;if(d.recording===false){clearInterval(_recTimerInterval);setRecordingIndicator(false)}if(d.album_id&&currentAlbumId===d.album_id)refreshModalTracks(d.album_id);if(d.track_name){var log=document.getElementById('album-rec-track-log');log.innerHTML+='<div style="padding:0.15rem 0;color:var(--sage)">\u2713 '+esc(d.track_name)+'</div>';log.scrollTop=log.scrollHeight}}
+function onAlbumRecStatus(d){if(d.message)document.getElementById('album-rec-status-text').textContent=d.message;if(d.recording===false){clearInterval(_recTimerInterval);setRecordingIndicator(false);if(d.error||/failed|too short/i.test((d.message||''))){document.getElementById('album-rec-saving').style.display='none'}}if(d.album_id&&currentAlbumId===d.album_id)refreshModalTracks(d.album_id);if(d.track_name){var log=document.getElementById('album-rec-track-log');log.innerHTML+='<div style="padding:0.15rem 0;color:var(--sage)">\u2713 '+esc(d.track_name)+'</div>';log.scrollTop=log.scrollHeight}}
 function onAlbumRecSideSaved(d){clearInterval(_recTimerInterval);_recTimerInterval=null;setRecordingIndicator(false);_recStartTime=null;_recAlbumId=null;if(d.has_next_side&&d.next_side){_recAwaitingFlipAlbumId=d.album_id||null;_recAwaitingFlipDoneSide=d.side||null;_recAwaitingFlipNextSide=d.next_side}else{_recAwaitingFlipAlbumId=null;_recAwaitingFlipDoneSide=null;_recAwaitingFlipNextSide=null}document.getElementById('album-rec-active').style.display='none';document.getElementById('album-rec-saving').style.display='none';if(d.has_next_side&&d.next_side){document.getElementById('album-rec-flip-prompt').style.display='block';document.getElementById('album-rec-done-side').textContent=d.side||'?';document.getElementById('album-rec-next-side-label').textContent=d.next_side}else{hideAlbumRecPanel();showToast('All sides recorded!')}if(currentAlbumId){loadAlbumAudio(currentAlbumId);loadCatalog()}}
 async function startNextSideRecording(){const ns=document.getElementById('album-rec-next-side-label').textContent;_recSide=ns;document.getElementById('album-rec-flip-prompt').style.display='none';document.getElementById('album-rec-saving').style.display='none';var r=await fetch('/api/album-recording/start',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({album_id:currentAlbumId,side:ns})}).then(function(r){return r.json()});if(!r.ok){showError(r.error||'Failed to start next side');showAlbumRecPanel();return}_recAlbumId=currentAlbumId;_recStartTime=Date.now();setRecordingIndicator(true);document.getElementById('album-rec-setup').style.display='none';document.getElementById('album-rec-active').style.display='block';document.getElementById('album-rec-active-side').textContent=ns;document.getElementById('album-rec-timer').textContent='00:00';document.getElementById('album-rec-track-log').innerHTML='';document.getElementById('album-rec-status-text').textContent='Waiting for audio\u2026';clearInterval(_recTimerInterval);_recTimerInterval=setInterval(()=>{const s=Math.floor((Date.now()-_recStartTime)/1000);document.getElementById('album-rec-timer').textContent=String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0')},1000)}
 function finishAlbumRecSession(){clearInterval(_recTimerInterval);_recTimerInterval=null;_recStartTime=null;_recAlbumId=null;_recAwaitingFlipAlbumId=null;_recAwaitingFlipDoneSide=null;_recAwaitingFlipNextSide=null;hideAlbumRecPanel();if(currentAlbumId){loadAlbumAudio(currentAlbumId);loadCatalog()}}
@@ -5236,13 +5276,64 @@ function renderRecentPlays(plays){const c=document.getElementById('recent-plays-
 async function scanDevices(){try{const d=await fetch('/api/scan').then(r=>r.json());renderSettingsDevices(d.devices);renderHiddenDevices(d.devices)}catch(e){showError('Scan failed')}}
 function renderSettingsDevices(devs){const l=document.getElementById('settings-device-list');const v=(devs||[]).filter(d=>!d.hidden);if(!v.length){l.innerHTML='<div style="color:var(--muted);font-size:0.82rem">No devices found</div>';return}l.innerHTML=v.map(d=>{const np=d.needs_pairing&&d.paired===false;return `<label class="device-item" style="opacity:${np?'0.6':'1'}"><input type="checkbox" class="dev-check" value='${JSON.stringify({id:d.id,name:d.name}).replace(/'/g,"&apos;")}'><span style="flex:1">${esc(d.name)}</span>${np?`<button class="btn btn-ghost" onclick="pairDevice('${d.id}')">Pair</button>`:''}</label>`}).join('')}
 function getSelectedDevices(){return[...document.querySelectorAll('.dev-check:checked')].map(c=>JSON.parse(c.value))}
-async function startStream(){const devs=getSelectedDevices();if(!devs.length){showError('Select at least one device');return}await fetch('/api/start',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({devices:devs,volume:parseInt(document.getElementById('eq-volume').value)})})}
-async function stopStream(){await fetch('/api/stop',{method:'POST'})}
+var _streamActionPending=false;
+async function startStream(){
+  if(_streamActionPending)return;
+  const devs=getSelectedDevices();
+  const httpEnabled=document.getElementById('http-stream-enabled')&&document.getElementById('http-stream-enabled').checked;
+  if(!devs.length&&!httpEnabled){showError('Select at least one device or enable HTTP live stream');return}
+  _streamActionPending=true;
+  const bs=document.getElementById('btn-start-stream'),bt=document.getElementById('btn-stop-stream');
+  if(bs)bs.disabled=true;if(bt)bt.disabled=true;
+  try{
+    const r=await fetch('/api/start',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({devices:devs,volume:parseInt(document.getElementById('eq-volume').value)})}).then(res=>res.json()).catch(()=>({ok:false,error:'Network error'}));
+    if(r&&r.ok===false){showError(r.error||'Failed to start streaming');await refreshStatus();return}
+    const ok=await waitForStreamingState(true,16,250);
+    if(!ok){showError('Start requested, but stream did not become active');await refreshStatus()}
+  }finally{
+    _streamActionPending=false;
+    if(bs)bs.disabled=false;if(bt)bt.disabled=false;
+  }
+}
+async function stopStream(){
+  if(_streamActionPending)return;
+  _streamActionPending=true;
+  const bs=document.getElementById('btn-start-stream'),bt=document.getElementById('btn-stop-stream');
+  if(bs)bs.disabled=true;if(bt)bt.disabled=true;
+  try{
+    const r=await fetch('/api/stop',{method:'POST'}).then(res=>res.json()).catch(()=>({ok:false,error:'Network error'}));
+    if(r&&r.ok===false){showError(r.error||'Failed to stop streaming');await refreshStatus();return}
+    const ok=await waitForStreamingState(false,16,250);
+    if(!ok){showError('Stop requested, but stream is still active');await refreshStatus()}
+  }finally{
+    _streamActionPending=false;
+    if(bs)bs.disabled=false;if(bt)bt.disabled=false;
+  }
+}
 async function pairDevice(did){const r=await fetch('/api/pair',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({device_id:did,protocol:'raop'})}).then(r=>r.json());if(r.ok){showToast('Check device for PIN');const pin=prompt('Enter PIN:');if(pin){const f=await fetch('/api/pair',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({device_id:did,protocol:'raop',pin})}).then(r=>r.json());if(f.ok){showToast('Paired!');scanDevices()}else showError(f.error||'Failed')}}else showError(r.error||'Failed')}
 function renderHiddenDevices(devs){const l=document.getElementById('hidden-device-list');if(!devs||!devs.length){l.innerHTML='<div style="color:var(--muted);font-size:0.82rem">Scan to manage</div>';return}l.innerHTML=devs.map(d=>`<label class="device-item" style="gap:0.5rem"><input type="checkbox" ${d.hidden?'checked':''} onchange="toggleHidden('${d.id}',this.checked)" style="accent-color:var(--rust)"><span style="font-size:0.82rem">${esc(d.name)}${d.hidden?' (hidden)':''}</span></label>`).join('')}
 async function toggleHidden(did,hide){await fetch('/api/device/hide',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({device_id:did,hidden:hide})})}
 async function saveAutoStreamSettings(){const en=document.getElementById('auto-stream-enabled').checked,sel=document.getElementById('auto-stream-device-select'),opt=sel.options[sel.selectedIndex],dev=opt&&opt.value?{id:opt.value,name:opt.textContent}:null;await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({auto_stream_enabled:en,auto_stream_device:dev})});document.getElementById('auto-stream-status').textContent=en&&dev?`Auto-streaming to: ${dev.name}`:''}
 async function scanAutoStreamDevices(){const sel=document.getElementById('auto-stream-device-select');sel.innerHTML='<option value="">Scanning\u2026</option>';try{const d=await fetch('/api/scan').then(r=>r.json());sel.innerHTML='<option value="">\u2014 Select \u2014</option>';(d.devices||[]).filter(d=>!d.hidden).forEach(d=>{const o=document.createElement('option');o.value=d.id;o.textContent=d.name;sel.appendChild(o)});if(window._savedAutoStreamDevice)sel.value=window._savedAutoStreamDevice.id}catch(e){sel.innerHTML='<option value="">Scan failed</option>'}}
+function updateHttpStreamUI(){
+  const enabled=document.getElementById('http-stream-enabled').checked;
+  const bitrate=document.getElementById('http-stream-bitrate').value;
+  const urlEl=document.getElementById('http-stream-url');
+  const statusEl=document.getElementById('http-stream-status');
+  if(urlEl)urlEl.value=location.protocol+'//'+location.host+'/live.mp3';
+  if(statusEl)statusEl.textContent=enabled?('Enabled at '+bitrate+' kbps'):'Disabled';
+}
+async function saveHttpStreamSettings(){
+  const enabled=document.getElementById('http-stream-enabled').checked;
+  const bitrate=parseInt(document.getElementById('http-stream-bitrate').value,10)||256;
+  await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({http_stream_enabled:enabled,http_stream_bitrate_kbps:bitrate})});
+  updateHttpStreamUI();
+}
+async function copyHttpStreamUrl(){
+  const el=document.getElementById('http-stream-url');
+  if(!el||!el.value)return;
+  try{await navigator.clipboard.writeText(el.value);showToast('HTTP stream URL copied')}catch(e){el.select();document.execCommand('copy');showToast('HTTP stream URL copied')}
+}
 async function saveDiscogsToken(){const t=document.getElementById('discogs-token').value.trim();await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({discogs_token:t})});const el=document.getElementById('discogs-saved');el.style.display='inline';setTimeout(()=>el.style.display='none',2000)}
 async function saveDiscogsUsername(){const u=document.getElementById('discogs-username').value.trim();await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({discogs_username:u})});const el=document.getElementById('discogs-user-saved');el.style.display='inline';setTimeout(()=>el.style.display='none',2000)}
 async function startDiscogsSync(){const btn=document.getElementById('discogs-sync-btn');btn.disabled=true;btn.textContent='Syncing...';document.getElementById('discogs-sync-progress').style.display='block';document.getElementById('discogs-sync-result').style.display='none';try{const r=await fetch('/api/catalog/sync/discogs',{method:'POST'}).then(r=>r.json());if(!r.ok){showError(r.error||'Sync failed');btn.disabled=false;btn.textContent='Sync with Discogs';document.getElementById('discogs-sync-progress').style.display='none'}}catch(e){showError('Sync failed: '+e.message);btn.disabled=false;btn.textContent='Sync with Discogs';document.getElementById('discogs-sync-progress').style.display='none'}}
@@ -5579,6 +5670,9 @@ async function init(){
     if(d.settings.discogs_username)document.getElementById('discogs-username').value=d.settings.discogs_username;
     if(d.settings.saved_devices&&d.settings.saved_devices.length)_lastUsedDevice=d.settings.saved_devices[0].id;
     if(d.settings.auto_stream_enabled!==undefined){document.getElementById('auto-stream-enabled').checked=d.settings.auto_stream_enabled;if(d.settings.auto_stream_device){window._savedAutoStreamDevice=d.settings.auto_stream_device;scanAutoStreamDevices()}const st=document.getElementById('auto-stream-status');if(d.settings.auto_stream_enabled&&d.settings.auto_stream_device)st.textContent=`Auto-streaming to: ${d.settings.auto_stream_device.name}`}
+    if(d.settings.http_stream_enabled!==undefined){document.getElementById('http-stream-enabled').checked=!!d.settings.http_stream_enabled}
+    if(d.settings.http_stream_bitrate_kbps!==undefined){document.getElementById('http-stream-bitrate').value=String(d.settings.http_stream_bitrate_kbps)}
+    updateHttpStreamUI();
     if(d.settings.crossfade_secs!==undefined){document.getElementById('crossfade-slider').value=d.settings.crossfade_secs;updateCrossfadeLabel()}
     if(d.settings.device_volumes)window._deviceVolumes=d.settings.device_volumes;
     if(d.settings.app_name){document.getElementById('app-name').textContent=d.settings.app_name;document.title=d.settings.app_name}
@@ -6145,14 +6239,31 @@ document.addEventListener('keydown', function(e){
     }
   });
 
-  // Hide on tap outside keyboard and inputs
-  document.addEventListener('touchstart', function(e){
+  // Hide on outside interaction (touch, pen, mouse).
+  // Consume the event so it does not activate the tapped element underneath.
+  let _oskDismissTapUntil = 0;
+  document.addEventListener('pointerdown', function(e){
     if(!_oskVisible) return;
     const osk = document.getElementById('osk');
-    if(osk.contains(e.target)) return;
+    if(osk && osk.contains(e.target)) return;
     if(shouldShowOSK(e.target)) return;
+    _oskDismissTapUntil = Date.now() + 450;
+    e.preventDefault();
+    e.stopPropagation();
     hideOSK();
-  }, {passive:true});
+  }, {capture:true});
+
+  // Some browsers still emit a synthetic click after touchstart;
+  // swallow it briefly after dismissing the OSK.
+  document.addEventListener('click', function(e){
+    if(Date.now() > _oskDismissTapUntil) return;
+    _oskDismissTapUntil = 0;
+    if(shouldShowOSK(e.target)) return;
+    const osk = document.getElementById('osk');
+    if(osk && osk.contains(e.target)) return;
+    e.preventDefault();
+    e.stopPropagation();
+  }, true);
 
   buildKeyboard();
 })();
