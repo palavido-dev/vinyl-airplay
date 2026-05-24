@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Vinyl AirPlay — Record Catalog
+Vinyl AirPlay: Record Catalog
 Chromaprint fingerprinting → local SQLite matching.
 
 Flow:
@@ -11,6 +11,7 @@ Flow:
   5. Albums added manually via Discogs search in the web UI
 """
 
+import contextlib
 import json
 import os
 import re
@@ -22,7 +23,6 @@ import time
 import urllib.parse
 import wave
 from pathlib import Path
-from typing import Optional
 
 import numpy as np
 from PIL import Image
@@ -33,7 +33,7 @@ SAMPLE_RATE         = 44100
 CHANNELS            = 2
 FINGERPRINT_SECS    = 20          # 20s gives ~10 overlapping windows of 10s → enough votes
                                   # for confident matching while keeping fpcalc fast (~0.4s on Pi)
-FINGERPRINT_WINDOW_SECS = 10.0    # canonical stored window size — ALL fingerprints in the DB
+FINGERPRINT_WINDOW_SECS = 10.0    # canonical stored window size: ALL fingerprints in the DB
                                   # must be this duration so comparison windows line up correctly
 FINGERPRINT_WINDOW_STEP = 3.0     # step between stored windows during learning
 FINGERPRINT_INTERVAL = 8          # seconds between recognition attempts while unmatched
@@ -41,20 +41,17 @@ FINGERPRINT_INTERVAL = 8          # seconds between recognition attempts while u
 MIN_SIMILARITY      = 0.60        # minimum per-window similarity to count as a vote
 MIN_VOTES           = 2           # minimum votes required to declare a match
                                   # prevents single-window false positives (votes=1 is noise)
-ARTWORK_SIZE        = 600         # px — artwork stored at this square size
+ARTWORK_SIZE        = 600         # px: artwork stored at this square size
 DB_PATH             = Path("catalog.db")
 ARTWORK_DIR         = Path("artwork")
 DEFAULT_AUDIO_DIR   = Path("album_audio")       # fallback when no custom path configured
 USER_AGENT          = "VinylAirPlay/1.0 (local)"
 
 
-def get_audio_storage_dir(settings: dict = None) -> Path:
+def get_audio_storage_dir(settings: dict | None = None) -> Path:
     """Return the configured audio storage directory (absolute), creating it if needed."""
     custom = (settings or {}).get("audio_storage_path", "")
-    if custom:
-        p = Path(custom).resolve()
-    else:
-        p = DEFAULT_AUDIO_DIR.resolve()
+    p = Path(custom).resolve() if custom else DEFAULT_AUDIO_DIR.resolve()
     p.mkdir(parents=True, exist_ok=True)
     return p
 
@@ -156,12 +153,12 @@ def get_db() -> sqlite3.Connection:
     return db
 
 
-def init_db(settings: dict = None):
+def init_db(settings: dict | None = None):
     ARTWORK_DIR.mkdir(exist_ok=True)
     get_audio_storage_dir(settings)  # creates dir if needed
     db = get_db()
     db.executescript(SCHEMA)
-    # Migrations for existing databases — add columns if missing
+    # Migrations for existing databases: add columns if missing
     _migrate_db(db)
     db.commit()
     db.close()
@@ -199,7 +196,7 @@ def _migrate_db(db: sqlite3.Connection):
 class FingerprintBuffer:
     """
     Accumulates PCM audio from the sounddevice callback.
-    Thread-safe — put() called from audio thread, get_wav() from background thread.
+    Thread-safe: put() called from audio thread, get_wav() from background thread.
     """
 
     def __init__(self, target_secs: int = FINGERPRINT_SECS):
@@ -221,7 +218,7 @@ class FingerprintBuffer:
         with self._lock:
             return self._total >= self._target
 
-    def get_wav(self) -> Optional[bytes]:
+    def get_wav(self) -> bytes | None:
         """
         Return a complete WAV file as bytes, or None if not enough data or too quiet.
         Checks RMS level to avoid fingerprinting silence between tracks.
@@ -232,13 +229,13 @@ class FingerprintBuffer:
             pcm = b"".join(self._chunks)
             pcm = pcm[-self._target:]  # trim to exactly target_secs
 
-        # Silence check on raw PCM (no WAV header) — skip if RMS below -50 dBFS
+        # Silence check on raw PCM (no WAV header): skip if RMS below -50 dBFS
         samples = np.frombuffer(pcm, dtype=np.int16).astype(np.float32) / 32768.0
         rms = float(np.sqrt(np.mean(samples ** 2)))
         db  = 20 * np.log10(rms + 1e-9)
         print(f"[catalog] Audio level: RMS={rms:.5f} ({db:.1f} dBFS)")
         if rms < 0.003:  # ~-50 dBFS
-            print(f"[catalog] Audio too quiet — is the needle on the record?")
+            print("[catalog] Audio too quiet: is the needle on the record?")
             return None
 
         # Build WAV in memory
@@ -259,13 +256,13 @@ class FingerprintBuffer:
 
 # ── Chromaprint Fingerprinting ────────────────────────────────────────────────
 
-def fingerprint_wav(wav_bytes: bytes) -> Optional[tuple[list[int], str, float]]:
+def fingerprint_wav(wav_bytes: bytes) -> tuple[list[int], str, float] | None:
     """
     Run fpcalc on a WAV file in memory.
     Returns (raw_ints, compressed_str, duration_secs) or None on failure.
 
-    raw_ints       — signed int32 list for local BER comparison
-    compressed_str — chromaprint-compressed base64 string (kept for compatibility)
+    raw_ints      : signed int32 list for local BER comparison
+    compressed_str: chromaprint-compressed base64 string (kept for compatibility)
     """
     with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
         f.write(wav_bytes)
@@ -292,7 +289,7 @@ def fingerprint_wav(wav_bytes: bytes) -> Optional[tuple[list[int], str, float]]:
         print(f"[catalog] fpcalc: {len(raw_ints)} raw ints, duration={duration:.1f}s")
 
         if len(raw_ints) < 100:
-            print("[catalog] Fingerprint too short — audio may be silent or below threshold")
+            print("[catalog] Fingerprint too short: audio may be silent or below threshold")
             return None
 
         return raw_ints, compressed_str, duration
@@ -342,7 +339,7 @@ def _compare_fingerprints(
 
     # Spiral outward from 0: 0, 1, -1, 2, -2, ...
     # This hits the true alignment (usually near 0) first → early exit fires fast
-    for step in range(0, off_max + pad + 1):
+    for step in range(off_max + pad + 1):
         for off in ([step] if step == 0 else [step, -step]):
             if off > off_max or off < -pad:
                 continue
@@ -370,13 +367,13 @@ def _compare_fingerprints(
 # Simple in-memory cache to avoid re-loading and JSON-parsing the full DB on every attempt.
 # For a ~200-record collection this is plenty and keeps recognition snappy on a Pi.
 _FP_CACHE = {
-    "count":     None,   # total row count — used to detect DB changes
+    "count":     None,   # total row count: used to detect DB changes
     "rows":      [],     # list[tuple[int, np.ndarray]] kept for compatibility
-    "matrix":    None,   # np.ndarray shape (N, window_bytes) — all stored fps stacked
-    "track_ids": None,   # np.ndarray shape (N,) dtype int32 — parallel track IDs
+    "matrix":    None,   # np.ndarray shape (N, window_bytes): all stored fps stacked
+    "track_ids": None,   # np.ndarray shape (N,) dtype int32: parallel track IDs
 }
 
-# Popcount lookup table — faster than np.unpackbits (avoids 8× memory expansion)
+# Popcount lookup table: faster than np.unpackbits (avoids 8x memory expansion)
 _POPCOUNT_LUT = np.array([bin(i).count('1') for i in range(256)], dtype=np.uint16)
 
 def _refresh_fingerprint_cache(db: sqlite3.Connection, force: bool = False) -> None:
@@ -403,7 +400,7 @@ def _refresh_fingerprint_cache(db: sqlite3.Connection, force: bool = False) -> N
     _FP_CACHE["count"] = cnt
     _FP_CACHE["rows"]  = parsed
     if parsed:
-        # Stack into matrix for vectorized matching — shape (N, window_bytes)
+        # Stack into matrix for vectorized matching: shape (N, window_bytes)
         # Pad shorter arrays to max length so all rows have equal width
         max_len = max(len(p[1]) for p in parsed)
         mat = np.zeros((len(parsed), max_len), dtype=np.uint8)
@@ -416,7 +413,7 @@ def _refresh_fingerprint_cache(db: sqlite3.Connection, force: bool = False) -> N
         _FP_CACHE["track_ids"] = None
     print(f"[catalog] Fingerprint cache refreshed: {len(parsed)} fingerprints")
 
-def match_local(fingerprint: list[int], duration: float = FINGERPRINT_SECS) -> Optional[dict]:
+def match_local(fingerprint: list[int], duration: float = FINGERPRINT_SECS) -> dict | None:
     """
     Compare a live fingerprint against stored fingerprints using a voting approach.
 
@@ -435,7 +432,7 @@ def match_local(fingerprint: list[int], duration: float = FINGERPRINT_SECS) -> O
         if not _FP_CACHE["rows"]:
             return None
 
-        # Derive ints/sec from the live fpcalc call — precise and consistent
+        # Derive ints/sec from the live fpcalc call: precise and consistent
         fp_rate     = len(fingerprint) / duration if duration > 0 else 7.0
         window_size = max(40, int(FINGERPRINT_WINDOW_SECS * fp_rate))
         step_size   = max(1, window_size // 2)  # 50% overlap
@@ -471,7 +468,6 @@ def match_local(fingerprint: list[int], duration: float = FINGERPRINT_SECS) -> O
         # For each live window, try a small set of offsets against the full matrix.
         # Vectorized: one XOR on (N, bytes) matrix per offset → ~5ms vs ~500ms loop.
         # Offsets to try: 0 first (most common alignment), then ±1..±3 (covers ~0.4s drift)
-        OFFSETS = [0, 1, -1, 2, -2, 3, -3]
 
         votes: dict = {}
 
@@ -479,7 +475,7 @@ def match_local(fingerprint: list[int], duration: float = FINGERPRINT_SECS) -> O
             best_score = 0.0
             best_idx   = -1
 
-            # Try offset 0 first (most common alignment) — single matrix op
+            # Try offset 0 first (most common alignment): single matrix op
             # Clamp to the shorter of live_np and mat column width to avoid
             # broadcast errors when the live window differs from stored window size
             cw = min(len(live_np), col_width)
@@ -527,7 +523,7 @@ def match_local(fingerprint: list[int], duration: float = FINGERPRINT_SECS) -> O
         # Require minimum votes to avoid single-window false positives
         if vote_count < MIN_VOTES:
             print(f"[catalog] Weak match discarded: votes={vote_count} < MIN_VOTES={MIN_VOTES} "
-                  f"(best score={avg_score:.3f}) — waiting for more audio")
+                  f"(best score={avg_score:.3f}): waiting for more audio")
             return None
 
         match = _get_track_full(db, best_track_id)
@@ -539,7 +535,7 @@ def match_local(fingerprint: list[int], duration: float = FINGERPRINT_SECS) -> O
         db.close()
 
 
-def _get_track_full(db: sqlite3.Connection, track_id: int) -> Optional[dict]:
+def _get_track_full(db: sqlite3.Connection, track_id: int) -> dict | None:
     """Fetch full track + album info as a dict."""
     row = db.execute("""
         SELECT t.id as track_id, t.title as track_title, t.artist as track_artist,
@@ -564,11 +560,15 @@ def search_discogs(artist: str, album: str, token: str = "", limit: int = 8, bar
     Pass a personal access token for higher rate limits (60/min vs 25/min).
     Get one free at https://www.discogs.com/settings/developers
     """
-    import urllib.request, urllib.parse
+    import urllib.parse
+    import urllib.request
     params = {"type": "release", "format": "Vinyl", "per_page": limit, "page": 1}
-    if artist: params["artist"] = artist
-    if album:  params["release_title"] = album
-    if barcode: params["barcode"] = barcode
+    if artist:
+        params["artist"] = artist
+    if album:
+        params["release_title"] = album
+    if barcode:
+        params["barcode"] = barcode
     url = "https://api.discogs.com/database/search?" + urllib.parse.urlencode(params)
     headers = {"User-Agent": USER_AGENT}
     if token:
@@ -585,7 +585,7 @@ def search_discogs(artist: str, album: str, token: str = "", limit: int = 8, bar
                 d_artist, d_album = full_title.split(" - ", 1)
             else:
                 d_artist, d_album = r.get("artist", [""])[0] if r.get("artist") else "", full_title
-            year = str(r.get("year", "")) or (r.get("labels") or [{}])[0].get("catno", "")
+            str(r.get("year", "")) or (r.get("labels") or [{}])[0].get("catno", "")
             out.append({
                 "id":      str(r.get("id", "")),
                 "title":   d_album,
@@ -630,7 +630,7 @@ def get_discogs_release(discogs_id: str, token: str = "") -> dict:
         label  = labels[0].get("name", "") if labels else ""
         catno  = labels[0].get("catno", "") if labels else ""
 
-        # Tracks — Discogs uses position like "A1", "A2", "B1"
+        # Tracks: Discogs uses position like "A1", "A2", "B1"
         # Also handles numeric positions: "1","2" or "1-1","2-1"
         # and heading entries like "Side 1", "Side 2" that mark boundaries
         tracklist_raw = data.get("tracklist", [])
@@ -641,8 +641,6 @@ def get_discogs_release(discogs_id: str, token: str = "") -> dict:
         heading_sides = {}  # position or index -> side letter
         current_heading_side = None
         heading_idx = 0
-        has_alpha_positions = False
-        has_numeric_positions = False
         for t in tracklist_raw:
             pos = t.get("position", "")
             ttype = t.get("type_", "track")
@@ -655,9 +653,8 @@ def get_discogs_release(discogs_id: str, token: str = "") -> dict:
                     heading_idx += 1
             elif ttype == "track" and pos:
                 if pos[0].isalpha():
-                    has_alpha_positions = True
+                    pass
                 else:
-                    has_numeric_positions = True
                     if current_heading_side:
                         heading_sides[pos] = current_heading_side
 
@@ -700,7 +697,11 @@ def get_discogs_release(discogs_id: str, token: str = "") -> dict:
                 elif tracks:
                     prev = tracks[-1]
                     side = prev["side"]
-                    num = str(int(prev["track_number"]) + 1) if prev["track_number"].isdigit() else str(len([x for x in tracks if x["side"]==side])+1)
+                    if prev["track_number"].isdigit():
+                        num = str(int(prev["track_number"]) + 1)
+                    else:
+                        same_side = sum(1 for x in tracks if x["side"] == side)
+                        num = str(same_side + 1)
                 else:
                     side = "A"
                     num = "1"
@@ -798,15 +799,15 @@ def get_discogs_release(discogs_id: str, token: str = "") -> dict:
 
 
 def save_release_to_catalog(release_data: dict,
-                             fingerprint: Optional[list[int]] = None,
-                             duration: Optional[float] = None) -> Optional[int]:
+                             fingerprint: list[int] | None = None,
+                             duration: float | None = None) -> int | None:
     """
     Save a release (from Discogs search) to the catalog.
     Returns the new album_id, or None on failure.
     """
     db = get_db()
     try:
-        # Check if album already exists — try mb_release_id first, fall back to id
+        # Check if album already exists: try mb_release_id first, fall back to id
         release_id = release_data.get("mb_release_id") or release_data.get("id") or None
         if release_id:
             existing = db.execute(
@@ -874,14 +875,14 @@ def save_release_to_catalog(release_data: dict,
 
 # ── MusicBrainz Duration Fallback ─────────────────────────────────────────────
 
-def _fetch_musicbrainz_durations(artist: str, title: str) -> Optional[list[dict]]:
+def _fetch_musicbrainz_durations(artist: str, title: str) -> list[dict] | None:
     """
     Search MusicBrainz for an album and return track durations.
     Returns list of {"title": str, "duration_secs": int, "position": int} or None.
     Only used as a fallback when Discogs doesn't have duration info.
     """
     try:
-        # Search for the release — try exact title first, then normalized
+        # Search for the release: try exact title first, then normalized
         titles_to_try = [title]
         # Normalize: remove extra spaces around slashes/punctuation, strip whitespace
         normalized = re.sub(r'\s*/\s*', '/', title).strip()
@@ -981,7 +982,7 @@ def backfill_missing_durations(album_id: int):
         ).fetchone()["cnt"]
 
         print(f"[catalog] {missing['cnt']}/{total} tracks missing durations "
-              f"for '{album['title']}' — checking MusicBrainz")
+              f"for '{album['title']}': checking MusicBrainz")
 
         mb_tracks = _fetch_musicbrainz_durations(album["artist"], album["title"])
         if not mb_tracks:
@@ -1050,7 +1051,7 @@ def backfill_all_missing_durations():
 
 # ── Album Art ─────────────────────────────────────────────────────────────────
 
-def fetch_artwork_from_url(url: str, album_id: int) -> Optional[str]:
+def fetch_artwork_from_url(url: str, album_id: int) -> str | None:
     """Download artwork from any URL (e.g. Discogs). Returns relative path or None."""
     if not url:
         return None
@@ -1066,12 +1067,12 @@ def fetch_artwork_from_url(url: str, album_id: int) -> Optional[str]:
         return None
 
 
-def save_user_artwork(image_bytes: bytes, album_id: int) -> Optional[str]:
+def save_user_artwork(image_bytes: bytes, album_id: int) -> str | None:
     """Save user-uploaded photo as album artwork. Returns relative path."""
     return _save_artwork(image_bytes, album_id, user=True)
 
 
-def _save_artwork(image_bytes: bytes, album_id: int, user: bool) -> Optional[str]:
+def _save_artwork(image_bytes: bytes, album_id: int, user: bool) -> str | None:
     """Resize and save artwork, return relative path."""
     try:
         import io
@@ -1089,8 +1090,8 @@ def _save_artwork(image_bytes: bytes, album_id: int, user: bool) -> Optional[str
 
 # ── Database Write ────────────────────────────────────────────────────────────
 
-def save_manual_track(data: dict, fingerprint: Optional[list[int]] = None,
-                      duration: Optional[float] = None) -> Optional[dict]:
+def save_manual_track(data: dict, fingerprint: list[int] | None = None,
+                      duration: float | None = None) -> dict | None:
     """
     Save a manually entered album + bulk track list to the DB.
     data["tracks"] is a list of {title, side, track_number} dicts.
@@ -1179,7 +1180,7 @@ def save_fingerprint_for_album(album_id: int, fingerprint: list[int], duration: 
                 target_id = t["id"]
                 break
 
-        # All tracks already have fingerprints — add to first track for extra coverage
+        # All tracks already have fingerprints: add to first track for extra coverage
         if target_id is None:
             target_id = tracks[0]["id"]
 
@@ -1250,7 +1251,7 @@ def slice_fingerprint(
     the 20s capture window happens to land.
     """
     if not raw_ints or duration < window_secs:
-        # Track shorter than window — store as-is
+        # Track shorter than window: store as-is
         return [(raw_ints, duration)]
 
     rate        = len(raw_ints) / duration   # actual ints/sec for this recording
@@ -1390,7 +1391,7 @@ def clear_album_fingerprints(album_id: int) -> int:
         db.close()
 
 
-def fingerprint_track_from_flac(track_id: int) -> Optional[int]:
+def fingerprint_track_from_flac(track_id: int) -> int | None:
     """
     Extract a track's audio from its side's FLAC file, fingerprint it,
     and save to the database. Returns number of fingerprint rows saved,
@@ -1508,7 +1509,7 @@ def purge_oversized_fingerprints() -> int:
 def reorder_album_tracks(ordered_track_ids: list) -> bool:
     """
     Update track_number for each track based on the supplied ordered list of IDs.
-    Preserves side grouping — numbers are assigned per-side in the order given.
+    Preserves side grouping: numbers are assigned per-side in the order given.
     E.g. [A1,A2,A3,B1,B2] → track_numbers 1,2,3,1,2 within their sides.
     """
     db = get_db()
@@ -1569,7 +1570,7 @@ def reassign_tracks_to_sides(assignments: list) -> bool:
 
 
 def add_track(album_id: int, title: str, side: str = "A",
-              track_number: str = None, artist: str = None) -> Optional[int]:
+              track_number: str | None = None, artist: str | None = None) -> int | None:
     """Add a single track to an album. Returns the new track ID or None."""
     db = get_db()
     try:
@@ -1610,24 +1611,29 @@ def delete_track(track_id: int) -> bool:
         db.close()
 
 
-def update_track(track_id: int, title: str = None, artist: str = None,
-                 track_number: str = None, side: str = None,
-                 duration_secs: float = None) -> bool:
+def update_track(track_id: int, title: str | None = None, artist: str | None = None,
+                 track_number: str | None = None, side: str | None = None,
+                 duration_secs: float | None = None) -> bool:
     """Update editable fields on a track."""
     db = get_db()
     try:
         fields = []
         vals = []
         if title is not None:
-            fields.append("title = ?"); vals.append(title)
+            fields.append("title = ?")
+            vals.append(title)
         if artist is not None:
-            fields.append("artist = ?"); vals.append(artist)
+            fields.append("artist = ?")
+            vals.append(artist)
         if track_number is not None:
-            fields.append("track_number = ?"); vals.append(track_number)
+            fields.append("track_number = ?")
+            vals.append(track_number)
         if side is not None:
-            fields.append("side = ?"); vals.append(side)
+            fields.append("side = ?")
+            vals.append(side)
         if duration_secs is not None:
-            fields.append("duration_secs = ?"); vals.append(float(duration_secs))
+            fields.append("duration_secs = ?")
+            vals.append(float(duration_secs))
         if not fields:
             return True
         vals.append(track_id)
@@ -1641,7 +1647,7 @@ def update_track(track_id: int, title: str = None, artist: str = None,
         db.close()
 
 
-def get_album(album_id: int) -> Optional[dict]:
+def get_album(album_id: int) -> dict | None:
     """Get a single album by ID with play counts."""
     db = get_db()
     try:
@@ -1699,7 +1705,11 @@ def search_tracks(query: str, limit: int = 50) -> list[dict]:
             FROM tracks t
             JOIN albums a ON a.id = t.album_id
             WHERE t.title LIKE ? AND (a.deleted_at IS NULL OR a.deleted_at = '')
-            ORDER BY t.title COLLATE NOCASE, CASE WHEN a.artist LIKE 'The %' THEN SUBSTR(a.artist, 5) ELSE a.artist END COLLATE NOCASE
+            ORDER BY t.title COLLATE NOCASE,
+                     CASE WHEN a.artist LIKE 'The %'
+                          THEN SUBSTR(a.artist, 5)
+                          ELSE a.artist
+                     END COLLATE NOCASE
             LIMIT ?
         """, (q, limit)).fetchall()
         return [dict(r) for r in rows]
@@ -1964,7 +1974,7 @@ def add_album_to_playlist(playlist_id: int, album_id: int) -> bool:
             return False
         entries = json.loads(row[0])
         # Check if any side of this album already exists
-        existing_aids = set(e["a"] for e in entries if isinstance(e, dict))
+        existing_aids = {e["a"] for e in entries if isinstance(e, dict)}
         if album_id in existing_aids:
             return True  # Already present
         new_sides = _expand_album_to_sides(album_id, db)
@@ -2059,7 +2069,7 @@ def rename_playlist(playlist_id: int, new_name: str):
         db.close()
 
 
-def update_playback_position(album_id: int, side_idx: Optional[str], secs: float):
+def update_playback_position(album_id: int, side_idx: str | None, secs: float):
     """Save the last playback position for an album for resume feature."""
     db = get_db()
     try:
@@ -2098,7 +2108,7 @@ def update_album_notes(album_id: int, notes: str):
 
 def save_album_audio(album_id: int, side: str, file_path: str,
                      duration_secs: float, file_size: int,
-                     fmt: str = "flac") -> Optional[int]:
+                     fmt: str = "flac") -> int | None:
     """Save a full-side audio file record to the database. Returns row ID."""
     db = get_db()
     try:
@@ -2138,7 +2148,7 @@ def get_album_audio(album_id: int) -> list[dict]:
         db.close()
 
 
-def get_album_audio_by_id(audio_id: int) -> Optional[dict]:
+def get_album_audio_by_id(audio_id: int) -> dict | None:
     """Get a single album audio record by its ID."""
     db = get_db()
     try:
@@ -2387,7 +2397,7 @@ def migrate_audio_storage(old_dir: Path, new_dir: Path) -> dict:
 
         # Phase 2: Update DB paths (absolute)
         try:
-            for row_id, old_path, new_path in copied:
+            for row_id, _old_path, new_path in copied:
                 db.execute(
                     "UPDATE album_audio SET file_path = ? WHERE id = ?",
                     (str(new_path), row_id)
@@ -2402,12 +2412,10 @@ def migrate_audio_storage(old_dir: Path, new_dir: Path) -> dict:
             return {"ok": False, "migrated": 0,
                     "error": f"DB update failed: {e}"}
 
-        # Phase 3: Delete originals
+        # Phase 3: Delete originals (non-fatal: file was already copied)
         for _, old_path, _ in copied:
-            try:
+            with contextlib.suppress(Exception):
                 old_path.unlink()
-            except Exception:
-                pass  # non-fatal, file was already copied
 
         print(f"[catalog] Storage migration complete: {len(copied)} files moved to {new_dir}")
         return {"ok": True, "migrated": len(copied), "error": ""}
@@ -2440,8 +2448,8 @@ class Recogniser:
         self._on_unknown      = on_unknown
         self._stop            = threading.Event()
         self._thread          = None
-        self._last_track_id: Optional[int] = None
-        self._auto_learn_album_id: Optional[int] = None  # album being auto-learned
+        self._last_track_id: int | None = None
+        self._auto_learn_album_id: int | None = None  # album being auto-learned
         self._learning_mode   = False  # when True, skip recognition during learn sessions
         self._matched         = False  # True after successful match; pauses attempts until reset
 
@@ -2456,18 +2464,18 @@ class Recogniser:
         self._stop.set()
 
     def reset_match(self):
-        """Call when a new track starts — re-enables recognition attempts."""
+        """Call when a new track starts: re-enables recognition attempts."""
         self._matched       = False
         self._last_track_id = None
         self._buffer.clear()
-        print("[catalog] Recogniser: match reset — listening for next track")
+        print("[catalog] Recogniser: match reset: listening for next track")
 
     def set_learning_mode(self, enabled: bool):
         """Suppress recognition attempts while a learn session is active."""
         self._learning_mode = enabled
         print(f"[catalog] Recogniser: learning_mode={'ON' if enabled else 'OFF'}")
 
-    def set_auto_learn_album(self, album_id: Optional[int]):
+    def set_auto_learn_album(self, album_id: int | None):
         """
         Enable auto-learn for a specific album.
         While active, any unmatched fingerprint is automatically saved
@@ -2488,7 +2496,7 @@ class Recogniser:
             if self._learning_mode:
                 continue
             if self._matched:
-                # Already identified — wait for reset_match() before trying again
+                # Already identified: wait for reset_match() before trying again
                 continue
             if not self._buffer.ready():
                 continue
@@ -2507,12 +2515,12 @@ class Recogniser:
         # fingerprint_wav now returns (raw_ints, compressed_str, duration)
         raw_ints, compressed_str, duration = result
 
-        # 1. Local match first — no internet needed
+        # 1. Local match first: no internet needed
         match = match_local(raw_ints, duration)
         if match:
             # Always save this fingerprint against the matched track so the
-            # catalog builds up multiple fingerprints over time — one per
-            # ~30s window — covering different sections of each track.
+            # catalog builds up multiple fingerprints over time: one per
+            # ~30s window: covering different sections of each track.
             # Note: we intentionally do NOT save fingerprints during recognition.
             # Doing so poisons the DB when a match is wrong (wrong-track audio saved
             # under wrong ID → cascading mismatches forever). Re-learn via Learn session.
@@ -2520,9 +2528,12 @@ class Recogniser:
             if match["track_id"] != self._last_track_id:
                 self._last_track_id = match["track_id"]
                 log_play(match["track_id"], match["album_id"])
-                print(f"[catalog] Local match: {match['track_title']} — {match['album_title']} (score={match.get('match_score','?')}, votes={match.get('match_votes','?')})")
+                print(
+                    f"[catalog] Local match: {match['track_title']}: {match['album_title']} "
+                    f"(score={match.get('match_score','?')}, votes={match.get('match_votes','?')})"
+                )
                 self._on_match(match)
-            # Stop attempting until the next track — avoids CPU spikes mid-song
+            # Stop attempting until the next track: avoids CPU spikes mid-song
             self._matched = True
             return
 
@@ -2537,7 +2548,7 @@ class Recogniser:
                 album  = next((a for a in albums if a["id"] == self._auto_learn_album_id), None)
                 if album and tracks:
                     # Find the track we most likely just saved to (first with a fingerprint
-                    # that was just created — approximate by matching against db now)
+                    # that was just created: approximate by matching against db now)
                     match = match_local(raw_ints, duration)
                     if match and match["album_id"] == self._auto_learn_album_id:
                         if match["track_id"] != self._last_track_id:
@@ -2555,7 +2566,7 @@ class Recogniser:
 
 # ── Export Library ────────────────────────────────────────────────────────
 
-def get_export_manifest(settings: dict = None) -> dict:
+def get_export_manifest(settings: dict | None = None) -> dict:
     """
     Generate a manifest of all albums, tracks, and audio files for backup.
     Returns dict with albums list, total file count, and total size in bytes.
@@ -2664,7 +2675,7 @@ def create_smart_playlist(name: str, rules: list) -> int:
         db.close()
 
 
-def update_smart_playlist(playlist_id: int, name: str = None, rules: list = None):
+def update_smart_playlist(playlist_id: int, name: str | None = None, rules: list | None = None):
     """Update a smart playlist's name and/or rules."""
     db = get_db()
     try:
@@ -2732,16 +2743,13 @@ def _resolve_smart_playlist_albums(rules: list) -> list[dict]:
                         matches_all = False
                         break
                     threshold = float(value)
-                    if op == "gt" and not (val > threshold):
-                        matches_all = False
-                        break
-                    elif op == "gte" and not (val >= threshold):
-                        matches_all = False
-                        break
-                    elif op == "lt" and not (val < threshold):
-                        matches_all = False
-                        break
-                    elif op == "lte" and not (val <= threshold):
+                    fails = (
+                        (op == "gt"  and not (val >  threshold)) or
+                        (op == "gte" and not (val >= threshold)) or
+                        (op == "lt"  and not (val <  threshold)) or
+                        (op == "lte" and not (val <= threshold))
+                    )
+                    if fails:
                         matches_all = False
                         break
                 except (TypeError, ValueError):
@@ -2801,7 +2809,7 @@ def get_decades_with_albums() -> list[int]:
         if album.get("year"):
             decade = (album["year"] // 10) * 10
             decades.add(decade)
-    return sorted(list(decades))
+    return sorted(decades)
 
 
 def get_genres_with_count(min_count: int = 3) -> list[tuple]:
@@ -3103,7 +3111,7 @@ def get_song_playlists() -> list[dict]:
         db.close()
 
 
-def get_song_playlist(playlist_id: int) -> Optional[dict]:
+def get_song_playlist(playlist_id: int) -> dict | None:
     """Get a single song playlist with full track details."""
     db = get_db()
     try:
@@ -3131,7 +3139,7 @@ def get_song_playlist(playlist_id: int) -> Optional[dict]:
         db.close()
 
 
-def create_song_playlist(name: str, track_ids: list[int] = None) -> int:
+def create_song_playlist(name: str, track_ids: list[int] | None = None) -> int:
     """Create a new song playlist. Returns the playlist ID."""
     db = get_db()
     try:
@@ -3145,7 +3153,7 @@ def create_song_playlist(name: str, track_ids: list[int] = None) -> int:
         db.close()
 
 
-def update_song_playlist(playlist_id: int, name: str = None, track_ids: list[int] = None) -> bool:
+def update_song_playlist(playlist_id: int, name: str | None = None, track_ids: list[int] | None = None) -> bool:
     """Update a song playlist name and/or tracks."""
     db = get_db()
     try:

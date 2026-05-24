@@ -7,14 +7,13 @@ Captive portal for headless first-time WiFi configuration
 import asyncio
 import json
 import subprocess
-import os
-import signal
 import sys
+import time
 from pathlib import Path
-from fastapi import FastAPI, Request, BackgroundTasks
-from fastapi.responses import HTMLResponse, JSONResponse
-from fastapi.staticfiles import StaticFiles
+
 import uvicorn
+from fastapi import FastAPI, Request
+from fastapi.responses import HTMLResponse, JSONResponse
 
 # Configuration
 HOTSPOT_SSID = "VinylStreamer-Setup"
@@ -108,7 +107,7 @@ def scan_networks() -> list:
                 unique_networks.append(net)
 
         return unique_networks[:20]
-    except Exception as e:
+    except Exception:
         return []
 
 def connect_to_network(ssid: str, password: str = "") -> bool:
@@ -132,13 +131,15 @@ def connect_to_network(ssid: str, password: str = "") -> bool:
             timeout=15
         )
 
-        for attempt in range(30):
+        # Called via asyncio.to_thread() from the FastAPI endpoint, so a
+        # blocking sleep here does not block the event loop.
+        for _attempt in range(30):
             if check_wifi_connection():
                 save_wifi_config({"ssid": ssid, "psk": password})
                 wifi_state["connected"] = True
                 wifi_state["error"] = None
                 return True
-            await asyncio.sleep(1)
+            time.sleep(1)
 
         wifi_state["error"] = "Connection timeout"
         return False
@@ -149,9 +150,12 @@ def connect_to_network(ssid: str, password: str = "") -> bool:
 async def check_main_app_ready() -> bool:
     try:
         import aiohttp
-        async with aiohttp.ClientSession() as session:
-            async with session.get("http://localhost:8080", timeout=aiohttp.ClientTimeout(total=5)) as response:
-                return response.status == 200
+        timeout = aiohttp.ClientTimeout(total=5)
+        async with (
+            aiohttp.ClientSession() as session,
+            session.get("http://localhost:8080", timeout=timeout) as response,
+        ):
+            return response.status == 200
     except Exception:
         return False
 

@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """
-Vinyl AirPlay — Audio Recorder
+Vinyl AirPlay: Audio Recorder
 Detects track boundaries via silence gaps, captures full album sides
 as FLAC files with track boundary timestamps.
 """
 
+import contextlib
 import io
 import os
 import subprocess
@@ -13,7 +14,6 @@ import threading
 import time
 import wave
 from pathlib import Path
-from typing import Optional
 
 import numpy as np
 
@@ -31,16 +31,16 @@ SILENCE_RATIO     = 0.40            # silence = RMS drops below this fraction of
                                     # Vinyl groove noise is typically 10-20dB below music,
                                     # so this reliably catches inter-track gaps on any pressing
 SILENCE_RATIO_MIN = 0.006           # absolute floor: never treat above this as silence
-SIGNAL_ADAPT_RATE = 0.002           # EMA rate for signal level tracker (slow — ~500 chunks)
-SIGNAL_DECAY_RATE = 0.0004          # decay rate when below threshold — 5× slower than adapt
+SIGNAL_ADAPT_RATE = 0.002           # EMA rate for signal level tracker (slow: ~500 chunks)
+SIGNAL_DECAY_RATE = 0.0004          # decay rate when below threshold: 5x slower than adapt
                                     # prevents signal level from getting stuck high on dynamic albums
 SILENCE_FORGIVE_SECS = 0.3          # ignore above-threshold blips shorter than this during a gap
                                     # vinyl pops/crackles shouldn't reset the silence counter
 SILENCE_MIN_SECS  = 1.5             # silence must last this long to split track
-                                    # reduced from 2.0 — some albums have short inter-track gaps
+                                    # reduced from 2.0: some albums have short inter-track gaps
 EARLY_SPLIT_RATIO  = 0.75           # suppress silence splits until 75% of expected duration elapsed
                                     # lets time-based fallback handle albums with long vinyl gaps
-END_OF_SIDE_SECS  = 20.0            # silence this long = end of side — auto-flush final track
+END_OF_SIDE_SECS  = 20.0            # silence this long = end of side: auto-flush final track
                                     # _split_track trims to silence_start+pad so no long silence
                                     # is appended to the file
 END_OF_SIDE_RMS   = 0.004           # RMS must stay below this to count toward end-of-side
@@ -72,9 +72,9 @@ class RecordingBuffer:
 
     def __init__(self,
                  on_track_ready,          # callback(pcm_bytes, duration_secs)
-                 on_level_update,         # callback(rms_float) — for UI meter
-                 on_audio_detected=None,  # callback() — fired once when startup gate opens
-                 on_end_of_side=None,     # callback() — fired when end-of-side silence detected
+                 on_level_update,         # callback(rms_float): for UI meter
+                 on_audio_detected=None,  # callback(): fired once when startup gate opens
+                 on_end_of_side=None,     # callback(): fired when end-of-side silence detected
                  auto_split: bool = True):
         self._lock            = threading.Lock()
         self._on_track_ready     = on_track_ready
@@ -135,10 +135,10 @@ class RecordingBuffer:
             self._duration_track_idx   = 0
             self._track_elapsed_secs   = 0.0
             self._last_put_time        = time.monotonic()
-            # Keep _expected_durations — set externally before start()
+            # Keep _expected_durations: set externally before start()
         print(f"[recorder] Recording started (auto_split={auto_split})")
 
-    def stop(self) -> Optional[bytes]:
+    def stop(self) -> bytes | None:
         """Stop recording and return the accumulated PCM, or None if too short."""
         with self._lock:
             if not self._active:
@@ -150,10 +150,10 @@ class RecordingBuffer:
 
         duration = _pcm_duration(pcm)
         if duration < MIN_TRACK_SECS:
-            print(f"[recorder] Track too short ({duration:.1f}s) — discarding")
+            print(f"[recorder] Track too short ({duration:.1f}s): discarding")
             return None
 
-        print(f"[recorder] Recording stopped — {duration:.1f}s captured")
+        print(f"[recorder] Recording stopped: {duration:.1f}s captured")
         return pcm
 
     def set_expected_durations(self, durations: list[float]):
@@ -184,11 +184,11 @@ class RecordingBuffer:
         with self._lock:
             return _pcm_duration(b"x" * self._total_bytes)
 
-    def put(self, pcm_chunk: bytes, rms: float = None):
+    def put(self, pcm_chunk: bytes, rms: float | None = None):
         """Called from audio callback with each block of int16 stereo PCM.
 
         Silence detection and level monitoring always run regardless of whether
-        recording is active — this allows inter-track gap detection (for recogniser
+        recording is active: this allows inter-track gap detection (for recogniser
         reset) even during normal non-recording streaming.
         Only chunk accumulation is gated behind _active.
 
@@ -198,7 +198,7 @@ class RecordingBuffer:
         self._last_put_time = time.monotonic()
 
         if rms is None:
-            # Fallback: compute RMS from int16 PCM (expensive — avoid in hot path)
+            # Fallback: compute RMS from int16 PCM (expensive: avoid in hot path)
             samples = np.frombuffer(pcm_chunk, dtype=np.int16).astype(np.float32) / 32768.0
             rms     = float(np.sqrt(np.mean(samples ** 2)))
 
@@ -229,7 +229,7 @@ class RecordingBuffer:
                     # calibrated before the first track even ends
                     self._signal_level = rms
                     thresh = max(SILENCE_RATIO_MIN, rms * SILENCE_RATIO)
-                    print(f"[recorder] Audio detected — silence detection active"
+                    print(f"[recorder] Audio detected: silence detection active"
                           f"  signal={rms:.5f}  silence_threshold={thresh:.5f}")
                     if self._on_audio_detected:
                         self._on_audio_detected()
@@ -282,7 +282,7 @@ class RecordingBuffer:
             if self._silence_start_byte == 0:
                 with self._lock:
                     self._silence_start_byte = self._total_bytes - len(pcm_chunk)
-            # Slowly decay signal level even during silence — prevents threshold
+            # Slowly decay signal level even during silence: prevents threshold
             # from getting stuck high on dynamic albums where quiet music sits
             # below an inflated threshold from earlier loud passages.
             self._signal_level -= SIGNAL_DECAY_RATE * self._signal_level
@@ -307,7 +307,7 @@ class RecordingBuffer:
                     and self._eos_silence_secs >= END_OF_SIDE_SECS):
                 self._end_of_side_fired = True
                 print(f"[recorder] End-of-side detected ({self._eos_silence_secs:.1f}s near-silence)"
-                      f" — flushing final track (trimmed to music end)")
+                      f": flushing final track (trimmed to music end)")
                 self._split_track()          # trims silence, hands off final track
                 self._audio_seen = False     # re-arm startup gate for next side
                 if self._on_end_of_side:
@@ -321,7 +321,7 @@ class RecordingBuffer:
             # a gap shouldn't reset the silence counter. Require sustained audio
             # to confirm the gap is actually over.
             if self._above_thresh_secs >= SILENCE_FORGIVE_SECS:
-                # Genuine audio returned — finalize any pending silence
+                # Genuine audio returned: finalize any pending silence
                 self._silence_log_countdown = 0  # reset so next gap logs immediately
                 self._end_of_side_fired = False  # reset if audio returns
                 # Determine whether silence-based splitting is allowed.
@@ -335,9 +335,9 @@ class RecordingBuffer:
                         and self._duration_track_idx < len(self._expected_durations)):
                     expected = self._expected_durations[self._duration_track_idx]
                     if expected > 0 and self._track_elapsed_secs < expected * EARLY_SPLIT_RATIO:
-                        allow_silence_split = False  # too early — let time-based fallback handle it
+                        allow_silence_split = False  # too early: let time-based fallback handle it
                 if allow_silence_split and self._silence_secs >= min_silence:
-                    # Sustained silence ended — split track
+                    # Sustained silence ended: split track
                     self._split_track()
                 self._silence_secs       = 0.0
                 self._silence_start_byte = 0
@@ -363,7 +363,7 @@ class RecordingBuffer:
                 self._split_track()
 
     def _split_track(self):
-        """Called when silence gap detected — extract the completed track."""
+        """Called when silence gap detected: extract the completed track."""
         with self._lock:
             pcm = b"".join(self._chunks)
             # Trim to silence start + pad (keep natural fade)
@@ -378,7 +378,7 @@ class RecordingBuffer:
 
         duration = _pcm_duration(track_pcm)
         if duration < MIN_TRACK_SECS:
-            print(f"[recorder] Gap detected ({duration:.1f}s PCM) — notifying track boundary")
+            print(f"[recorder] Gap detected ({duration:.1f}s PCM): notifying track boundary")
             # Still notify for recogniser reset even if not recording
             self._on_track_ready(None, 0.0)
             return
@@ -572,8 +572,10 @@ def trim_needle_drop_flac(flac_path: str) -> dict:
 DEFAULT_AUDIO_DIR = Path(__file__).parent / "album_audio"
 
 
-def encode_flac(pcm: bytes, output_path: Path, metadata: dict = {}) -> bool:
+def encode_flac(pcm: bytes, output_path: Path, metadata: dict | None = None) -> bool:
     """Encode PCM audio to FLAC using ffmpeg. Returns True on success."""
+    if metadata is None:
+        metadata = {}
     wav_bytes = _pcm_to_wav(pcm)
     with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
         f.write(wav_bytes)
@@ -646,7 +648,7 @@ class AlbumRecorder:
     """
 
     def __init__(self, album_id: int, side: str, album_info: dict,
-                 audio_dir: Path = None):
+                 audio_dir: Path | None = None):
         self._lock = threading.Lock()
         self.album_id = album_id
         self.side = side
@@ -661,7 +663,7 @@ class AlbumRecorder:
         self._track_boundaries: list[dict] = []  # [{track_id, start_byte, start_secs}]
         self._current_track_start_byte = 0
 
-        # Startup gate — same idea as RecordingBuffer: don't count silence
+        # Startup gate: same idea as RecordingBuffer: don't count silence
         self._audio_started = False
         self.on_audio_detected = None  # callback when first audio arrives
 
@@ -682,7 +684,7 @@ class AlbumRecorder:
     def track_count(self) -> int:
         return len(self._track_boundaries)
 
-    def put(self, pcm_chunk: bytes, rms: float = None):
+    def put(self, pcm_chunk: bytes, rms: float | None = None):
         """Called from audio callback with each block of int16 stereo PCM.
 
         If *rms* is provided (pre-computed in the callback), the expensive
@@ -698,10 +700,10 @@ class AlbumRecorder:
                 rms = float(np.sqrt(np.mean(samples ** 2)))
             if rms >= 0.006:  # same as SILENCE_RATIO_MIN
                 self._audio_started = True
-                print("[album-rec] Audio detected — recording")
+                print("[album-rec] Audio detected: recording")
                 if self.on_audio_detected:
-                    try: self.on_audio_detected()
-                    except Exception: pass
+                    with contextlib.suppress(Exception):
+                        self.on_audio_detected()
             else:
                 return  # skip pre-needle silence
 
@@ -709,7 +711,7 @@ class AlbumRecorder:
             self._chunks.append(pcm_chunk)
             self._total_bytes += len(pcm_chunk)
 
-    def mark_track_boundary(self, track_id: int = None):
+    def mark_track_boundary(self, track_id: int | None = None):
         """
         Called when RecordingBuffer detects a track split (silence gap).
         Records the timestamp of the boundary within the full-side audio.
@@ -736,7 +738,7 @@ class AlbumRecorder:
             print(f"[album-rec] Track boundary at {boundary_secs:.1f}s "
                   f"(track {len(self._track_boundaries)}, id={track_id})")
 
-    def mark_first_track(self, track_id: int = None):
+    def mark_first_track(self, track_id: int | None = None):
         """
         Mark the start of the first track (called when audio is first detected).
         """
@@ -751,7 +753,7 @@ class AlbumRecorder:
                 })
                 print(f"[album-rec] First track started (id={track_id})")
 
-    def finish(self) -> tuple[Optional[Path], float, list[dict]]:
+    def finish(self) -> tuple[Path | None, float, list[dict]]:
         """
         Finalize the recording: encode to FLAC, return path + duration + boundaries.
         Returns (file_path, duration_secs, track_boundaries) or (None, 0, []).
@@ -759,7 +761,7 @@ class AlbumRecorder:
         with self._lock:
             self._active = False
             if not self._chunks:
-                print("[album-rec] Nothing recorded — no audio received")
+                print("[album-rec] Nothing recorded: no audio received")
                 return None, 0.0, []
 
             pcm = b"".join(self._chunks)
@@ -782,7 +784,7 @@ class AlbumRecorder:
         # Strategy: scan in 100ms windows, find the first point where
         # audio is *sustained* (3+ consecutive windows above threshold),
         # then trim everything before that point with a short fade-in.
-        pcm_len = len(pcm)
+        len(pcm)
         lead_pos = _find_music_start(pcm)
 
         if lead_pos > 0:
@@ -822,9 +824,9 @@ class AlbumRecorder:
             block = np.frombuffer(pcm[block_start:trim_pos], dtype=np.int16)
             rms = float(np.sqrt(np.mean((block.astype(np.float32) / 32768.0) ** 2)))
             if rms >= TRIM_THRESHOLD:
-                # This block has audio — keep everything up to here + fade tail
+                # This block has audio: keep everything up to here + fade tail
                 trim_pos = min(trim_pos + FADE_TAIL, original_len)
-                # Align to frame boundary (2 channels × 2 bytes = 4 bytes per frame)
+                # Align to frame boundary (2 channels x 2 bytes = 4 bytes per frame)
                 trim_pos = trim_pos - (trim_pos % 4)
                 break
             trim_pos = block_start
@@ -844,8 +846,8 @@ class AlbumRecorder:
         # ──────────────────────────────────────────────────────────────
 
         duration = _pcm_duration(pcm)
-        if duration < 30:  # less than 30 seconds — probably not a real side
-            print(f"[album-rec] Recording too short ({duration:.1f}s) — discarding")
+        if duration < 30:  # less than 30 seconds: probably not a real side
+            print(f"[album-rec] Recording too short ({duration:.1f}s): discarding")
             return None, 0.0, []
 
         # Build filename and encode

@@ -5,17 +5,14 @@ Converts recorded FLAC side files into per-track AAC (M4A) or MP3
 with embedded metadata and album art, organized for iTunes import.
 """
 
-import json
 import os
 import re
-import shutil
 import subprocess
-import tempfile
 import threading
 import time
 import uuid
+from collections.abc import Callable
 from pathlib import Path
-from typing import Optional, Callable
 
 import catalog as cat
 
@@ -36,7 +33,7 @@ DEFAULT_EXPORT_DIR = _INSTALL_EXPORT if _INSTALL_EXPORT.exists() else Path("expo
 
 
 def get_album_export_info(album_id: int, fmt: str = "m4a",
-                          export_dir: Optional[Path] = None) -> dict:
+                          export_dir: Path | None = None) -> dict:
     """Check if an album has exported files. Returns file count, total size, and path."""
     album = cat.get_album(album_id)
     if not album:
@@ -68,7 +65,7 @@ def get_album_export_info(album_id: int, fmt: str = "m4a",
     }
 
 
-def get_all_export_status(export_dir: Optional[Path] = None) -> dict:
+def get_all_export_status(export_dir: Path | None = None) -> dict:
     """Scan export directory and return a map of album_id -> export info.
     Matches by artist+album folder names against the catalog."""
     base_dir = export_dir or DEFAULT_EXPORT_DIR.resolve()
@@ -130,7 +127,7 @@ def _get_flac_duration(path: str) -> float:
 
 
 def _resolve_track_bounds(track: dict, side_duration: float,
-                          prev_end: float = None):
+                          prev_end: float | None = None):
     """Return (start_secs, duration_secs) for extracting a track from a side FLAC.
 
     Handles edge cases:
@@ -164,7 +161,7 @@ def _resolve_track_bounds(track: dict, side_duration: float,
     return start, max(duration, 0.1)
 
 
-def _get_artwork_path(album: dict) -> Optional[str]:
+def _get_artwork_path(album: dict) -> str | None:
     """Return the best available artwork path for an album (absolute)."""
     # The app may store relative paths (e.g. "artwork/album_14_user.jpg").
     # Resolve them relative to the app's source directory.
@@ -197,10 +194,10 @@ def export_track_to_file(
     side_duration: float,
     output_path: Path,
     fmt: str = "m4a",
-    artwork_path: Optional[str] = None,
+    artwork_path: str | None = None,
     total_tracks_on_album: int = 0,
-    prev_end: float = None,
-    override_track_num: int = None,
+    prev_end: float | None = None,
+    override_track_num: int | None = None,
 ) -> dict:
     """Export a single track from a side FLAC to M4A or MP3.
 
@@ -282,8 +279,8 @@ def export_track_to_file(
 def export_album(
     album_id: int,
     fmt: str = "m4a",
-    export_dir: Optional[Path] = None,
-    on_progress: Optional[Callable] = None,
+    export_dir: Path | None = None,
+    on_progress: Callable | None = None,
     force: bool = False,
 ) -> dict:
     """Export all tracks for an album to M4A or MP3.
@@ -320,10 +317,7 @@ def export_album(
     artist_dir = _safe_filename(album.get("artist") or "Unknown Artist")
     album_name = _safe_filename(album.get("title") or "Unknown Album")
     year = album.get("year")
-    if year:
-        album_folder = f"{album_name} ({year})"
-    else:
-        album_folder = album_name
+    album_folder = f"{album_name} ({year})" if year else album_name
     out_dir = base_dir / artist_dir / album_folder
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -456,19 +450,19 @@ def _job_set(job_id: str, data: dict):
         _jobs[job_id] = data
 
 
-def _job_get(job_id: str) -> Optional[dict]:
+def _job_get(job_id: str) -> dict | None:
     with _jobs_lock:
         return _jobs.get(job_id, {}).copy()
 
 
-def get_export_status(job_id: str) -> Optional[dict]:
+def get_export_status(job_id: str) -> dict | None:
     return _job_get(job_id)
 
 
 def bulk_export(
     fmt: str = "m4a",
-    export_dir: Optional[Path] = None,
-    ws_broadcast: Optional[Callable] = None,
+    export_dir: Path | None = None,
+    ws_broadcast: Callable | None = None,
 ) -> str:
     """Start a bulk export of all albums with recordings. Returns job_id."""
     job_id = str(uuid.uuid4())[:8]
@@ -503,7 +497,7 @@ def _bulk_export_worker(
     job_id: str,
     fmt: str,
     base_dir: Path,
-    ws_broadcast: Optional[Callable],
+    ws_broadcast: Callable | None,
 ):
     """Worker thread for bulk export."""
     # Get all albums that have recordings

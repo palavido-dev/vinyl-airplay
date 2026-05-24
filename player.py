@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Vinyl AirPlay — Catalog Playback Engine
+Vinyl AirPlay: Catalog Playback Engine
 
 Decodes recorded album FLAC files and feeds PCM at real-time rate
 into AirPlay streams (or any list of AsyncAudioStream-like objects).
@@ -16,8 +16,8 @@ Flow:
 import subprocess
 import threading
 import time
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable, Optional
 
 import numpy as np
 
@@ -51,9 +51,9 @@ class PlaylistEntry:
     """One side of an album (one FLAC file)."""
 
     def __init__(self, audio_path: str, side: str, duration_secs: float,
-                 tracks: list[dict], album_id: int = None,
-                 album_title: str = None, album_artist: str = None,
-                 artwork_path: str = None):
+                 tracks: list[dict], album_id: int | None = None,
+                 album_title: str | None = None, album_artist: str | None = None,
+                 artwork_path: str | None = None):
         self.audio_path    = audio_path
         self.side          = side
         self.duration_secs = duration_secs
@@ -74,15 +74,15 @@ class Player:
     Decodes album FLAC files and feeds PCM to AirPlay streams.
 
     Callbacks:
-      on_track_change(track_info: dict)  — fired when current track changes
-      on_status_change(status: dict)     — fired on play/pause/stop/position updates
-      on_finished()                      — fired when playlist ends
+      on_track_change(track_info: dict) : fired when current track changes
+      on_status_change(status: dict)    : fired on play/pause/stop/position updates
+      on_finished()                     : fired when playlist ends
     """
 
     def __init__(self, eq, streams: list,
-                 on_track_change: Optional[Callable] = None,
-                 on_status_change: Optional[Callable] = None,
-                 on_finished: Optional[Callable] = None):
+                 on_track_change: Callable | None = None,
+                 on_status_change: Callable | None = None,
+                 on_finished: Callable | None = None):
         self.eq       = eq
         self.streams  = streams  # list of AsyncAudioStream objects
 
@@ -91,8 +91,8 @@ class Player:
         self._on_finished      = on_finished or (lambda: None)
 
         self.playlist: list[PlaylistEntry] = []
-        self.album_id: Optional[int] = None
-        self.album_info: Optional[dict] = None  # {title, artist, year, artwork_path, ...}
+        self.album_id: int | None = None
+        self.album_info: dict | None = None  # {title, artist, year, artwork_path, ...}
 
         self._side_idx     = 0        # current index into playlist
         self._position     = 0.0      # seconds into current side
@@ -103,9 +103,9 @@ class Player:
         self._lock         = threading.Lock()
         self._pause_event  = threading.Event()
         self._stop_event   = threading.Event()
-        self._feed_thread: Optional[threading.Thread] = None
-        self._ffmpeg: Optional[subprocess.Popen] = None
-        self._next_ffmpeg: Optional[subprocess.Popen] = None  # pre-started for gapless
+        self._feed_thread: threading.Thread | None = None
+        self._ffmpeg: subprocess.Popen | None = None
+        self._next_ffmpeg: subprocess.Popen | None = None  # pre-started for gapless
 
         self._crossfade_secs = 0.0           # 0 = disabled
         self._crossfade_bytes_consumed = 0   # bytes read from next side during crossfade
@@ -123,13 +123,13 @@ class Player:
         return self._position
 
     @property
-    def current_side(self) -> Optional[str]:
+    def current_side(self) -> str | None:
         if 0 <= self._side_idx < len(self.playlist):
             return self.playlist[self._side_idx].side
         return None
 
     @property
-    def current_track(self) -> Optional[dict]:
+    def current_track(self) -> dict | None:
         if 0 <= self._side_idx < len(self.playlist):
             entry = self.playlist[self._side_idx]
             if 0 <= self._current_track_idx < len(entry.tracks):
@@ -175,7 +175,7 @@ class Player:
     # ── Playback Control ─────────────────────────────────────────────────────
 
     def play(self, album_id: int, album_info: dict,
-             playlist: list[PlaylistEntry], start_track_id: Optional[int] = None):
+             playlist: list[PlaylistEntry], start_track_id: int | None = None):
         """Start playing an album. Stops any current playback first."""
         self.stop()
 
@@ -185,7 +185,7 @@ class Player:
         self.playlist   = playlist
 
         if not playlist:
-            print("[player] Empty playlist — nothing to play")
+            print("[player] Empty playlist: nothing to play")
             return
 
         # Find starting position
@@ -265,16 +265,25 @@ class Player:
 
     def seek_to_track(self, track_id: int):
         """Jump to a specific track by ID."""
-        print(f"[player] seek_to_track: looking for track_id={track_id} in {len(self.playlist)} entries, current side_idx={self._side_idx}")
+        print(
+            f"[player] seek_to_track: looking for track_id={track_id} "
+            f"in {len(self.playlist)} entries, current side_idx={self._side_idx}"
+        )
         for si, entry in enumerate(self.playlist):
             for t in entry.tracks:
                 if t["id"] == track_id:
                     pos = t.get("start_secs") or 0.0
                     if si != self._side_idx:
-                        print(f"[player] seek_to_track: found '{t.get('title')}' on side {entry.side} (idx={si}), pos={pos:.1f}s -- changing side")
+                        print(
+                            f"[player] seek_to_track: found '{t.get('title')}' "
+                            f"on side {entry.side} (idx={si}), pos={pos:.1f}s: changing side"
+                        )
                         self._change_side(si, pos)
                     else:
-                        print(f"[player] seek_to_track: found '{t.get('title')}' on current side (idx={si}), seeking to {pos:.1f}s")
+                        print(
+                            f"[player] seek_to_track: found '{t.get('title')}' "
+                            f"on current side (idx={si}), seeking to {pos:.1f}s"
+                        )
                         self.seek_to(pos)
                     return
         print(f"[player] seek_to_track: track_id={track_id} NOT FOUND in playlist")
@@ -327,7 +336,7 @@ class Player:
             else:
                 self._change_side(self._side_idx - 1, 0.0)
         else:
-            # Already at start — restart first track
+            # Already at start: restart first track
             self.seek_to(0.0)
 
     # ── Internal: Side Management ────────────────────────────────────────────
@@ -445,7 +454,7 @@ class Player:
                     new_idx = i
                     break
 
-        # Still no match — default to first track (common when timestamps
+        # Still no match: default to first track (common when timestamps
         # are offsets from stream start, not from FLAC file start)
         if new_idx == -1 and entry.tracks:
             new_idx = 0
@@ -459,7 +468,7 @@ class Player:
                 old_track = entry.tracks[self._current_track_idx]
                 start = old_track.get("start_secs") or 0.0
                 self.seek_to(start)
-                return  # Don't update track index — we're looping
+                return  # Don't update track index: we're looping
 
             self._current_track_idx = new_idx
             track = entry.tracks[new_idx]
@@ -506,7 +515,7 @@ class Player:
                 self._side_idx = 0
                 self._position = 0.0
                 self._current_track_idx = -1
-                print("[player] Repeat album — restarting")
+                print("[player] Repeat album: restarting")
             entry = self.playlist[self._side_idx]
             print(f"[player] Starting Side {entry.side}: {entry.audio_path} "
                   f"(at {self._position:.1f}s, {len(entry.tracks)} tracks)")
@@ -649,7 +658,11 @@ class Player:
                         # Equal-power crossfade (cosine curve)
                         fade_out = float(np.cos(t * np.pi * 0.5))
                         fade_in  = float(np.sin(t * np.pi * 0.5))
-                        nxt_f32 = np.frombuffer(next_chunk, dtype=np.int16).reshape(-1, CHANNELS).astype(np.float32) / 32767.0
+                        nxt_f32 = (
+                            np.frombuffer(next_chunk, dtype=np.int16)
+                              .reshape(-1, CHANNELS)
+                              .astype(np.float32) / 32767.0
+                        )
                         audio_f32 = audio_f32 * fade_out + nxt_f32 * fade_in
 
                 # Apply EQ
@@ -665,11 +678,11 @@ class Player:
 
                 # Broadcast position every ~1 second
                 status_ticker += 1
-                if status_ticker % 11 == 0:  # ~11 chunks/sec × 1 ≈ 1s
+                if status_ticker % 11 == 0:  # ~11 chunks/sec * 1 ~ 1s
                     self._on_status_change(self.get_status())
 
                 # Rate limit: sleep to maintain real-time pace using
-                # bytes-fed-based target (self-correcting — no drift accumulation)
+                # bytes-fed-based target (self-correcting: no drift accumulation)
                 target_time = bytes_fed / BYTES_PER_SEC
                 actual_time = time.monotonic() - t_start
                 sleep_needed = target_time - actual_time

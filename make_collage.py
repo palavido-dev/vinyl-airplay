@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 """Generate a seamless grid collage of all album artwork."""
-import sqlite3, os, math, random
+import math
+import os
+import random
+import sqlite3
+
 from PIL import Image
 
 DB = "catalog.db"
@@ -46,7 +50,7 @@ if empty > 0:
         try:
             img = Image.open(fill[j % len(fill)]).convert("RGB").resize((THUMB, THUMB), Image.LANCZOS)
             collage.paste(img, (c * THUMB, r * THUMB))
-        except:
+        except Exception:
             pass
 
 out = "/tmp/vinyl_collection_collage.jpg"
