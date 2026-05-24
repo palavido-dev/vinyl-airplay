@@ -55,9 +55,10 @@ def _capture_channels(device_index=None) -> int:
     except Exception:
         return 2  # safe stereo fallback
 BITS          = 16
-BLOCK_SIZE    = 8192   # larger blocks = fewer callbacks = less overflow on Pi
-                       # (the live MP3 encoder re-chunks internally to MP3 frame
-                       # boundaries, so capture block size is independent of that)
+BLOCK_SIZE    = 8192   # larger blocks = fewer callbacks = less overflow on Pi.
+                       # The live MP3 broadcaster accumulates leftover bytes
+                       # across put() calls, so this can be any size; the
+                       # encoder always gets aligned MP3 frames downstream.
 INPUT_LATENCY = 0.5    # seconds: large ALSA buffer absorbs USB timing jitter
                        # (Scarlett 2i2 4th Gen triggers retire_capture_urb warnings
                        # on the Pi's USB host controller; a bigger buffer keeps the
@@ -262,8 +263,14 @@ class LiveMP3Broadcaster:
         self._proc = None
         self._running = threading.Event()
         self._input_lock = threading.Lock()
-        # Further increase buffer size for more robust streaming (e.g., 16384 chunks)
+        # 16384 chunks ~= ~7 minutes at PCM_CHUNK_SECS. Generous buffer
+        # for transient capture/encode stalls.
         self._input_chunks = collections.deque(maxlen=16384)
+        # Leftover bytes from previous put() call that didn't align to a
+        # full PCM_CHUNK_BYTES boundary. Saved so the next put() can
+        # complete a full chunk instead of the feed loop padding with
+        # silence (which is audibly choppy).
+        self._partial_input = b""
         # Pre-fill input buffer with silence to avoid underruns at startup
         silence = b"\x00" * self.PCM_CHUNK_BYTES
         for _ in range(128):
@@ -345,6 +352,7 @@ class LiveMP3Broadcaster:
         self._running.clear()
         with self._input_lock:
             self._input_chunks.clear()
+            self._partial_input = b""
 
         proc = self._proc
         self._proc = None
@@ -371,9 +379,19 @@ class LiveMP3Broadcaster:
             if not self.is_running():
                 return
         with self._input_lock:
+            # Combine any leftover bytes from the previous call so chunks
+            # always align to PCM_CHUNK_BYTES (one MP3 frame at 44.1k
+            # stereo s16). Without this, capture blocks that aren't a
+            # multiple of PCM_CHUNK_BYTES leave a partial chunk in the
+            # queue, which the feed loop then pads with silence: that
+            # silence injection is exactly what makes /live.mp3 sound
+            # choppy when BLOCK_SIZE != 4608.
+            data = self._partial_input + pcm_bytes
             chunk = self.PCM_CHUNK_BYTES
-            for i in range(0, len(pcm_bytes), chunk):
-                self._input_chunks.append(pcm_bytes[i:i + chunk])
+            full_count = len(data) // chunk
+            for i in range(full_count):
+                self._input_chunks.append(data[i * chunk:(i + 1) * chunk])
+            self._partial_input = data[full_count * chunk:]
 
     def register_client(self) -> int:
         with self._clients_lock:
