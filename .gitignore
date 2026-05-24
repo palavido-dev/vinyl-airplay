@@ -13,3 +13,7 @@ settings.json
 node_modules/
 *.plugin
 certs/
+
+# Local runtime artifacts and local-machine service backups
+.config/
+*.BAK

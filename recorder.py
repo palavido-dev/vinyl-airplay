@@ -26,11 +26,11 @@ CHANNELS          = 2
 # Adaptive silence detection
 # Rather than a fixed RMS threshold (which varies by pressing), we measure the
 # actual playing level and call something "silent" when it drops to a fraction of that.
-SILENCE_RATIO     = 0.30            # silence = RMS drops below this fraction of signal level
-                                    # 0.30 = must be 8dB quieter than the music
+SILENCE_RATIO     = 0.40            # silence = RMS drops below this fraction of signal level
+                                    # 0.40 = must be about 8dB quieter than the music
                                     # Vinyl groove noise is typically 10-20dB below music,
                                     # so this reliably catches inter-track gaps on any pressing
-SILENCE_RATIO_MIN = 0.004           # absolute floor — never treat above this as silence
+SILENCE_RATIO_MIN = 0.006           # absolute floor: never treat above this as silence
 SIGNAL_ADAPT_RATE = 0.002           # EMA rate for signal level tracker (slow — ~500 chunks)
 SIGNAL_DECAY_RATE = 0.0004          # decay rate when below threshold — 5× slower than adapt
                                     # prevents signal level from getting stuck high on dynamic albums

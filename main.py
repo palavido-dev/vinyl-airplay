@@ -53,7 +53,9 @@ def _capture_channels(device_index=None) -> int:
     except Exception:
         return 2  # safe stereo fallback
 BITS          = 16
-BLOCK_SIZE    = 4608   # larger blocks = fewer callbacks, smoother timing for streaming
+BLOCK_SIZE    = 8192   # larger blocks = fewer callbacks = less overflow on Pi
+                       # (the live MP3 encoder re-chunks internally to MP3 frame
+                       # boundaries, so capture block size is independent of that)
 INPUT_LATENCY = 0.5    # seconds — large ALSA buffer absorbs USB timing jitter
                        # (Scarlett 2i2 4th Gen triggers retire_capture_urb warnings
                        # on the Pi's USB host controller; a bigger buffer keeps the
@@ -975,8 +977,6 @@ def make_callback(streams, eq, fp_buffer):
         pcm   = (audio*32767).astype(np.int16).tobytes()
         for s in streams: s.put(pcm)
         state.live_mp3.put(pcm)
-        # Diagnostic: print timestamp for PCM production
-        print(f"[pcm_producer] PCM produced at {time.time():.3f}")
     return callback
 
 
@@ -3359,7 +3359,7 @@ async def _auto_finalize_album_side_inner():
                 "recording": False,
                 "album_id": album_id,
                 "side": side,
-                "message": f"Side {side} saved -- {duration:.0f}s, "
+                "message": f"Side {side} saved: {duration:.0f}s, "
                            f"{file_size / (1024*1024):.1f} MB. Flip and record Side {next_side} when ready.",
             })
         else:
@@ -3367,10 +3367,10 @@ async def _auto_finalize_album_side_inner():
                 "recording": False,
                 "album_id": album_id,
                 "side": side,
-                "message": f"Side {side} saved -- {duration:.0f}s, "
+                "message": f"Side {side} saved: {duration:.0f}s, "
                            f"{file_size / (1024*1024):.1f} MB. All sides complete!",
             })
-            # Last side done -- clean up recorder and stop audio stream/recogniser
+            # Last side done: clean up recorder and stop audio stream/recogniser
             state.album_recorder = None
             if state.recogniser:
                 state.recogniser.stop()
@@ -3441,7 +3441,7 @@ async def _encode_and_save_album_side(ar: rec.AlbumRecorder):
         has_next_side = current_idx >= 0 and current_idx < len(album_sides) - 1
         next_side = album_sides[current_idx + 1] if has_next_side else None
 
-        done_msg = f"Side {side} saved -- {duration:.0f}s, {file_size / (1024*1024):.1f} MB"
+        done_msg = f"Side {side} saved: {duration:.0f}s, {file_size / (1024*1024):.1f} MB"
         state.album_encoding.update({
             "in_progress": False,
             "finished_at": time.time(),
@@ -3886,7 +3886,7 @@ async def album_recording_status():
         "album_id": ar.album_id,
         "side": ar.side,
         "elapsed_secs": round(ar.elapsed_secs, 1),
-            "encoding": state.album_encoding,
+        "encoding": state.album_encoding,
         "tracks_captured": ar.track_count,
     }
 
