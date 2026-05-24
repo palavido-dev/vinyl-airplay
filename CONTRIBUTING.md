@@ -86,10 +86,9 @@ fit. If you're not sure, ask in an issue first.
 
 ## Licensing
 
-A formal `LICENSE` file is being added. Until then, by opening a pull
-request you agree your contribution is offered under whatever license
-the project settles on (expected to be a permissive license such as
-MIT or Apache 2.0). No separate CLA.
+Vinyl Streamer is licensed under the MIT License. See [LICENSE](./LICENSE)
+for the full text. By opening a pull request you agree your contribution
+is offered under the same license. No separate CLA.
 
 ## Questions
 
