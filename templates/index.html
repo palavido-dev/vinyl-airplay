@@ -5310,7 +5310,30 @@ async function stopStream(){
     if(bs)bs.disabled=false;if(bt)bt.disabled=false;
   }
 }
-async function pairDevice(did){const r=await fetch('/api/pair',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({device_id:did,protocol:'raop'})}).then(r=>r.json());if(r.ok){showToast('Check device for PIN');const pin=prompt('Enter PIN:');if(pin){const f=await fetch('/api/pair',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({device_id:did,protocol:'raop',pin})}).then(r=>r.json());if(f.ok){showToast('Paired!');scanDevices()}else showError(f.error||'Failed')}}else showError(r.error||'Failed')}
+async function pairOneProtocol(did,proto){
+  const enc=encodeURIComponent(did);
+  const s=await fetch(`/api/devices/${enc}/pair/start`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({protocol:proto})}).then(r=>r.json());
+  if(!s.ok){showError(s.error||`Pair start (${proto}) failed`);return null}
+  showToast(`Check ${proto.toUpperCase()} device for PIN`);
+  const pin=prompt(`Enter PIN shown on the device (${proto.toUpperCase()}):`);
+  if(!pin){await fetch(`/api/devices/${enc}/pair/cancel`,{method:'POST'}).catch(()=>{});return null}
+  const f=await fetch(`/api/devices/${enc}/pair/pin`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({pin})}).then(r=>r.json());
+  if(!f.ok){showError(f.error||`Pair finish (${proto}) failed`);return null}
+  return f;
+}
+async function pairDevice(did){
+  // Some Apple TVs require pairing RAOP and AirPlay both. Server tells
+  // us via remaining_protocols which still need it.
+  let r=await pairOneProtocol(did,'raop');
+  if(!r)return;
+  const remaining=(r.remaining_protocols||[]);
+  for(const proto of remaining){
+    const r2=await pairOneProtocol(did,proto);
+    if(!r2)return;
+  }
+  showToast('Paired!');
+  scanDevices();
+}
 function renderHiddenDevices(devs){const l=document.getElementById('hidden-device-list');if(!devs||!devs.length){l.innerHTML='<div style="color:var(--muted);font-size:0.82rem">Scan to manage</div>';return}l.innerHTML=devs.map(d=>`<label class="device-item" style="gap:0.5rem"><input type="checkbox" ${d.hidden?'checked':''} onchange="toggleHidden('${d.id}',this.checked)" style="accent-color:var(--rust)"><span style="font-size:0.82rem">${esc(d.name)}${d.hidden?' (hidden)':''}</span></label>`).join('')}
 async function toggleHidden(did,hide){await fetch('/api/device/hide',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({device_id:did,hidden:hide})})}
 async function saveAutoStreamSettings(){const en=document.getElementById('auto-stream-enabled').checked,sel=document.getElementById('auto-stream-device-select'),opt=sel.options[sel.selectedIndex],dev=opt&&opt.value?{id:opt.value,name:opt.textContent}:null;await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({auto_stream_enabled:en,auto_stream_device:dev})});document.getElementById('auto-stream-status').textContent=en&&dev?`Auto-streaming to: ${dev.name}`:''}

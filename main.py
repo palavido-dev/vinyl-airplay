@@ -31,6 +31,7 @@ from fastapi import Body, FastAPI, File, Request, UploadFile, WebSocket, WebSock
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response, StreamingResponse
 from fastapi.templating import Jinja2Templates
 from pyatv.interface import MediaMetadata
+from pyatv.storage.file_storage import FileStorage
 
 import catalog as cat
 import exporter as exp
@@ -497,6 +498,10 @@ class AppState:
         # Strong refs to fire-and-forget asyncio tasks so they're not GC'd
         # mid-flight. Tasks remove themselves via add_done_callback.
         self.bg_tasks: set = set()
+        # pyatv 0.17 needs an explicit FileStorage handed to scan() and pair()
+        # so that saved credentials get attached to the conf objects we then
+        # pass to pyatv.connect(). Loaded once at startup and reused.
+        self.atv_storage: FileStorage | None = None
         self.album_encoding = {
             "in_progress": False,
             "album_id": None,
@@ -1235,11 +1240,16 @@ async def _run_stream_inner(targets, audio_device_index, volume):
         artwork= _art_jpeg(np) if np else None,
     )
 
-    # Set up AirPlay devices (if any)
+    # Set up AirPlay devices (if any). storage= attaches saved
+    # credentials to the conf services so pyatv.connect doesn't have
+    # to re-pair every time.
     confs = []
     if airplay_targets:
-        found      = await pyatv.scan(main_loop, timeout=7,
-                                      protocol=pyatv.Protocol.AirPlay)
+        if state.atv_storage is not None:
+            await state.atv_storage.load()
+        found = await pyatv.scan(
+            main_loop, timeout=7, storage=state.atv_storage,
+        )
         id_to_conf = {d.identifier: d for d in found}
         confs      = [id_to_conf[t["id"]] for t in airplay_targets if t["id"] in id_to_conf]
 
@@ -1471,6 +1481,25 @@ async def lifespan(app: FastAPI):
     # Backfill any missing track durations from MusicBrainz (non-blocking)
     loop = asyncio.get_event_loop()
     state.loop = loop
+
+    # Load saved AirPlay credentials so streaming can authenticate without
+    # asking the user to re-pair every time. pyatv 0.17 only attaches creds
+    # to conf objects when a storage is explicitly passed to scan().
+    try:
+        for _creds_path in ("/home/listen/.pyatv.conf", "/root/.pyatv.conf"):
+            if os.path.exists(_creds_path):
+                state.atv_storage = FileStorage(_creds_path, loop)
+                await state.atv_storage.load()
+                print(f"[pyatv] Loaded credential storage from {_creds_path}")
+                break
+        else:
+            # Fall back to default location, creating an empty storage if needed
+            state.atv_storage = FileStorage.default_storage(loop)
+            await state.atv_storage.load()
+    except Exception as e:
+        print(f"[pyatv] Could not load credential storage: {e}")
+        state.atv_storage = None
+
     loop.run_in_executor(None, cat.backfill_all_missing_durations)
     yield
     if state.stop_event:
@@ -1538,42 +1567,44 @@ async def service_worker():
 
 @app.get("/api/scan")
 async def scan_devices():
-    found = await pyatv.scan(asyncio.get_event_loop(), timeout=7,
-                              protocol=pyatv.Protocol.AirPlay)
+    # Scan WITHOUT a protocol filter so every service (RAOP, AirPlay,
+    # Companion) is populated on each conf. Pass storage= so saved
+    # credentials are attached to the conf services. Together these
+    # let us compute needs_pairing correctly per service.
+    if state.atv_storage is not None:
+        await state.atv_storage.load()
+    found = await pyatv.scan(
+        asyncio.get_event_loop(),
+        timeout=7,
+        storage=state.atv_storage,
+    )
     hidden = set(state.settings.get("hidden_devices", []))
-    # Load stored credentials to check which devices are already paired
-    import os
-    _creds_path = next((p for p in ["/root/.pyatv.conf", "/home/listen/.pyatv.conf"]
-                        if os.path.exists(p)), None)
-    _creds_data = {}
-    if _creds_path:
-        try:
-            with open(_creds_path) as _cf:
-                _raw = json.loads(_cf.read())
-            # Build set of identifiers that have RAOP or AirPlay credentials
-            for _entry in _raw if isinstance(_raw, list) else _raw.get("devices", []):
-                _protos = _entry.get("protocols", {})
-                _has = any(_protos.get(p, {}).get("credentials") for p in ("raop", "airplay"))
-                if _has:
-                    for _ident in _entry.get("identifiers", []):
-                        _creds_data[_ident] = True
-        except Exception:
-            pass
-
     custom_names = state.settings.get("device_names", {})
     state.available_devices = []
     for d in found:
-        raop    = d.get_service(pyatv.Protocol.RAOP)
-        needs   = raop and str(getattr(raop, "pairing", "")).endswith("Mandatory")
-        paired  = (not needs) or any(_creds_data.get(i) for i in [d.identifier, *list(d.all_identifiers)])
+        # A device needs pairing if RAOP (the protocol we stream with)
+        # has Mandatory pairing and we don't already have credentials.
+        raop = d.get_service(pyatv.Protocol.RAOP)
+        needs_pair = bool(
+            raop and str(getattr(raop, "pairing", "")).endswith("Mandatory")
+            and not raop.credentials
+        )
+        # "paired" is true if every Mandatory protocol on this device has
+        # credentials. RAOP is what we stream with; AirPlay/Companion are
+        # often required alongside it on modern tvOS.
+        all_mandatory_paired = True
+        for svc in d.services:
+            if str(getattr(svc, "pairing", "")).endswith("Mandatory") and not svc.credentials:
+                all_mandatory_paired = False
+                break
         state.available_devices.append({
             "id":       d.identifier,
             "name":     d.name,
             "custom_name": custom_names.get(d.identifier),
             "address":  str(d.address),
             "hidden":   d.identifier in hidden,
-            "needs_pairing": bool(needs),
-            "paired":   paired,
+            "needs_pairing": needs_pair,
+            "paired":   all_mandatory_paired,
         })
     return {"devices": state.available_devices + _get_local_outputs()}
 
@@ -1596,14 +1627,19 @@ async def pair_start(device_id: str, body: dict | None = None):
     protocol = proto_map.get(protocol_name, pyatv.Protocol.RAOP)
 
     loop = asyncio.get_event_loop()
-    found = await pyatv.scan(loop, timeout=7, identifier=device_id,
-                              protocol=pyatv.Protocol.AirPlay)
+    # No protocol filter: we need RAOP / AirPlay / Companion service
+    # objects on the conf so pyatv.pair can pick the right one.
+    if state.atv_storage is not None:
+        await state.atv_storage.load()
+    found = await pyatv.scan(
+        loop, timeout=7, identifier=device_id, storage=state.atv_storage,
+    )
     if not found:
         return {"ok": False, "error": "Device not found on network"}
     conf = found[0]
 
     try:
-        pairing = await pyatv.pair(conf, protocol, loop)
+        pairing = await pyatv.pair(conf, protocol, loop, storage=state.atv_storage)
         await pairing.begin()
     except Exception as e:
         return {"ok": False, "error": str(e)}
@@ -1648,20 +1684,15 @@ async def pair_pin(device_id: str, body: dict | None = None):
 
     state.pairing_sessions.pop(device_id, None)
 
-    # Save credentials to both locations so they persist across restarts
-    for creds_path in ["/root/.pyatv.conf", "/home/listen/.pyatv.conf"]:
+    # pyatv.pair was given state.atv_storage, so the newly issued
+    # credentials are already attached to the in-memory storage. All
+    # that's left is to flush them to disk.
+    if state.atv_storage is not None:
         try:
-            from pyatv.storage.file_storage import FileStorage
-            try:
-                storage = FileStorage(creds_path, asyncio.get_event_loop())
-            except TypeError:
-                storage = FileStorage(creds_path)
-            await storage.load()
-            storage.save_device(conf)
-            await storage.flush()
-            print(f"[pair] Credentials saved to {creds_path}")
+            await state.atv_storage.save()
+            print("[pair] Credentials saved")
         except Exception as e:
-            print(f"[pair] Could not save to {creds_path}: {e}")
+            print(f"[pair] Could not save credential storage: {e}")
 
     protocol_name = session["protocol"]
     # Check if more protocols need pairing
@@ -4404,11 +4435,14 @@ async def _run_playback(album_id: int, targets: list[dict], volume: int,
     if len(bluetooth_targets) > 1:
         bluetooth_targets = bluetooth_targets[:1]
 
-    # Scan and connect to AirPlay devices
+    # Scan and connect to AirPlay devices. storage= so saved creds attach.
     confs = []
     if airplay_targets:
-        found      = await pyatv.scan(main_loop, timeout=7,
-                                      protocol=pyatv.Protocol.AirPlay)
+        if state.atv_storage is not None:
+            await state.atv_storage.load()
+        found = await pyatv.scan(
+            main_loop, timeout=7, storage=state.atv_storage,
+        )
         id_to_conf = {d.identifier: d for d in found}
         confs      = [id_to_conf[t["id"]] for t in airplay_targets if t["id"] in id_to_conf]
 
@@ -4613,7 +4647,11 @@ async def _run_playback_queue(album_id: int, album_info: dict,
 
     confs = []
     if airplay_targets:
-        found = await pyatv.scan(main_loop, timeout=7, protocol=pyatv.Protocol.AirPlay)
+        if state.atv_storage is not None:
+            await state.atv_storage.load()
+        found = await pyatv.scan(
+            main_loop, timeout=7, storage=state.atv_storage,
+        )
         id_to_conf = {d.identifier: d for d in found}
         confs = [id_to_conf[t["id"]] for t in airplay_targets if t["id"] in id_to_conf]
 
