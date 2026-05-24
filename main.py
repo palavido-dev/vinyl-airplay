@@ -1581,21 +1581,30 @@ async def scan_devices():
     hidden = set(state.settings.get("hidden_devices", []))
     custom_names = state.settings.get("device_names", {})
     state.available_devices = []
+    # Only the audio protocols matter for our use case. Companion is for
+    # remote control and is irrelevant to streaming audio, so don't gate
+    # "paired" on it even when it reports Mandatory.
+    AUDIO_PROTOS = (pyatv.Protocol.RAOP, pyatv.Protocol.AirPlay)
     for d in found:
-        # A device needs pairing if RAOP (the protocol we stream with)
-        # has Mandatory pairing and we don't already have credentials.
+        # A device needs pairing if RAOP (what we stream with) has
+        # Mandatory pairing and we don't already have credentials.
         raop = d.get_service(pyatv.Protocol.RAOP)
         needs_pair = bool(
             raop and str(getattr(raop, "pairing", "")).endswith("Mandatory")
             and not raop.credentials
         )
-        # "paired" is true if every Mandatory protocol on this device has
-        # credentials. RAOP is what we stream with; AirPlay/Companion are
-        # often required alongside it on modern tvOS.
-        all_mandatory_paired = True
-        for svc in d.services:
-            if str(getattr(svc, "pairing", "")).endswith("Mandatory") and not svc.credentials:
-                all_mandatory_paired = False
+        # "paired" is true if every Mandatory *audio* protocol on this
+        # device has credentials. tvOS often requires both RAOP and
+        # AirPlay; HomePods often require neither.
+        audio_paired = True
+        for proto in AUDIO_PROTOS:
+            svc = d.get_service(proto)
+            if (
+                svc
+                and str(getattr(svc, "pairing", "")).endswith("Mandatory")
+                and not svc.credentials
+            ):
+                audio_paired = False
                 break
         state.available_devices.append({
             "id":       d.identifier,
@@ -1604,7 +1613,7 @@ async def scan_devices():
             "address":  str(d.address),
             "hidden":   d.identifier in hidden,
             "needs_pairing": needs_pair,
-            "paired":   all_mandatory_paired,
+            "paired":   audio_paired,
         })
     return {"devices": state.available_devices + _get_local_outputs()}
 
