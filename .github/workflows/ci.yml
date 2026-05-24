@@ -1,0 +1,73 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Lint and syntax check
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install ruff
+        run: pip install ruff==0.6.9
+
+      - name: Ruff check
+        # See ruff.toml for the enabled rule set. Until the codebase is
+        # cleaned up, the CI gate is intentionally narrow (syntax errors,
+        # unused imports, undefined names). Style-only rules are off so
+        # this doesn't go red on day one.
+        run: ruff check .
+
+      - name: Compile all Python files
+        # Catches plain syntax errors in files that aren't normally
+        # imported (install.sh-companion scripts, wifi_setup.py, etc).
+        run: |
+          python -m compileall -q .
+
+  import-smoke:
+    name: Import smoke test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: System audio libs
+        # PortAudio is needed for `sounddevice` to import cleanly on the
+        # CI runner. We don't actually open a device here, just confirm
+        # the modules load without raising.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libportaudio2 ffmpeg
+
+      - name: Install Python deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Import top-level modules
+        # If a top-level import is broken (missing dep, wrong import
+        # path), uvicorn would fail to start on the Pi. Catch it here.
+        run: |
+          python -c "import main; import player; import recorder; import catalog; import exporter"

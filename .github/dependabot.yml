@@ -1,0 +1,62 @@
+# Dependabot configuration for Vinyl Streamer.
+#
+# Notes:
+# - Python deps come from requirements.txt at the repo root.
+# - GitHub Actions workflows are scanned for action version bumps.
+# - Updates are grouped weekly so we get one PR per ecosystem instead
+#   of one PR per package. Major bumps still get their own PR because
+#   they usually need manual review (especially pyatv, fastapi,
+#   uvicorn, anything that touches the audio or AirPlay path).
+
+version: 2
+
+updates:
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Etc/UTC"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "python"
+    reviewers:
+      - "palavido-dev"
+    assignees:
+      - "palavido-dev"
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
+    groups:
+      pip-minor-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Etc/UTC"
+    labels:
+      - "dependencies"
+      - "github-actions"
+    reviewers:
+      - "palavido-dev"
+    assignees:
+      - "palavido-dev"
+    commit-message:
+      prefix: "chore(ci)"
+    groups:
+      actions-minor-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"

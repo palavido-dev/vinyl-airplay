@@ -1,0 +1,27 @@
+# Ruff configuration for Vinyl Streamer.
+#
+# Day-one config: keep CI green on the existing codebase. Only enable
+# the rules that catch real bugs (undefined names, syntax errors,
+# duplicate definitions). Style rules and "could be cleaner" rules are
+# left off because the existing tree has years of stylistic choices
+# that aren't worth a mechanical sweep.
+#
+# Rule set:
+#   F821  undefined name
+#   F823  local variable referenced before assignment
+#   F811  redefinition of unused name (often a sign of a real bug)
+#   F632  use of `is` with a literal
+#   E9    syntax errors (always on, listed for clarity)
+#
+# Tighten this over time once the team is comfortable.
+
+line-length = 120
+target-version = "py311"
+
+[lint]
+select = ["F821", "F823", "F811", "F632", "E9"]
+
+[lint.per-file-ignores]
+# HTML templates live under templates/. Ruff won't try to parse them
+# anyway, but listing it here makes the exclusion explicit.
+"templates/*" = ["ALL"]
