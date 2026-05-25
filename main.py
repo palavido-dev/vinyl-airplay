@@ -305,7 +305,11 @@ class LiveMP3Broadcaster:
             self.start()
 
     def start(self):
-        self.stop()
+        # Tear down any previous encoder without flipping enabled. start()
+        # may be called from configure() right after the user toggles the
+        # stream on, and we don't want our own cleanup to immediately
+        # disable us again.
+        self._teardown_encoder()
         cmd = [
             "ffmpeg",
             "-hide_banner",
@@ -349,6 +353,19 @@ class LiveMP3Broadcaster:
         print(f"[http-stream] Encoder started at {self.bitrate_kbps} kbps")
 
     def stop(self):
+        # Public stop: hard stop. Sets enabled=False so put() will
+        # early-return instead of auto-restarting the encoder via its
+        # auto-recovery path. Without this, an audio callback that fires
+        # during shutdown will re-spawn ffmpeg and block systemd from
+        # terminating the service. configure() resets enabled=True when
+        # the user turns the stream back on in Settings.
+        self.enabled = False
+        self._teardown_encoder()
+
+    def _teardown_encoder(self):
+        # Internal cleanup: tears down ffmpeg and drains queues without
+        # touching `enabled`. Used by both start() (clean slate before
+        # relaunch) and stop() (hard shutdown).
         self._running.clear()
         with self._input_lock:
             self._input_chunks.clear()
