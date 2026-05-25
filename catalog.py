@@ -857,11 +857,6 @@ def save_release_to_catalog(release_data: dict,
         db.commit()
         print(f"[catalog] Saved album '{release_data.get('title')}' with {len(release_data.get('tracks', []))} tracks")
 
-        # Backfill any missing track durations from MusicBrainz
-        db.close()
-        db = None
-        backfill_missing_durations(album_id)
-
         return album_id
 
     except Exception as e:
@@ -872,182 +867,6 @@ def save_release_to_catalog(release_data: dict,
     finally:
         if db:
             db.close()
-
-# ── MusicBrainz Duration Fallback ─────────────────────────────────────────────
-
-def _fetch_musicbrainz_durations(artist: str, title: str) -> list[dict] | None:
-    """
-    Search MusicBrainz for an album and return track durations.
-    Returns list of {"title": str, "duration_secs": int, "position": int} or None.
-    Only used as a fallback when Discogs doesn't have duration info.
-    """
-    try:
-        # Search for the release: try exact title first, then normalized
-        titles_to_try = [title]
-        # Normalize: remove extra spaces around slashes/punctuation, strip whitespace
-        normalized = re.sub(r'\s*/\s*', '/', title).strip()
-        if normalized != title:
-            titles_to_try.append(normalized)
-        # Also try without slashes entirely (as separate words)
-        no_slash = re.sub(r'\s*/\s*', ' ', title).strip()
-        no_slash = re.sub(r'\s+', ' ', no_slash)
-        if no_slash not in titles_to_try:
-            titles_to_try.append(no_slash)
-
-        releases = []
-        for try_title in titles_to_try:
-            query = urllib.parse.quote(f'artist:"{artist}" AND release:"{try_title}"')
-            url = f"https://musicbrainz.org/ws/2/release/?query={query}&fmt=json&limit=5"
-            req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-            with urllib.request.urlopen(req, timeout=10) as resp:
-                data = json.loads(resp.read())
-            releases = data.get("releases", [])
-            if releases:
-                break
-            import time
-            time.sleep(1.1)  # rate limit between retries
-
-        if not releases:
-            print(f"[catalog] MusicBrainz: no releases found for '{artist}' - '{title}' "
-                  f"(tried: {titles_to_try})")
-            return None
-
-        # Prefer CD or Digital Media releases (most likely to have accurate durations)
-        # Fall back to first release if no preferred format found
-        release_id = None
-        for r in releases:
-            media = r.get("media", [])
-            fmt = media[0].get("format", "") if media else ""
-            if fmt in ("CD", "Digital Media"):
-                release_id = r["id"]
-                break
-        if not release_id:
-            release_id = releases[0]["id"]
-
-        # Fetch full release with recordings
-        import time
-        time.sleep(1.1)  # MusicBrainz rate limit: 1 req/sec
-        url2 = f"https://musicbrainz.org/ws/2/release/{release_id}?inc=recordings&fmt=json"
-        req2 = urllib.request.Request(url2, headers={"User-Agent": USER_AGENT})
-        with urllib.request.urlopen(req2, timeout=10) as resp2:
-            release = json.loads(resp2.read())
-
-        tracks = []
-        for media in release.get("media", []):
-            for t in media.get("tracks", []):
-                rec = t.get("recording", {})
-                length_ms = rec.get("length") or t.get("length") or 0
-                tracks.append({
-                    "title": t.get("title", ""),
-                    "duration_secs": round(length_ms / 1000),
-                    "position": t.get("position", 0),
-                })
-
-        if tracks:
-            print(f"[catalog] MusicBrainz: found {len(tracks)} tracks "
-                  f"for '{artist}' - '{title}' (release {release_id})")
-        return tracks if tracks else None
-
-    except Exception as e:
-        print(f"[catalog] MusicBrainz duration lookup failed: {e}")
-        return None
-
-
-def backfill_missing_durations(album_id: int):
-    """
-    Check if an album has tracks with missing durations (duration_secs = 0).
-    If so, look up durations from MusicBrainz and fill them in.
-    Called after saving a release to the catalog.
-    """
-    db = get_db()
-    try:
-        # Get album info
-        album = db.execute(
-            "SELECT title, artist FROM albums WHERE id = ?", (album_id,)
-        ).fetchone()
-        if not album:
-            return
-
-        # Check for missing durations
-        missing = db.execute(
-            "SELECT COUNT(*) as cnt FROM tracks "
-            "WHERE album_id = ? AND (duration_secs IS NULL OR duration_secs = 0)",
-            (album_id,)
-        ).fetchone()
-        if not missing or missing["cnt"] == 0:
-            return  # all durations present
-
-        total = db.execute(
-            "SELECT COUNT(*) as cnt FROM tracks WHERE album_id = ?", (album_id,)
-        ).fetchone()["cnt"]
-
-        print(f"[catalog] {missing['cnt']}/{total} tracks missing durations "
-              f"for '{album['title']}': checking MusicBrainz")
-
-        mb_tracks = _fetch_musicbrainz_durations(album["artist"], album["title"])
-        if not mb_tracks:
-            return
-
-        # Get our tracks in order
-        our_tracks = db.execute(
-            "SELECT id, title, track_number, side, duration_secs "
-            "FROM tracks WHERE album_id = ? ORDER BY side, track_number",
-            (album_id,)
-        ).fetchall()
-
-        # Match by position: MB tracks are in album order (1..N),
-        # our tracks are ordered by side then track_number
-        updated = 0
-        for i, our in enumerate(our_tracks):
-            if (our["duration_secs"] or 0) > 0:
-                continue  # already has a duration
-            if i < len(mb_tracks) and mb_tracks[i]["duration_secs"] > 0:
-                db.execute(
-                    "UPDATE tracks SET duration_secs = ? WHERE id = ?",
-                    (mb_tracks[i]["duration_secs"], our["id"])
-                )
-                updated += 1
-
-        if updated:
-            db.commit()
-            print(f"[catalog] Backfilled {updated} track durations from MusicBrainz "
-                  f"for '{album['title']}'")
-        else:
-            print(f"[catalog] MusicBrainz lookup didn't yield new durations "
-                  f"for '{album['title']}'")
-
-    except Exception as e:
-        print(f"[catalog] backfill_missing_durations failed: {e}")
-    finally:
-        db.close()
-
-
-def backfill_all_missing_durations():
-    """
-    Check all albums for missing track durations and backfill from MusicBrainz.
-    Intended to be called once at startup.
-    """
-    db = get_db()
-    try:
-        # Find albums with at least one track missing a duration
-        rows = db.execute("""
-            SELECT DISTINCT a.id, a.title, a.artist
-            FROM albums a
-            JOIN tracks t ON t.album_id = a.id
-            WHERE t.duration_secs IS NULL OR t.duration_secs = 0
-        """).fetchall()
-        if not rows:
-            return
-        print(f"[catalog] {len(rows)} album(s) have tracks missing durations")
-    finally:
-        db.close()
-
-    import time as _time
-    for i, r in enumerate(rows):
-        if i > 0:
-            _time.sleep(3)  # respect MusicBrainz rate limit between albums
-        backfill_missing_durations(r["id"])
-
 
 # ── Album Art ─────────────────────────────────────────────────────────────────
 
@@ -2176,7 +1995,7 @@ def update_track_timestamps(track_id: int, start_secs: float, end_secs: float):
 def correct_side_boundaries(album_id: int, side: str, recording_duration: float):
     """
     Sanity-check silence-detected track boundaries against known durations
-    from MusicBrainz/Discogs. If any track deviates by more than 50% from
+    from Discogs. If any track deviates by more than 50% from
     its catalog duration, recalculate all boundaries proportionally using
     the catalog durations.
 
