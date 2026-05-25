@@ -1513,7 +1513,6 @@ async def lifespan(app: FastAPI):
         state.settings.get("http_stream_enabled", False),
         state.settings.get("http_stream_bitrate_kbps", 256),
     )
-    # Backfill any missing track durations from MusicBrainz (non-blocking)
     loop = asyncio.get_event_loop()
     state.loop = loop
 
@@ -1535,7 +1534,6 @@ async def lifespan(app: FastAPI):
         print(f"[pyatv] Could not load credential storage: {e}")
         state.atv_storage = None
 
-    loop.run_in_executor(None, cat.backfill_all_missing_durations)
     yield
     if state.stop_event:
         state.stop_event.set()
