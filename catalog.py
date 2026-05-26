@@ -1967,6 +1967,48 @@ def get_album_audio(album_id: int) -> list[dict]:
         db.close()
 
 
+def get_all_playable_tracks() -> list[dict]:
+    """Return every track that can be played right now.
+
+    A track is "playable" when its album has a recorded side FLAC for
+    that track's side, AND the track has start_secs / end_secs set so
+    we can extract just its portion of the side audio.
+
+    Returns one row per track with everything the player needs to build
+    a single-track PlaylistEntry: the file path, side, the track's
+    in-file timestamps, and basic album metadata (for the Now Playing
+    panel). Soft-deleted albums (deleted_at IS NOT NULL) are excluded.
+    """
+    db = get_db()
+    try:
+        rows = db.execute("""
+            SELECT
+                t.id            AS track_id,
+                t.title         AS track_title,
+                t.track_number  AS track_number,
+                t.side          AS side,
+                t.start_secs    AS start_secs,
+                t.end_secs      AS end_secs,
+                a.id            AS album_id,
+                a.title         AS album_title,
+                a.artist        AS album_artist,
+                a.user_artwork_path AS user_artwork_path,
+                a.artwork_path  AS artwork_path,
+                aa.file_path    AS audio_path,
+                aa.duration_secs AS side_duration_secs
+            FROM tracks t
+            JOIN albums a       ON a.id  = t.album_id
+            JOIN album_audio aa ON aa.album_id = t.album_id AND aa.side = t.side
+            WHERE (a.deleted_at IS NULL OR a.deleted_at = '')
+              AND t.start_secs IS NOT NULL
+              AND t.end_secs   IS NOT NULL
+              AND t.end_secs > t.start_secs
+        """).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        db.close()
+
+
 def get_album_audio_by_id(audio_id: int) -> dict | None:
     """Get a single album audio record by its ID."""
     db = get_db()

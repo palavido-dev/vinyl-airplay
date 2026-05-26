@@ -48,12 +48,26 @@ SILENCE_FRAMES = int(SAMPLE_RATE * SILENCE_MS / 1000)
 # ── Playlist Entry ───────────────────────────────────────────────────────────
 
 class PlaylistEntry:
-    """One side of an album (one FLAC file)."""
+    """One playable segment.
+
+    By default an entry represents one whole side of an album (one FLAC
+    file played from start to end). For track-level shuffle and similar,
+    pass source_offset_secs and source_duration_secs to make an entry
+    represent a single track range within a side's FLAC; ffmpeg will be
+    started with -ss source_offset_secs -t source_duration_secs so the
+    decoded PCM is exactly that track and nothing else.
+
+    Position semantics inside the player are entry-local: self._position
+    counts from 0 at the start of the entry, regardless of where the
+    entry sits within its source file.
+    """
 
     def __init__(self, audio_path: str, side: str, duration_secs: float,
                  tracks: list[dict], album_id: int | None = None,
                  album_title: str | None = None, album_artist: str | None = None,
-                 artwork_path: str | None = None):
+                 artwork_path: str | None = None,
+                 source_offset_secs: float = 0.0,
+                 source_duration_secs: float | None = None):
         self.audio_path    = audio_path
         self.side          = side
         self.duration_secs = duration_secs
@@ -65,6 +79,10 @@ class PlaylistEntry:
         self.album_title   = album_title
         self.album_artist  = album_artist
         self.artwork_path  = artwork_path
+        # Where in audio_path this entry begins, and how much of it to
+        # consume. None means "play to natural EOF" (full-side behavior).
+        self.source_offset_secs   = float(source_offset_secs or 0.0)
+        self.source_duration_secs = source_duration_secs
 
 
 # ── Player ───────────────────────────────────────────────────────────────────
@@ -351,15 +369,23 @@ class Player:
 
     # ── Internal: ffmpeg Decode ──────────────────────────────────────────────
 
-    def _start_ffmpeg(self, audio_path: str, start_secs: float = 0.0) -> bool:
-        """Start ffmpeg decoding FLAC → raw s16le PCM pipe."""
+    def _start_ffmpeg(self, audio_path: str, start_secs: float = 0.0,
+                      duration_secs: float | None = None) -> bool:
+        """Start ffmpeg decoding FLAC → raw s16le PCM pipe.
+
+        start_secs and duration_secs are absolute to the source file:
+        ffmpeg will seek to start_secs and emit at most duration_secs of
+        audio. duration_secs=None plays to natural EOF.
+        """
         self._kill_ffmpeg()
 
         cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error"]
         if start_secs > 0:
             cmd += ["-ss", f"{start_secs:.3f}"]
+        cmd += ["-i", audio_path]
+        if duration_secs is not None and duration_secs > 0:
+            cmd += ["-t", f"{duration_secs:.3f}"]
         cmd += [
-            "-i", audio_path,
             "-f", "s16le",
             "-acodec", "pcm_s16le",
             "-ar", str(SAMPLE_RATE),
@@ -406,9 +432,13 @@ class Player:
         next_entry = self.playlist[next_idx]
         if not Path(next_entry.audio_path).exists():
             return
-        cmd = [
-            "ffmpeg", "-hide_banner", "-loglevel", "error",
-            "-i", next_entry.audio_path,
+        cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error"]
+        if next_entry.source_offset_secs > 0:
+            cmd += ["-ss", f"{next_entry.source_offset_secs:.3f}"]
+        cmd += ["-i", next_entry.audio_path]
+        if next_entry.source_duration_secs is not None and next_entry.source_duration_secs > 0:
+            cmd += ["-t", f"{next_entry.source_duration_secs:.3f}"]
+        cmd += [
             "-f", "s16le", "-acodec", "pcm_s16le",
             "-ar", str(SAMPLE_RATE), "-ac", str(CHANNELS),
             "pipe:1",
@@ -529,11 +559,19 @@ class Player:
             # If we already have ffmpeg running (from gapless pre-start), use it
             if self._ffmpeg and self._ffmpeg.poll() is None:
                 pass  # Already running from gapless swap
-            elif not self._start_ffmpeg(entry.audio_path, self._position):
-                print(f"[player] Failed to start ffmpeg for {entry.audio_path}")
-                self._side_idx += 1
-                self._position = 0.0
-                continue
+            else:
+                # Translate entry-local position into source-file timestamps.
+                # For full-side entries source_offset_secs=0 and duration=None,
+                # so this matches the original "seek to position in FLAC" behavior.
+                src_start = entry.source_offset_secs + self._position
+                src_dur = None
+                if entry.source_duration_secs is not None:
+                    src_dur = max(0.0, entry.source_duration_secs - self._position)
+                if not self._start_ffmpeg(entry.audio_path, src_start, src_dur):
+                    print(f"[player] Failed to start ffmpeg for {entry.audio_path}")
+                    self._side_idx += 1
+                    self._position = 0.0
+                    continue
 
             # Pre-start ffmpeg for the next side (gapless transition)
             self._prestart_next_side()
@@ -597,7 +635,12 @@ class Player:
                             except Exception:
                                 pass
                             self._ffmpeg = None
-                        if not self._start_ffmpeg(entry.audio_path, target):
+                        # Translate entry-local target into source-file coords
+                        src_start = entry.source_offset_secs + target
+                        src_dur = None
+                        if entry.source_duration_secs is not None:
+                            src_dur = max(0.0, entry.source_duration_secs - target)
+                        if not self._start_ffmpeg(entry.audio_path, src_start, src_dur):
                             break
                         # Short fade for seeks (just anti-click, not needle drop)
                         self._fade_in_remaining = SILENCE_FRAMES
