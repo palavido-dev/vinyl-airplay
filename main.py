@@ -547,6 +547,21 @@ class AppState:
             "ok": None,
             "message": "",
         }
+        # State for the "rebuild every track's fingerprints" maintenance job.
+        # Driven by /api/maintenance/rebuild-fingerprints; broadcast to the
+        # UI over the rebuild_fingerprints_progress WS event.
+        self.rebuild_fp = {
+            "in_progress":  False,
+            "total":        0,
+            "done":         0,
+            "ok":           0,
+            "failed":       0,
+            "current":      None,    # {"track_id": int, "title": str, "album": str}
+            "started_at":   None,
+            "finished_at":  None,
+            "backup_path":  None,    # where we wrote the pre-run fp dump
+            "last_error":   None,
+        }
 
 
 state = AppState()
@@ -3302,6 +3317,108 @@ async def update_album_metadata(album_id: int, body: Annotated[dict, Body()]):
     if not success:
         return {"ok": False, "error": "Album not found"}, 404
     return {"ok": True}
+
+
+# ── Maintenance: Rebuild Fingerprints ─────────────────────────────────────
+
+async def _rebuild_fingerprints_worker():
+    """Walk every playable track, re-extract its PCM slice from the side
+    FLAC, and replace its fingerprint rows.
+
+    Runs entirely off the event loop via run_in_executor; we just poke
+    progress state and broadcast on each track's completion. The hot
+    work (ffmpeg decode + fpcalc + DB write) is CPU/IO bound but cheap
+    enough on a Pi 5 to do all of it serially without thread-pool churn.
+    """
+    loop = asyncio.get_event_loop()
+    tracks = await loop.run_in_executor(None, cat.get_all_playable_tracks)
+    total = len(tracks)
+
+    state.rebuild_fp.update({
+        "in_progress":  True,
+        "total":        total,
+        "done":         0,
+        "ok":           0,
+        "failed":       0,
+        "current":      None,
+        "started_at":   time.time(),
+        "finished_at":  None,
+        "last_error":   None,
+    })
+
+    # Pre-run backup so a bad rebuild is reversible. Filename is timestamped
+    # so repeated rebuilds don't clobber each other.
+    backup_path = (
+        Path(__file__).parent / f"fingerprints_backup_{int(time.time())}.json"
+    )
+    try:
+        await loop.run_in_executor(
+            None, cat.backup_fingerprints_to, str(backup_path)
+        )
+        state.rebuild_fp["backup_path"] = str(backup_path)
+    except Exception as e:
+        state.rebuild_fp["last_error"] = f"Backup failed: {e}"
+        print(f"[rebuild-fp] Backup failed: {e}")
+
+    await broadcast("rebuild_fingerprints_progress", dict(state.rebuild_fp))
+
+    for t in tracks:
+        state.rebuild_fp["current"] = {
+            "track_id": t["track_id"],
+            "title":    t["track_title"],
+            "album":    t["album_title"],
+        }
+        try:
+            result = await loop.run_in_executor(
+                None,
+                cat.rebuild_track_fingerprints,
+                t["track_id"],
+                t["audio_path"],
+                float(t["start_secs"]),
+                float(t["end_secs"]),
+            )
+        except Exception as e:
+            result = {"ok": False, "rows": 0, "error": str(e)}
+
+        if result["ok"]:
+            state.rebuild_fp["ok"] += 1
+        else:
+            state.rebuild_fp["failed"] += 1
+            state.rebuild_fp["last_error"] = (
+                f"{t['album_title']}: {t['track_title']}: {result['error']}"
+            )
+        state.rebuild_fp["done"] += 1
+
+        # Broadcast every 5 tracks (or always on the last) to keep the WS
+        # quiet while still feeling responsive on a ~1000-track library.
+        if state.rebuild_fp["done"] % 5 == 0 or state.rebuild_fp["done"] == total:
+            await broadcast("rebuild_fingerprints_progress", dict(state.rebuild_fp))
+
+    state.rebuild_fp["in_progress"] = False
+    state.rebuild_fp["current"]     = None
+    state.rebuild_fp["finished_at"] = time.time()
+    await broadcast("rebuild_fingerprints_progress", dict(state.rebuild_fp))
+    print(
+        f"[rebuild-fp] Done: {state.rebuild_fp['ok']} ok / "
+        f"{state.rebuild_fp['failed']} failed out of {total}"
+    )
+
+
+@app.post("/api/maintenance/rebuild-fingerprints")
+async def rebuild_fingerprints_start():
+    """Kick off the full-library fingerprint rebuild. Returns immediately
+    with a 202-ish payload; progress is broadcast over WS and pollable
+    via the status endpoint."""
+    if state.rebuild_fp["in_progress"]:
+        return {"ok": False, "error": "Rebuild already in progress",
+                "progress": dict(state.rebuild_fp)}
+    spawn_bg(_rebuild_fingerprints_worker())
+    return {"ok": True, "started": True}
+
+
+@app.get("/api/maintenance/rebuild-fingerprints/status")
+async def rebuild_fingerprints_status():
+    return {"ok": True, "progress": dict(state.rebuild_fp)}
 
 
 # ── Feature 2: Duplicate Detection ────────────────────────────────────────
