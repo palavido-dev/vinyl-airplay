@@ -10,6 +10,7 @@ import concurrent.futures
 import json
 import math
 import os
+import random
 import shutil
 import socket
 import struct
@@ -2740,8 +2741,6 @@ async def generate_collage():
     loop = asyncio.get_event_loop()
 
     def _build():
-        import random
-
         from PIL import Image as PILImage
 
         db = cat.get_db()
@@ -5007,6 +5006,92 @@ async def player_play_queue(body: dict):
 
     state.player_task = asyncio.create_task(
         _run_playback_queue(first_aid, first_info, combined_playlist, targets, volume)
+    )
+    return {"ok": True, "queued": len(combined_playlist)}
+
+
+@app.post("/api/player/play-shuffle-tracks")
+async def player_play_shuffle_tracks(body: dict):
+    """
+    Play every track in the catalog in random order, one track at a time.
+
+    This is distinct from the existing album-shuffle: instead of shuffling
+    whole albums and playing them through, we treat each track as its own
+    playlist entry (using PlaylistEntry.source_offset_secs /
+    source_duration_secs to bound playback to just that track's slice of
+    its side FLAC), then shuffle the list.
+
+    body: { devices?: [{id, name}], volume?: int, limit?: int }
+    """
+    targets = body.get("devices") or state.settings.get("saved_devices", [])
+    if not targets:
+        return {"ok": False, "error": "No AirPlay devices selected"}
+    volume = body.get("volume", state.settings.get("volume", 80))
+
+    tracks = cat.get_all_playable_tracks()
+    if not tracks:
+        return {"ok": False, "error": "No recorded tracks available"}
+
+    random.shuffle(tracks)
+    limit = body.get("limit")
+    if isinstance(limit, int) and limit > 0:
+        tracks = tracks[:limit]
+
+    combined_playlist = []
+    for t in tracks:
+        start = float(t["start_secs"])
+        end   = float(t["end_secs"])
+        dur   = max(0.0, end - start)
+        if dur <= 0:
+            continue
+        # Single-track entry: tracks list has just this one track, with
+        # entry-local timing (0 -> dur). Player will start ffmpeg with
+        # -ss start -t dur so only this track's audio is decoded.
+        track_obj = {
+            "id":           t["track_id"],
+            "title":        t["track_title"],
+            "artist":       t.get("album_artist"),
+            "track_number": t.get("track_number"),
+            "start_secs":   0.0,
+            "end_secs":     dur,
+        }
+        combined_playlist.append(plr.PlaylistEntry(
+            audio_path=t["audio_path"],
+            side=t.get("side") or "",
+            duration_secs=dur,
+            tracks=[track_obj],
+            album_id=t["album_id"],
+            album_title=t["album_title"],
+            album_artist=t["album_artist"],
+            artwork_path=t.get("user_artwork_path") or t.get("artwork_path"),
+            source_offset_secs=start,
+            source_duration_secs=dur,
+        ))
+
+    if not combined_playlist:
+        return {"ok": False, "error": "No playable tracks (all missing boundaries)"}
+
+    # Stop streaming / listen / existing playback (same pattern as play-queue)
+    if state.is_streaming:
+        if state.stop_event:
+            state.stop_event.set()
+        if state.stream_task:
+            state.stream_task.cancel()
+            with suppress(asyncio.CancelledError, Exception):
+                await state.stream_task
+            state.stream_task = None
+    _stop_listen_mode()
+    await asyncio.sleep(0.3)
+    await _stop_playback()
+
+    first = combined_playlist[0]
+    base_info = {
+        "id":     first.album_id,
+        "title":  first.album_title,
+        "artist": first.album_artist,
+    }
+    state.player_task = asyncio.create_task(
+        _run_playback_queue(first.album_id, base_info, combined_playlist, targets, volume)
     )
     return {"ok": True, "queued": len(combined_playlist)}
 
