@@ -1140,6 +1140,94 @@ def save_track_fingerprints(
     finally:
         db.close()
 
+
+# ── Fingerprint Rebuild (maintenance) ─────────────────────────────────────────
+
+def _extract_track_wav(audio_path: str, start_secs: float, end_secs: float) -> bytes | None:
+    """Decode a single track's PCM slice from a side FLAC and return WAV bytes.
+
+    Used by the rebuild_fingerprints job: we already know exactly where each
+    track lives in its side FLAC, so we ask ffmpeg to seek and emit just
+    that segment as a WAV the fingerprinter can consume.
+    """
+    dur = max(0.0, float(end_secs) - float(start_secs))
+    if dur <= 0:
+        return None
+    cmd = [
+        "ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin",
+        "-ss", f"{float(start_secs):.3f}",
+        "-i", audio_path,
+        "-t", f"{dur:.3f}",
+        "-f", "wav",
+        "-ar", "44100",
+        "-ac", "2",
+        "-acodec", "pcm_s16le",
+        "pipe:1",
+    ]
+    try:
+        # 60s timeout is generous: even a 7-minute track decodes in under a
+        # few seconds on a Pi 5 because we're not re-encoding.
+        r = subprocess.run(cmd, capture_output=True, timeout=60)
+    except Exception as e:
+        print(f"[catalog] _extract_track_wav: ffmpeg failed: {e}")
+        return None
+    if r.returncode != 0:
+        print(f"[catalog] _extract_track_wav: ffmpeg exit {r.returncode}: "
+              f"{r.stderr.decode('utf-8', 'replace').strip()[:200]}")
+        return None
+    return r.stdout or None
+
+
+def rebuild_track_fingerprints(track_id: int, audio_path: str,
+                               start_secs: float, end_secs: float) -> dict:
+    """Re-extract and persist fingerprints for one track.
+
+    Returns {"ok": bool, "rows": int, "error": str|None}. On success, the
+    track's existing fingerprint rows are replaced inside save_track_fingerprints.
+    """
+    if not os.path.exists(audio_path):
+        return {"ok": False, "rows": 0, "error": "audio_path missing"}
+    wav = _extract_track_wav(audio_path, start_secs, end_secs)
+    if not wav:
+        return {"ok": False, "rows": 0, "error": "extract failed or empty"}
+    fp = fingerprint_wav(wav)
+    if not fp:
+        return {"ok": False, "rows": 0, "error": "fpcalc failed or too quiet"}
+    raw_ints, _compressed, duration = fp
+    rows = save_track_fingerprints(track_id, raw_ints, duration)
+    if rows <= 0:
+        return {"ok": False, "rows": 0, "error": "save_track_fingerprints failed"}
+    return {"ok": True, "rows": rows, "error": None}
+
+
+def backup_fingerprints_to(path: str) -> int:
+    """Dump every row of the fingerprints table to a JSON file at `path`.
+
+    Called before a library-wide rebuild so the operation is reversible if
+    something goes catastrophically wrong. Returns the number of rows dumped.
+    """
+    db = get_db()
+    try:
+        rows = db.execute(
+            "SELECT id, track_id, fingerprint, duration FROM fingerprints"
+        ).fetchall()
+        out = [
+            {
+                "id":          r["id"],
+                "track_id":    r["track_id"],
+                "fingerprint": r["fingerprint"],  # already JSON-encoded text
+                "duration":    r["duration"],
+            }
+            for r in rows
+        ]
+    finally:
+        db.close()
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump({"rows": out}, f)
+    print(f"[catalog] Backed up {len(out)} fingerprint rows to {path}")
+    return len(out)
+
+
 # ── Play Logging ──────────────────────────────────────────────────────────────
 
 def log_play(track_id: int, album_id: int):
