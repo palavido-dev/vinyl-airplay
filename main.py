@@ -6010,8 +6010,7 @@ async def generate_certs():
     return {"ok": True, "message": f"Certificates generated for {hostname}.local, {ip}. Restart the app to use them."}
 
 
-@app.get("/api/system/check-update")
-async def check_update():
+def _check_update_sync() -> dict:
     current = _get_git_commit()
     try:
         result = subprocess.run(
@@ -6034,10 +6033,16 @@ async def check_update():
     }
 
 
+@app.get("/api/system/check-update")
+async def check_update():
+    # Git fetch/rev-list block for up to ~20s; keep them off the event loop.
+    return await asyncio.to_thread(_check_update_sync)
+
+
 _update_rollback_hash = None
 
 @app.post("/api/system/update")
-async def perform_update(background_tasks):
+async def perform_update():
     global _update_rollback_hash
     try:
         _update_rollback_hash = _get_git_commit()
