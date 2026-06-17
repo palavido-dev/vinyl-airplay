@@ -5685,7 +5685,7 @@ async def _start_listen_mode():
     """Open sounddevice input without AirPlay streaming: for learning/recording only."""
     if state.is_streaming or state.listen_task:
         return  # already running
-    audio_device_index = int(state.settings.get("audio_device", 0))
+    audio_device_index = int(state.settings.get("audio_device_index") or 0)
     loop = asyncio.get_event_loop()
 
     def _on_track_ready(pcm, dur):

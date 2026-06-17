@@ -117,6 +117,11 @@ class RecordingBuffer:
         # Stream stall detection: track when audio last arrived
         self._last_put_time: float = 0.0             # monotonic timestamp of last put() call
 
+        # Number of remaining expected tracks. The caller (album record flow) sets the
+        # real value; initialized here so a split firing before that can't raise
+        # AttributeError inside the real-time audio callback.
+        self.remaining_tracks = 0
+
     def start(self, auto_split: bool = True):
         with self._lock:
             self._chunks        = []
