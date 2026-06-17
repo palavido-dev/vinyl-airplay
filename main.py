@@ -33,6 +33,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.templating import Jinja2Templates
 from pyatv.interface import MediaMetadata
 from pyatv.storage.file_storage import FileStorage
+from scipy.signal import lfilter
 
 import catalog as cat
 import exporter as exp
@@ -148,19 +149,13 @@ def _peak_coeffs(freq, gain_db, fs=SAMPLE_RATE, Q=1.0):
 
 
 def _apply_biquad(x, b, a, z):
-    out = np.empty_like(x)
-    b0, b1, b2 = b
-    a1, a2 = a[1], a[2]
-    for c in range(x.shape[1]):
-        z0, z1 = z[0, c], z[1, c]
-        for i in range(x.shape[0]):
-            s = x[i, c]
-            y = b0 * s + z0
-            z0 = b1 * s - a1 * y + z1
-            z1 = b2 * s - a2 * y
-            out[i, c] = y
-        z[0, c], z[1, c] = z0, z1
-    return out
+    # Direct Form II transposed IIR with carried state. Identical math to the old
+    # per-sample Python loop, but run in C by scipy's lfilter, which keeps EQ off
+    # the audio callback's critical path on the Pi (that per-sample loop was the
+    # main cause of input overflows when EQ was engaged).
+    y, zf = lfilter(b, a, x, axis=0, zi=z)
+    z[:] = zf
+    return y
 
 
 class EQ:
