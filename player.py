@@ -395,7 +395,7 @@ class Player:
 
         try:
             self._ffmpeg = subprocess.Popen(
-                cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
             )
             return True
         except Exception as e:
@@ -445,7 +445,7 @@ class Player:
         ]
         try:
             self._next_ffmpeg = subprocess.Popen(
-                cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
             )
             print(f"[player] Pre-started ffmpeg for Side {next_entry.side} (gapless)")
         except Exception as e:

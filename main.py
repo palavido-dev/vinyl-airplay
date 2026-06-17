@@ -948,7 +948,7 @@ class BluetoothManager:
         info = await loop.run_in_executor(
             None, lambda: self._parse_info(address)
         )
-        if info.get("connected"):
+        if info and info.get("connected"):
             return {"ok": True, "message": f"Connected to {info.get('name', address)}"}
         return {"ok": False, "error": "Connection attempt finished but device not connected"}
 
@@ -1947,7 +1947,7 @@ async def stream_audio(stream_id: str):
     """Stream PCM audio as WAV to browser."""
     stream = _browser_streams.get(stream_id)
     if not stream:
-        return {"error": "Stream not found"}, 404
+        return JSONResponse({"error": "Stream not found"}, status_code=404)
 
     async def generate():
         chunks_sent = 0
@@ -3003,7 +3003,7 @@ async def delete_album_route(album_id: int):
     # Use soft-delete for undo support
     success = cat.soft_delete_album(album_id)
     if not success:
-        return {"ok": False, "error": "Album not found"}, 404
+        return JSONResponse({"ok": False, "error": "Album not found"}, status_code=404)
     return {"ok": True}
 
 
@@ -3315,7 +3315,7 @@ async def update_album_metadata(album_id: int, body: Annotated[dict, Body()]):
     """Update album metadata fields. body: {title?, artist?, year?, genre?, label?}"""
     success = cat.update_album_metadata(album_id, body)
     if not success:
-        return {"ok": False, "error": "Album not found"}, 404
+        return JSONResponse({"ok": False, "error": "Album not found"}, status_code=404)
     return {"ok": True}
 
 
@@ -3492,7 +3492,7 @@ async def soft_delete_album_route(album_id: int):
     """Soft-delete an album (can be restored)."""
     success = cat.soft_delete_album(album_id)
     if not success:
-        return {"ok": False, "error": "Album not found"}, 404
+        return JSONResponse({"ok": False, "error": "Album not found"}, status_code=404)
     return {"ok": True}
 
 
@@ -3501,7 +3501,7 @@ async def restore_album_route(album_id: int):
     """Restore a soft-deleted album."""
     success = cat.restore_album(album_id)
     if not success:
-        return {"ok": False, "error": "Album not found"}, 404
+        return JSONResponse({"ok": False, "error": "Album not found"}, status_code=404)
     return {"ok": True}
 
 
