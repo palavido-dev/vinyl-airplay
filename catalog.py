@@ -150,8 +150,9 @@ CREATE INDEX IF NOT EXISTS idx_album_audio  ON album_audio(album_id);
 
 
 def get_db() -> sqlite3.Connection:
-    db = sqlite3.connect(DB_PATH, check_same_thread=False)
+    db = sqlite3.connect(DB_PATH, check_same_thread=False, timeout=30)
     db.row_factory = sqlite3.Row
+    db.execute("PRAGMA busy_timeout=5000")
     return db
 
 
