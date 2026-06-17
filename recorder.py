@@ -187,7 +187,9 @@ class RecordingBuffer:
     @property
     def elapsed_secs(self) -> float:
         with self._lock:
-            return _pcm_duration(b"x" * self._total_bytes)
+            # Bytes / (rate * channels * 2). Avoids allocating a multi-hundred-MB
+            # dummy buffer just to divide a length (matches AlbumRecorder.elapsed_secs).
+            return self._total_bytes / (SAMPLE_RATE * CHANNELS * 2)
 
     def put(self, pcm_chunk: bytes, rms: float | None = None):
         """Called from audio callback with each block of int16 stereo PCM.

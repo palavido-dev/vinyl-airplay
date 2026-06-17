@@ -657,13 +657,14 @@ class Player:
                     # Side finished
                     break
 
-                # Pad partial final chunk with silence
+                # Update position from the real bytes read, before any padding,
+                # so a short final chunk doesn't overshoot the side length.
+                bytes_fed += len(data)
+                self._position = pos_start + bytes_fed / BYTES_PER_SEC
+
+                # Pad a short final chunk with silence for the sinks (not counted above).
                 if len(data) < CHUNK_BYTES:
                     data += b'\x00' * (CHUNK_BYTES - len(data))
-
-                # Update position based on bytes fed (not wall clock)
-                bytes_fed += CHUNK_BYTES
-                self._position = pos_start + bytes_fed / BYTES_PER_SEC
 
                 # Convert to float32 for processing
                 audio_f32 = np.frombuffer(data, dtype=np.int16).reshape(-1, CHANNELS).astype(np.float32) / 32767.0
