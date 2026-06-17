@@ -376,6 +376,10 @@ _FP_CACHE = {
     "track_ids": None,   # np.ndarray shape (N,) dtype int32: parallel track IDs
 }
 
+# Guards all reads/writes of _FP_CACHE: the recognizer thread and web-request
+# threads both touch it, so swaps must be atomic and reads must be snapshots.
+_FP_LOCK = threading.Lock()
+
 # Popcount lookup table: faster than np.unpackbits (avoids 8x memory expansion)
 _POPCOUNT_LUT = np.array([bin(i).count('1') for i in range(256)], dtype=np.uint16)
 
@@ -387,8 +391,9 @@ def _refresh_fingerprint_cache(db: sqlite3.Connection, force: bool = False) -> N
     except Exception:
         cnt = 0
 
-    if (not force) and (_FP_CACHE["count"] == cnt) and _FP_CACHE["rows"]:
-        return
+    with _FP_LOCK:
+        if (not force) and (_FP_CACHE["count"] == cnt) and _FP_CACHE["rows"]:
+            return
 
     rows = db.execute("SELECT track_id, fingerprint FROM fingerprints").fetchall()
     parsed = []
@@ -400,8 +405,6 @@ def _refresh_fingerprint_cache(db: sqlite3.Connection, force: bool = False) -> N
         except Exception:
             continue
 
-    _FP_CACHE["count"] = cnt
-    _FP_CACHE["rows"]  = parsed
     if parsed:
         # Stack into matrix for vectorized matching: shape (N, window_bytes)
         # Pad shorter arrays to max length so all rows have equal width
@@ -409,11 +412,17 @@ def _refresh_fingerprint_cache(db: sqlite3.Connection, force: bool = False) -> N
         mat = np.zeros((len(parsed), max_len), dtype=np.uint8)
         for i, (_, arr) in enumerate(parsed):
             mat[i, :len(arr)] = arr
-        _FP_CACHE["matrix"]    = mat
-        _FP_CACHE["track_ids"] = np.array([p[0] for p in parsed], dtype=np.int32)
+        track_ids = np.array([p[0] for p in parsed], dtype=np.int32)
     else:
-        _FP_CACHE["matrix"]    = None
-        _FP_CACHE["track_ids"] = None
+        mat = None
+        track_ids = None
+
+    # Swap the cache atomically so a reader never sees a half-updated state.
+    with _FP_LOCK:
+        _FP_CACHE["count"]     = cnt
+        _FP_CACHE["rows"]      = parsed
+        _FP_CACHE["matrix"]    = mat
+        _FP_CACHE["track_ids"] = track_ids
     print(f"[catalog] Fingerprint cache refreshed: {len(parsed)} fingerprints")
 
 def match_local(fingerprint: list[int], duration: float = FINGERPRINT_SECS) -> dict | None:
@@ -432,7 +441,11 @@ def match_local(fingerprint: list[int], duration: float = FINGERPRINT_SECS) -> d
     db = get_db()
     try:
         _refresh_fingerprint_cache(db)
-        if not _FP_CACHE["rows"]:
+        with _FP_LOCK:
+            cache_rows = _FP_CACHE["rows"]
+            cache_mat  = _FP_CACHE["matrix"]
+            cache_track_ids = _FP_CACHE["track_ids"]
+        if not cache_rows:
             return None
 
         # Derive ints/sec from the live fpcalc call: precise and consistent
@@ -455,8 +468,8 @@ def match_local(fingerprint: list[int], duration: float = FINGERPRINT_SECS) -> d
             if tail not in live_windows[-2:]:
                 live_windows.append(tail)
 
-        mat       = _FP_CACHE["matrix"]
-        track_ids = _FP_CACHE["track_ids"]
+        mat       = cache_mat
+        track_ids = cache_track_ids
         if mat is None:
             return None
 
