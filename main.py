@@ -2313,12 +2313,17 @@ async def take_screenshot():
                                 capture_output=True, text=True, timeout=5)
         if result.returncode != 0:
             return {"ok": False, "error": result.stderr.strip() or "Screenshot failed"}
-        return FileResponse(tmp.name, media_type="image/png",
-                            filename="vinyl-streamer-screenshot.png")
+        with open(tmp.name, "rb") as f:
+            data = f.read()
+        return Response(content=data, media_type="image/png",
+                        headers={"Content-Disposition": 'attachment; filename="vinyl-streamer-screenshot.png"'})
     except FileNotFoundError:
         return {"ok": False, "error": "grim not installed (apt install grim)"}
     except Exception as e:
         return {"ok": False, "error": str(e)}
+    finally:
+        if os.path.exists(tmp.name):
+            os.unlink(tmp.name)
 
 
 @app.get("/api/browse-dirs")
@@ -5264,13 +5269,6 @@ async def player_seek(body: dict):
     else:
         return {"ok": False, "error": "Provide position_secs or track_id"}
     return {"ok": True}
-
-
-@app.get("/api/player/status")
-async def player_status():
-    if state.player:
-        return state.player.get_status()
-    return {"state": "stopped"}
 
 
 @app.get("/api/player/queue")
