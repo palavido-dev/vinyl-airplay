@@ -2199,7 +2199,7 @@ async def update_settings(body: dict):
         state.settings["auto_stream_enabled"] = bool(body["auto_stream_enabled"])
         save_settings(state.settings)
         spawn_bg(_restart_auto_stream_watcher())
-    if "auto_stream_device" in body:
+    if body.get("auto_stream_device"):
         state.settings["auto_stream_device"] = body["auto_stream_device"]
         save_settings(state.settings)
     if "discogs_token" in body:
