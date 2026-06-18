@@ -30,7 +30,6 @@ import sounddevice as sd
 import uvicorn
 from fastapi import Body, FastAPI, File, Request, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response, StreamingResponse
-from fastapi.templating import Jinja2Templates
 from pyatv.interface import MediaMetadata
 from pyatv.storage.file_storage import FileStorage
 
@@ -40,6 +39,7 @@ import player as plr
 import recorder as rec
 from audio_eq import EQ
 from audio_mp3 import LiveMP3Broadcaster
+from config import TEMPLATES, load_settings, save_settings
 from transports_bluetooth import BluetoothManager
 
 # ── Audio Config ──────────────────────────────────────────────────────────────
@@ -69,40 +69,6 @@ INPUT_LATENCY = 0.5    # seconds: large ALSA buffer absorbs USB timing jitter
                        # stream alive through those hiccups)
 READ_SIZE     = 8192
 MAX_CHUNKS    = 500
-
-# ── Paths & Settings ──────────────────────────────────────────────────────────
-
-SETTINGS_FILE = Path("settings.json")
-TEMPLATES     = Jinja2Templates(directory="templates")
-
-
-def load_settings() -> dict:
-    defaults = {
-        "saved_devices": [],
-        "volume": 80,
-        "audio_device_index": None,
-        "bass": 0,
-        "treble": 0,
-        "discogs_token": "",
-        "hidden_devices": [],
-        "auto_stream_enabled": False,
-        "auto_stream_device": None,
-        "device_names": {},
-        "audio_storage_path": "",
-        "device_volumes": {},
-        "http_stream_enabled": False,
-        "http_stream_bitrate_kbps": 256,
-    }
-    if SETTINGS_FILE.exists():
-        s = json.loads(SETTINGS_FILE.read_text())
-        for k, v in defaults.items():
-            s.setdefault(k, v)
-        return s
-    return defaults
-
-
-def save_settings(s: dict):
-    SETTINGS_FILE.write_text(json.dumps(s, indent=2))
 
 
 # ── Global State ──────────────────────────────────────────────────────────────
