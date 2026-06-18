@@ -31,7 +31,6 @@ from pyatv.interface import MediaMetadata
 from pyatv.storage.file_storage import FileStorage
 
 import catalog as cat
-import exporter as exp
 import player as plr
 import recorder as rec
 from app_state import broadcast, spawn_bg, state

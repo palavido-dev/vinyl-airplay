@@ -8,7 +8,6 @@ with their download endpoints. Shares AppState via app_state.
 import asyncio
 import json
 import os
-import time
 from pathlib import Path
 
 from fastapi import APIRouter, Request
@@ -17,7 +16,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Streamin
 import catalog as cat
 import exporter as exp
 import recorder as rec
-from app_state import broadcast, state
+from app_state import state
 
 router = APIRouter()
 
