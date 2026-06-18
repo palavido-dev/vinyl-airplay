@@ -18,7 +18,6 @@ import time
 import traceback
 import uuid
 from contextlib import asynccontextmanager, suppress
-from datetime import datetime
 from pathlib import Path
 from typing import Annotated
 
@@ -27,7 +26,7 @@ import pyatv
 import sounddevice as sd
 import uvicorn
 from fastapi import Body, FastAPI, File, Request, UploadFile, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 from pyatv.interface import MediaMetadata
 from pyatv.storage.file_storage import FileStorage
 
@@ -201,7 +200,6 @@ class LocalOutputStream:
         self._max_retries = 1
 
     def start(self):
-        import subprocess
         self._proc = subprocess.Popen(
             ["aplay", "-D", self._alsa_device, "-f", "S16_LE",
              "-r", str(self._samplerate), "-c", str(self._channels), "-"],
