@@ -1,6 +1,4 @@
 #!/usr/bin/env python3
-"""Vinyl AirPlay: record-recognition callbacks.
-
 Artwork URL/JPEG helpers and the on_match/on_unknown factories that the stream
 coordinator and player engine wire into the recogniser. Shares AppState via app_state.
 """
