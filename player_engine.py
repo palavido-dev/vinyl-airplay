@@ -6,7 +6,6 @@ with track-boundary now-playing updates. Shares AppState via app_state.
 """
 
 import asyncio
-import math
 import threading
 from contextlib import suppress
 
@@ -15,10 +14,10 @@ from pyatv.interface import MediaMetadata
 
 import catalog as cat
 import player as plr
-from app_state import broadcast, spawn_bg, state
-from audio_streams import AsyncAudioStream, LocalOutputStream, run_device_stream
+from app_state import broadcast, state
+from audio_streams import AsyncAudioStream, LocalOutputStream, _browser_streams, run_device_stream
 from device_helpers import _get_local_outputs
-from recognition import _art_jpeg, _make_on_match, _make_on_unknown
+from recognition import _art_jpeg, _art_url
 
 
 async def _stop_playback():
