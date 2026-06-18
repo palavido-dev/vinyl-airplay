@@ -31,7 +31,15 @@ import player as plr
 import recorder as rec
 from app_state import broadcast, spawn_bg, state
 from audio_mp3 import LiveMP3Broadcaster
-from audio_streams import AsyncAudioStream, BrowserAudioStream, LocalOutputStream, _browser_streams, make_callback, run_device_stream, wav_header
+from audio_streams import (
+    AsyncAudioStream,
+    BrowserAudioStream,
+    LocalOutputStream,
+    _browser_streams,
+    make_callback,
+    run_device_stream,
+    wav_header,
+)
 from config import TEMPLATES, save_settings
 from routes_bluetooth import router as bluetooth_router
 from routes_catalog import router as catalog_router
