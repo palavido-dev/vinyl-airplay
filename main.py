@@ -5,18 +5,14 @@ Vinyl AirPlay Streamer: Web-controlled backend
 """
 
 import asyncio
-import collections
 import json
 import math
 import os
 import random
 import shutil
-import struct
-import subprocess
 import threading
 import time
 import traceback
-import uuid
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from typing import Annotated
