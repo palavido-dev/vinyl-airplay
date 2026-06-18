@@ -1,0 +1,258 @@
+#!/usr/bin/env python3
+"""Vinyl AirPlay: real-time audio output sinks + the capture callback.
+
+The live audio path: WAV framing, the AirPlay/local/browser output sinks, and
+make_callback (the per-buffer hot loop that feeds fingerprinting, recording, EQ,
+and every output sink). Audio constants are local (matching audio_eq/audio_mp3).
+Shares AppState via app_state.
+"""
+
+import asyncio
+import collections
+import struct
+import subprocess
+import threading
+import time
+import traceback
+import uuid
+
+import numpy as np
+import pyatv
+
+from app_state import broadcast, state
+
+SAMPLE_RATE = 44100
+CHANNELS    = 2
+BITS        = 16
+MAX_CHUNKS  = 500
+READ_SIZE   = 8192
+
+
+# ── WAV Header ────────────────────────────────────────────────────────────────
+
+def wav_header() -> bytes:
+    byte_rate = SAMPLE_RATE * CHANNELS * (BITS // 8)
+    block_align = CHANNELS * (BITS // 8)
+    data_size = 0x7FFFFFFF
+    h  = struct.pack('<4sI4s', b'RIFF', data_size + 36, b'WAVE')
+    h += struct.pack('<4sIHHIIHH', b'fmt ', 16, 1, CHANNELS, SAMPLE_RATE, byte_rate, block_align, BITS)
+    h += struct.pack('<4sI', b'data', data_size)
+    return h
+
+
+# ── Async Audio Stream ────────────────────────────────────────────────────────
+
+class AsyncAudioStream:
+    def __init__(self):
+        self._deque = collections.deque()
+        self._event = threading.Event()
+        self._buf = wav_header()
+        self._stop = threading.Event()
+
+    def put(self, chunk):
+        if not self._stop.is_set():
+            if len(self._deque) < MAX_CHUNKS:
+                self._deque.append(chunk)
+            self._event.set()
+
+    def stop(self):
+        self._stop.set()
+        self._event.set()
+
+    def readable(self):
+        return True
+
+    def seekable(self):
+        return False
+
+    async def read(self, size=READ_SIZE):
+        loop = asyncio.get_event_loop()
+        while len(self._buf) < size:
+            if self._stop.is_set() and not self._deque:
+                break
+            if not self._deque:
+                self._event.clear()
+                if not self._deque and not self._stop.is_set():
+                    await loop.run_in_executor(None, lambda: self._event.wait(timeout=0.5))
+            while self._deque:
+                self._buf += self._deque.popleft()
+        out = self._buf[:size]
+        self._buf = self._buf[size:]
+        return out
+
+
+# ── Per-Device Stream Thread ──────────────────────────────────────────────────
+
+def run_device_stream(conf, audio_stream, volume, done_callback):
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    async def _stream():
+        max_retries=3
+        retry_count=0
+        base_delay=1.0
+
+        while retry_count <= max_retries:
+            try:
+                print(f"[airplay] Connecting to {conf.name} ({conf.address})…")
+                atv = await pyatv.connect(conf, loop)
+                try:
+                    print(f"[airplay] Connected: setting volume {volume}")
+                    await atv.audio.set_volume(volume)
+                    print(f"[airplay] Streaming to {conf.name}")
+                    try:
+                        await atv.stream.stream_file(audio_stream)
+                        print(f"[airplay] stream_file returned normally for {conf.name}")
+                    except Exception as sf_err:
+                        print(f"[airplay] stream_file EXCEPTION for {conf.name}: "
+                              f"{type(sf_err).__name__}: {sf_err}")
+                        traceback.print_exc()
+                        raise
+                finally:
+                    atv.close()
+                break
+            except Exception as e:
+                retry_count += 1
+                if retry_count <= max_retries:
+                    delay = base_delay * (2 ** (retry_count - 1))
+                    print(
+                        f"[airplay] Connection lost to {conf.name}, "
+                        f"retrying in {delay}s (attempt {retry_count}/{max_retries})"
+                    )
+                    if state.loop is not None:
+                        asyncio.run_coroutine_threadsafe(
+                            broadcast("reconnecting", {"device": conf.name, "attempt": retry_count}),
+                            state.loop,
+                        )
+                    await asyncio.sleep(delay)
+                else:
+                    print(f"[airplay] Final ERROR for {conf.name}: {type(e).__name__}: {e}")
+                    raise
+
+    err = None
+    try:
+        loop.run_until_complete(_stream())
+    except Exception as e:
+        print(f"[airplay] ERROR for {conf.name}: {type(e).__name__}: {e}")
+        err = e
+    finally:
+        loop.close()
+    done_callback(conf.name, err)
+
+
+# ── Local Audio Output ────────────────────────────────────────────────────────
+
+class LocalOutputStream:
+    """Plays PCM to a local ALSA device via aplay subprocess.
+    Same put()/stop() interface as AsyncAudioStream.
+    Uses aplay pipe instead of sounddevice to avoid buffer underrun clicks."""
+
+    def __init__(self, alsa_device, samplerate=SAMPLE_RATE, channels=CHANNELS):
+        self._alsa_device = alsa_device  # e.g. "plughw:2,0" or "touchscreen"
+        self._samplerate = samplerate
+        self._channels = channels
+        self._proc = None
+        self._retry_count = 0
+        self._max_retries = 1
+
+    def start(self):
+        self._proc = subprocess.Popen(
+            ["aplay", "-D", self._alsa_device, "-f", "S16_LE",
+             "-r", str(self._samplerate), "-c", str(self._channels), "-"],
+            stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+        # Pre-fill with ~30ms of silence so the ALSA device settles
+        # before real audio arrives (prevents open-device pop)
+        try:
+            silence = b'\x00' * (int(self._samplerate * 0.03) * self._channels * 2)
+            self._proc.stdin.write(silence)
+        except Exception:
+            pass
+        print(f"[local-out] Opened aplay pipe to {self._alsa_device}")
+
+    def put(self, pcm_bytes):
+        if self._proc and self._proc.stdin:
+            try:
+                self._proc.stdin.write(pcm_bytes)
+            except (BrokenPipeError, OSError) as e:
+                print(f"[local-out] Write error: {e}")
+                if self._retry_count<self._max_retries:
+                    self._retry_count+=1
+                    print(f"[local-out] Attempting restart ({self._retry_count}/{self._max_retries})")
+                    time.sleep(2)
+                    try:
+                        self.stop()
+                        self.start()
+                        self._proc.stdin.write(pcm_bytes)
+                    except Exception as restart_err:
+                        print(f"[local-out] Restart failed: {restart_err}")
+
+    def stop(self):
+        if self._proc:
+            try:
+                self._proc.stdin.close()
+                self._proc.wait(timeout=2)
+            except Exception:
+                self._proc.kill()
+            self._proc = None
+            print("[local-out] Closed")
+
+
+# ── Browser Audio Stream ──────────────────────────────────────────────────────
+
+_browser_streams = {}
+
+class BrowserAudioStream:
+    """Buffer PCM chunks for browser playback via HTTP streaming."""
+
+    def __init__(self):
+        self.stream_id = uuid.uuid4().hex
+        self._deque = collections.deque(maxlen=300)
+        self._stop = threading.Event()
+
+    def put(self, pcm_bytes):
+        if not self._stop.is_set():
+            self._deque.append(pcm_bytes)
+
+    def stop(self):
+        self._stop.set()
+
+    def is_stopped(self):
+        return self._stop.is_set()
+
+
+# ── Audio Callback ────────────────────────────────────────────────────────────
+
+_last_overflow_log = 0.0
+
+def make_callback(streams, eq, fp_buffer):
+    def callback(indata, frames, cb_time, status):
+        global _last_overflow_log
+        if status:
+            now = time.monotonic()
+            if now - _last_overflow_log > 30.0:
+                print(f"[audio] {status}")
+                _last_overflow_log = now
+        # Scarlett 2i2 4th Gen captures 4 channels: use first 2 (L+R inputs)
+        audio_in = np.ascontiguousarray(indata[:, :CHANNELS]) if indata.shape[1] > CHANNELS else indata
+        # Compute RMS once from float32 data: avoids the expensive
+        # int16->float32 round-trip that rec_buffer and album_recorder
+        # were each doing independently on every callback.
+        rms = float(np.sqrt(np.mean(audio_in ** 2)))
+        # Feed fingerprint buffer BEFORE EQ/volume: raw signal gives best results
+        raw_pcm = (audio_in * 32767).astype(np.int16).tobytes()
+        fp_buffer.put(raw_pcm)
+        # Feed recorder with raw pre-EQ audio (preserves dynamics)
+        # Always call put(): silence detection runs inside regardless of is_active,
+        # so inter-track gaps trigger recogniser reset even when not recording
+        if state.rec_buffer:
+            state.rec_buffer.put(raw_pcm, rms=rms)
+        # Feed album recorder (full-side capture) with raw pre-EQ audio
+        if state.album_recorder and state.album_recorder.is_active:
+            state.album_recorder.put(raw_pcm, rms=rms)
+        # Apply EQ + volume for the actual stream output
+        audio = eq.process(audio_in)
+        pcm   = (audio * 32767).astype(np.int16).tobytes()
+        for s in streams:
+            s.put(pcm)
+        state.live_mp3.put(pcm)
+    return callback
