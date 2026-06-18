@@ -146,6 +146,7 @@ CREATE INDEX IF NOT EXISTS idx_plays_album  ON plays(album_id);
 CREATE INDEX IF NOT EXISTS idx_plays_track  ON plays(track_id);
 CREATE INDEX IF NOT EXISTS idx_tracks_album ON tracks(album_id);
 CREATE INDEX IF NOT EXISTS idx_album_audio  ON album_audio(album_id);
+CREATE INDEX IF NOT EXISTS idx_fingerprints_track ON fingerprints(track_id);
 """
 
 
