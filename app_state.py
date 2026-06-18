@@ -18,10 +18,11 @@ from audio_mp3 import LiveMP3Broadcaster
 from config import load_settings
 
 if TYPE_CHECKING:
-    import player as plr
-    import recorder as rec
     from pyatv.interface import MediaMetadata
     from pyatv.storage.file_storage import FileStorage
+
+    import player as plr
+    import recorder as rec
 
 
 class AppState:
