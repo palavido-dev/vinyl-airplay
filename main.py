@@ -45,7 +45,12 @@ from device_helpers import _get_bluetooth_devices, _get_local_outputs
 from learn_engine import LearnSession
 from player_engine import _build_side_entry, _run_playback, _run_playback_queue, _stop_playback
 from recognition import _art_jpeg, _art_url, _make_on_match, _make_on_unknown
-from recording_engine import _auto_finalize_album_side, _encode_and_save_album_side, _start_stall_watchdog, _stop_stall_watchdog
+from recording_engine import (
+    _auto_finalize_album_side,
+    _encode_and_save_album_side,
+    _start_stall_watchdog,
+    _stop_stall_watchdog,
+)
 from routes_bluetooth import router as bluetooth_router
 from routes_catalog import router as catalog_router
 from routes_catalog_stats import router as catalog_stats_router

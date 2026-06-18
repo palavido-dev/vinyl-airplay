@@ -8,11 +8,12 @@ coordinators own cleanup runs (no import of the route layer). Shares AppState vi
 
 import asyncio
 import time
+import traceback
 from contextlib import suppress
 
 import catalog as cat
 import recorder as rec
-from app_state import broadcast, spawn_bg, state
+from app_state import broadcast, state
 
 
 async def _auto_finalize_album_side():
