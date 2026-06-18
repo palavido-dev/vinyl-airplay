@@ -8,6 +8,7 @@ as FLAC files with track boundary timestamps.
 import contextlib
 import io
 import os
+import queue
 import subprocess
 import tempfile
 import threading
@@ -122,6 +123,13 @@ class RecordingBuffer:
         # AttributeError inside the real-time audio callback.
         self.remaining_tracks = 0
 
+        # Audio-callback offload: put() only enqueues; this worker thread runs all
+        # detection/splitting so nothing heavy ever runs on the real-time thread.
+        self._queue: queue.Queue = queue.Queue(maxsize=512)
+        self._dropped = 0
+        self._worker = threading.Thread(target=self._process_loop, daemon=True)
+        self._worker.start()
+
     def start(self, auto_split: bool = True):
         with self._lock:
             self._chunks        = []
@@ -141,6 +149,9 @@ class RecordingBuffer:
             self._track_elapsed_secs   = 0.0
             self._last_put_time        = time.monotonic()
             # Keep _expected_durations: set externally before start()
+        if self._worker is None or not self._worker.is_alive():
+            self._worker = threading.Thread(target=self._process_loop, daemon=True)
+            self._worker.start()
         print(f"[recorder] Recording started (auto_split={auto_split})")
 
     def stop(self) -> bytes | None:
@@ -149,6 +160,13 @@ class RecordingBuffer:
             if not self._active:
                 return None
             self._active = False
+        # Let the worker finish processing everything captured while recording so
+        # the flushed buffer is complete before we read it.
+        ev = threading.Event()
+        with contextlib.suppress(queue.Full):
+            self._queue.put(('__flush__', ev), timeout=2)
+            ev.wait(timeout=5)
+        with self._lock:
             pcm = b"".join(self._chunks)
             self._chunks = []
             self._total_bytes = 0
@@ -192,25 +210,52 @@ class RecordingBuffer:
             return self._total_bytes / (SAMPLE_RATE * CHANNELS * 2)
 
     def put(self, pcm_chunk: bytes, rms: float | None = None):
-        """Called from audio callback with each block of int16 stereo PCM.
-
-        Silence detection and level monitoring always run regardless of whether
-        recording is active: this allows inter-track gap detection (for recogniser
-        reset) even during normal non-recording streaming.
-        Only chunk accumulation is gated behind _active.
-
-        If *rms* is provided (pre-computed in the callback from float32 data),
-        the expensive int16->float32 conversion + RMS calculation is skipped.
+        """Audio-callback hot path: timestamp the block and hand it to the worker
+        thread. All detection/splitting/encoding happens off this thread, so the
+        callback can never stall the real-time audio stream.
         """
         self._last_put_time = time.monotonic()
+        try:
+            self._queue.put_nowait((pcm_chunk, rms, self._active))
+        except queue.Full:
+            self._dropped += 1  # never block the audio thread
 
+    def _process_loop(self):
+        """Worker thread: drain the queue and run the (previously in-callback)
+        detection + split logic. Exits after ~30s with no audio (stream stopped)."""
+        idle = 0
+        while True:
+            try:
+                item = self._queue.get(timeout=1.0)
+            except queue.Empty:
+                idle += 1
+                if idle >= 30:
+                    return
+                continue
+            idle = 0
+            if item is None:
+                return
+            if item[0] == '__flush__':
+                item[1].set()
+                continue
+            pcm_chunk, rms, was_active = item
+            try:
+                self._process(pcm_chunk, rms, was_active)
+            except Exception as e:
+                print(f"[recorder] worker error: {type(e).__name__}: {e}")
+
+    def _process(self, pcm_chunk: bytes, rms: float | None, was_active: bool):
+        """Runs on the worker thread (not the audio callback).
+
+        Silence detection and level monitoring always run; chunk accumulation is
+        gated on whether recording was active when the block was captured.
+        """
         if rms is None:
-            # Fallback: compute RMS from int16 PCM (expensive: avoid in hot path)
             samples = np.frombuffer(pcm_chunk, dtype=np.int16).astype(np.float32) / 32768.0
             rms     = float(np.sqrt(np.mean(samples ** 2)))
 
         with self._lock:
-            if self._active:
+            if was_active:
                 self._chunks.append(pcm_chunk)
                 self._total_bytes += len(pcm_chunk)
             self._last_rms = rms
