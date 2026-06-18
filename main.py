@@ -25,7 +25,7 @@ import numpy as np
 import pyatv
 import sounddevice as sd
 import uvicorn
-from fastapi import Body, FastAPI, File, Request, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import Body, FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 from pyatv.interface import MediaMetadata
 from pyatv.storage.file_storage import FileStorage

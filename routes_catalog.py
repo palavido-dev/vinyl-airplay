@@ -11,12 +11,14 @@ import math
 import os
 import random
 import threading
+from pathlib import Path
 from typing import Annotated
 
 from fastapi import APIRouter, Body, File, UploadFile
+from fastapi.responses import JSONResponse
 
 import catalog as cat
-from app_state import broadcast, spawn_bg, state
+from app_state import broadcast, state
 
 router = APIRouter()
 
