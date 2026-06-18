@@ -11,7 +11,6 @@ import math
 import os
 import random
 import shutil
-import socket
 import struct
 import subprocess
 import threading
