@@ -10,6 +10,21 @@ import sounddevice as sd
 from app_state import state
 
 
+CAPTURE_CHANNELS_MAX = 2  # stereo capture: HiFiBerry DAC2 ADC Pro returns silence
+                          # if opened with >2 channels (empty TDM slots). App only
+                          # ever processes L+R anyway, so 2 is correct for any device.
+
+
+def _capture_channels(device_index=None) -> int:
+    """Return the number of input channels to use for a given device.
+    Uses the lesser of CAPTURE_CHANNELS_MAX and the devices actual max."""
+    try:
+        info = sd.query_devices(device_index, kind='input')
+        return min(CAPTURE_CHANNELS_MAX, int(info['max_input_channels']))
+    except Exception:
+        return 2  # safe stereo fallback
+
+
 def _get_local_outputs():
     """List local audio output devices (ALSA software devices that actually work)."""
     custom_names = state.settings.get("device_names", {})
