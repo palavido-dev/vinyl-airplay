@@ -9,7 +9,6 @@ import sounddevice as sd
 
 from app_state import state
 
-
 CAPTURE_CHANNELS_MAX = 2  # stereo capture: HiFiBerry DAC2 ADC Pro returns silence
                           # if opened with >2 channels (empty TDM slots). App only
                           # ever processes L+R anyway, so 2 is correct for any device.

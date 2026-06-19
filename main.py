@@ -6,24 +6,20 @@ Vinyl AirPlay Streamer: Web-controlled backend
 
 import asyncio
 import json
-import math
 import os
 import random
 import shutil
 import threading
 import time
-import traceback
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from typing import Annotated
 
-import numpy as np
 import pyatv
 import sounddevice as sd
 import uvicorn
 from fastapi import Body, FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
-from pyatv.interface import MediaMetadata
 from pyatv.storage.file_storage import FileStorage
 
 import catalog as cat
@@ -32,21 +28,16 @@ import recorder as rec
 from app_state import broadcast, spawn_bg, state
 from audio_mp3 import LiveMP3Broadcaster
 from audio_streams import (
-    AsyncAudioStream,
     BrowserAudioStream,
-    LocalOutputStream,
     _browser_streams,
-    make_callback,
-    run_device_stream,
     wav_header,
 )
 from config import TEMPLATES, save_settings
 from device_helpers import _capture_channels, _get_bluetooth_devices, _get_local_outputs
 from learn_engine import LearnSession
 from player_engine import _build_side_entry, _run_playback, _run_playback_queue, _stop_playback
-from recognition import _art_jpeg, _art_url, _make_on_match, _make_on_unknown
+from recognition import _art_url
 from recording_engine import (
-    _auto_finalize_album_side,
     _encode_and_save_album_side,
     _start_stall_watchdog,
     _stop_stall_watchdog,

@@ -21,7 +21,7 @@ from pyatv.interface import MediaMetadata
 
 import catalog as cat
 import recorder as rec
-from app_state import broadcast, spawn_bg, state
+from app_state import broadcast, state
 from audio_streams import AsyncAudioStream, LocalOutputStream, make_callback, run_device_stream
 from device_helpers import _capture_channels, _get_local_outputs
 from recognition import _art_jpeg, _make_on_match, _make_on_unknown
