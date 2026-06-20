@@ -186,6 +186,8 @@ From the album detail modal, tap **Record**. A panel slides down with:
 
 The recorder captures the full side as a FLAC file while it is running. As soon as the side ends, it runs silence detection to split the continuous audio into tracks and uses the Discogs track listing to snap boundaries to the right places. Every track is then fingerprinted so the Pi can identify it on future plays.
 
+If recording does not start on its own when you drop the needle (common with quieter turntables or preamps), lower the **Recording Detection** threshold under Settings until it reliably picks up the signal.
+
 After all sides are recorded, the album gets an amber border in the library to mark it as recorded, and you can play it back from the library or from the album detail's **Play** button.
 
 If a split lands in the wrong spot, open the album, find the track, tap the edit button, and adjust the boundaries manually in seconds.
@@ -225,6 +227,10 @@ Settings is the big modal with everything else. It is divided into collapsible g
 - **Default device**: which audio device the Pi uses as its local output.
 - **Audio Input**: pick the capture device (HiFiBerry, Scarlett, USB mic, and so on) and adjust input gain.
 - **Crossfade**: 0 to 2 seconds of equal power crossfade between album sides, or 0 for pure gapless.
+
+### Recording Detection
+
+- **Threshold**: the sensitivity for auto-record and auto-streaming. Lower it if recording or streaming will not start on its own with a quieter turntable or preamp; raise it if background hum keeps triggering it (default 0.006). Changes apply live.
 
 ### Library
 

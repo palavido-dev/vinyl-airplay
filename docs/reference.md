@@ -240,6 +240,12 @@ Grouped into collapsible sections.
 | **Input gain** slider | Software gain applied before recording. |
 | **Crossfade** slider (0 to 2s) | Duration of equal power crossfade between album sides. 0 is pure gapless. |
 
+### Recording Detection
+
+| Control | Description |
+|---|---|
+| **Threshold** slider (0.001 to 0.02, default 0.006) | The input RMS level that auto-record and auto-streaming treat as "audio playing" rather than silence. Lower it if recording will not start on its own with a quieter turntable or preamp; raise it if background hum is triggering it. Saved to `settings.json` as `audio_detect_threshold` and applied live, no restart needed. |
+
 ### Library
 
 | Control | Description |
@@ -554,7 +560,7 @@ Vinyl Streamer exposes a REST API over HTTP (8080) and HTTPS (8443). These are t
 | `GET` | `/api/screenshot` | Server side screenshot endpoint (used for `api/catalog/collage`). |
 | `GET` | `/artwork/{filename}` | Serves album artwork files. |
 
-All the routes above are documented in `main.py`. For implementation details, see the inline comments there.
+The routes above are split across `main.py` and the `routes_*.py` modules. For implementation details, see the inline comments in each. The mapping from route group to module is listed under [Top level Python modules](#top-level-python-modules).
 
 ---
 
@@ -586,12 +592,56 @@ sudo journalctl -u vinyl-airplay -f
 
 ### Top level Python modules
 
+`main.py` was originally a single large file. It has since been split into focused modules. `main.py` is now a thin entry point: it builds the FastAPI app, runs the lifespan, mounts the `routes_*.py` routers, starts the audio / playback / recording engines, and keeps the routes that are tightly coupled to live runtime state (devices, streaming control, recording orchestration, player control, and catalog / playlist CRUD).
+
+**Core**
+
 | File | Purpose |
 |---|---|
-| `main.py` | FastAPI app, HTTP/HTTPS servers, live vinyl streaming pipeline, device management, recording orchestration. |
+| `main.py` | FastAPI app and lifespan, HTTP/HTTPS servers, router and engine wiring, and the device / streaming / recording / player / catalog routes coupled to runtime state. |
+| `app_state.py` | Shared `AppState`, the global `state` object, the background-task spawner, and the WebSocket `broadcast` helper. |
+| `config.py` | Settings load/save, filesystem paths, and the Jinja2 template environment. |
+
+**Catalog, recording, playback**
+
+| File | Purpose |
+|---|---|
 | `catalog.py` | SQLite catalog schema, Discogs client, Chromaprint fingerprint index, album and track CRUD. |
-| `recorder.py` | Recording session state machine, silence detection, track splitting, FLAC writing. |
+| `recorder.py` | Recording buffer, silence detection, track splitting, FLAC writing. |
 | `player.py` | FLAC playback engine with side transitions, gapless buffering, and crossfade. |
+| `exporter.py` | Catalog database and JSON manifest export helpers. |
+
+**Audio pipeline**
+
+| File | Purpose |
+|---|---|
+| `streaming.py` | Live vinyl stream coordinator (auto-stream watcher, capture setup) and listen mode. |
+| `audio_streams.py` | The sounddevice capture callback plus the audio sink classes (AirPlay, local, browser). |
+| `audio_eq.py` | Real-time 5 band EQ (shelving / peaking filters). |
+| `audio_mp3.py` | MP3 encoder for the browser / HTTP `live.mp3` stream. |
+| `transports_bluetooth.py` | Bluetooth (BlueALSA / A2DP) output transport. |
+
+**Engines and helpers**
+
+| File | Purpose |
+|---|---|
+| `recording_engine.py` | Album-side auto-finalize, encode and save, and the stream stall watchdog. |
+| `player_engine.py` | Playback and queue orchestration (run playback, build side entries, stop). |
+| `learn_engine.py` | Fingerprint "learn" sessions. |
+| `recognition.py` | Live recognition match callbacks and artwork helpers. |
+| `device_helpers.py` | Local and Bluetooth device discovery and capture channel selection. |
+
+**API routers** (each an `APIRouter` mounted by `main.py`)
+
+| File | Purpose |
+|---|---|
+| `routes_catalog.py` | Catalog browse and shelves, track CRUD and boundaries, Discogs search/sync, artwork, collage. |
+| `routes_catalog_stats.py` | Library insights: duplicates, heatmap, genre / artist / decade breakdowns, on-this-day, weekly trend. |
+| `routes_eq.py` | Volume, EQ bands, and presets. |
+| `routes_bluetooth.py` | Bluetooth scan, pair, connect, disconnect, remove, codec. |
+| `routes_settings.py` | Settings backup / restore, storage path, folder picker, screenshot. |
+| `routes_export.py` | Recorded-audio access and the FLAC export pipeline (per album, bulk, browse, download). |
+| `routes_system.py` | TLS certificates, self-update, WiFi portal. |
 
 ---
 
@@ -599,26 +649,44 @@ sudo journalctl -u vinyl-airplay -f
 
 ```
 vinyl-airplay/
-├── main.py              # FastAPI app, servers, streaming pipeline, API routes
-├── catalog.py           # Catalog, Discogs, fingerprinting
-├── recorder.py          # Recording, silence detection, track splitting
-├── player.py            # FLAC playback engine
-├── make_collage.py      # Collage builder
-├── wifi_setup.py        # Captive portal WiFi setup
-├── install.sh           # One line installer
-├── kiosk.sh             # Chromium kiosk launcher
-├── requirements.txt     # Python dependencies
+├── main.py                  # FastAPI app and lifespan; wires routers + engines
+├── app_state.py             # Shared runtime state, background tasks, broadcast
+├── config.py                # Settings load/save, paths, template environment
+│
+├── catalog.py               # Catalog, Discogs, fingerprinting
+├── recorder.py              # Recording, silence detection, track splitting
+├── player.py                # FLAC playback engine
+├── exporter.py              # Catalog database / JSON manifest export
+│
+├── streaming.py             # Live vinyl stream coordinator + listen mode
+├── audio_streams.py         # Capture callback and audio sink classes
+├── audio_eq.py              # Real-time EQ (shelving / peaking filters)
+├── audio_mp3.py             # MP3 encoder for the browser / HTTP stream
+├── transports_bluetooth.py  # Bluetooth (BlueALSA / A2DP) output
+│
+├── recording_engine.py      # Album-side auto-finalize, encode/save, watchdog
+├── player_engine.py         # Playback and queue orchestration
+├── learn_engine.py          # Fingerprint "learn" sessions
+├── recognition.py           # Live recognition callbacks + artwork helpers
+├── device_helpers.py        # Local / Bluetooth device discovery
+├── routes_*.py              # API routers by domain
+│
+├── make_collage.py          # Collage builder
+├── wifi_setup.py            # Captive portal WiFi setup
+├── install.sh               # One line installer
+├── kiosk.sh                 # Chromium kiosk launcher
+├── requirements.txt         # Python dependencies
 ├── templates/
-│   └── index.html       # Web UI (single page app)
-├── docs/                # Documentation
+│   └── index.html           # Web UI (single page app)
+├── docs/                    # Documentation
 │   ├── getting-started.md
 │   ├── user-guide.md
 │   ├── reference.md
-│   └── images/          # UI screenshots for the docs
-├── screenshots/         # Hardware photos and legacy UI screenshots
-├── README.md            # Top level project overview
-├── settings.json        # User configuration (auto created)
-└── data/                # SQLite catalog, artwork, FLAC recordings (auto created)
+│   └── images/              # UI screenshots for the docs
+├── screenshots/             # Hardware photos and legacy UI screenshots
+├── README.md                # Top level project overview
+├── settings.json            # User configuration (auto created)
+└── data/                    # SQLite catalog, artwork, FLAC recordings (auto created)
 ```
 
 The `data/` directory and `settings.json` are created on first run and are excluded from git. Everything under `data/` is safe to back up and restore.

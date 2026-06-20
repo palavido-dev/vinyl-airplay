@@ -224,7 +224,7 @@ For a complete walkthrough of the web UI, including Shelves, multi select, queue
 
 ## Settings & Device Management
 
-Configure AirPlay devices, Bluetooth speakers, auto-streaming, audio input, and storage all from the settings panel.
+Configure AirPlay devices, Bluetooth speakers, auto-streaming, audio input, recording detection sensitivity, and storage all from the settings panel.
 
 <p align="center">
   <img src="docs/images/05-settings.png" width="500" alt="Settings modal with Audio, Library, Personalization, and System groups">
@@ -243,6 +243,8 @@ Vinyl Streamer uses [Chromaprint](https://acoustid.org/chromaprint) to generate 
 ### Recording & Track Splitting
 
 When recording an album side, the system captures the full side as a continuous FLAC file while simultaneously detecting track boundaries using silence-based gap detection, with Discogs track duration data as a fallback for records with short or unclear gaps. Each track is fingerprinted independently for recognition.
+
+Recording and auto-streaming begin once the input rises above a configurable detection threshold. If you run a quieter turntable or preamp and playback is not picked up automatically, lower the **Recording Detection** threshold in Settings.
 
 ### Streaming
 
@@ -269,26 +271,47 @@ In short: FLAC storage is lossless. Playback processing colors the audio slightl
 
 ## Project Structure
 
+The app began as a single `main.py` and has since been split into focused modules: a thin FastAPI entry point that wires together per-domain API routers and the audio, playback, and recording engines.
+
 ```
 vinyl-airplay/
-├── main.py              # FastAPI server, streaming, audio pipeline, API
-├── catalog.py           # Album catalog, fingerprinting, Discogs integration
-├── recorder.py          # Recording, silence detection, track splitting
-├── player.py            # FLAC playback engine with track navigation
-├── make_collage.py      # Library cover collage builder
-├── wifi_setup.py        # Captive portal WiFi setup
-├── install.sh           # One line installer
-├── kiosk.sh             # Chromium kiosk launcher
+├── main.py                  # FastAPI app and lifespan; wires routers + engines together
+├── app_state.py             # Shared runtime state, background-task spawner, WebSocket broadcast
+├── config.py                # Settings load/save, paths, template environment
+│
+├── catalog.py               # Album catalog, fingerprinting, Discogs integration
+├── recorder.py              # Recording buffer, silence detection, track splitting
+├── player.py                # FLAC playback engine with track navigation
+├── exporter.py              # Catalog database and JSON manifest export
+│
+├── streaming.py             # Live vinyl stream coordinator and listen mode
+├── audio_streams.py         # Capture callback and audio sink classes
+├── audio_eq.py              # Real-time EQ (bass/treble shelving filters)
+├── audio_mp3.py             # MP3 encoder for the browser / HTTP stream
+├── transports_bluetooth.py  # Bluetooth (BlueALSA / A2DP) output
+│
+├── recording_engine.py      # Album-side auto-finalize, encode/save, stall watchdog
+├── player_engine.py         # Playback and queue orchestration
+├── learn_engine.py          # Fingerprint "learn" sessions
+├── recognition.py           # Live recognition callbacks and artwork helpers
+├── device_helpers.py        # Local / Bluetooth device discovery, capture channels
+│
+├── routes_*.py              # API routers by domain (catalog, eq, bluetooth, system, settings, export, stats)
+│
+├── make_collage.py          # Library cover collage builder
+├── wifi_setup.py            # Captive portal WiFi setup
+├── install.sh               # One line installer
+├── kiosk.sh                 # Chromium kiosk launcher
 ├── templates/
-│   └── index.html       # Web UI (single page app)
-├── docs/                # Documentation
+│   └── index.html           # Web UI (single page app)
+├── docs/                    # Documentation
 │   ├── getting-started.md
 │   ├── user-guide.md
 │   ├── reference.md
-│   └── images/          # UI screenshots
-├── screenshots/         # Hardware photos
-├── settings.json        # User configuration (auto created)
-└── data/                # SQLite database, artwork, FLAC recordings
+│   └── images/              # UI screenshots
+├── screenshots/             # Hardware photos
+├── settings.json            # User configuration (auto created)
+└── data/                    # SQLite database, artwork, FLAC recordings
 ```
 
 For a deeper look at each module and every HTTP API route, see the **[Reference](docs/reference.md)**.
