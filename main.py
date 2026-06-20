@@ -638,10 +638,8 @@ async def update_settings(body: dict):
     if "rec_play_audio" in body:
         state.settings["rec_play_audio"] = bool(body["rec_play_audio"])
     if "audio_detect_threshold" in body:
-        try:
+        with suppress(ValueError, TypeError):
             state.settings["audio_detect_threshold"] = max(0.001, min(0.05, float(body["audio_detect_threshold"])))
-        except (ValueError, TypeError):
-            pass
     state.live_mp3.configure(
         state.settings.get("http_stream_enabled", False),
         state.settings.get("http_stream_bitrate_kbps", 256),
