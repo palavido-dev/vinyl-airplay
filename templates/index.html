@@ -2392,6 +2392,7 @@
           <div id="http-stream-status" style="font-size:0.72rem;color:var(--muted);margin-top:0.2rem">Disabled</div>
         </div>
         <div class="settings-section"><h3>Audio Input</h3><select class="form-input" id="audio-select" onchange="saveAudioDevice()"><option value="">Loading…</option></select></div>
+        <div class="settings-section"><h3>Recording Detection</h3><div class="form-row"><label>Threshold</label><div style="display:flex;gap:0.5rem;align-items:center;flex:1"><input type="range" id="detect-threshold-slider" min="0.001" max="0.02" step="0.001" value="0.006" oninput="updateDetectThresholdLabel()" onchange="saveDetectThreshold()" style="flex:1"><span id="detect-threshold-label" style="font-size:0.72rem;color:var(--muted);min-width:3.2rem;text-align:right">0.006</span></div></div><div style="font-size:0.68rem;color:var(--muted);margin-top:0.3rem">Lower this if auto-record won't start with a quieter turntable or preamp (default 0.006).</div></div>
         <div class="settings-section"><h3>Playback</h3>
           <div class="form-row"><label>Crossfade</label>
             <div style="display:flex;align-items:center;gap:0.5rem">
@@ -4748,6 +4749,8 @@ function applyBandValues(bands,preset){
 }
 function updateCrossfadeLabel(){var v=parseFloat(document.getElementById('crossfade-slider').value);document.getElementById('crossfade-label').textContent=v===0?'Off':v.toFixed(1)+'s'}
 function saveCrossfade(){var v=parseFloat(document.getElementById('crossfade-slider').value);fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({crossfade_secs:v})})}
+function updateDetectThresholdLabel(){var v=parseFloat(document.getElementById('detect-threshold-slider').value);document.getElementById('detect-threshold-label').textContent=v.toFixed(3)}
+function saveDetectThreshold(){var v=parseFloat(document.getElementById('detect-threshold-slider').value);fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({audio_detect_threshold:v})})}
 
 // --- Sleep Timer ---
 var _sleepTimerInterval=null;
@@ -5789,6 +5792,7 @@ async function init(){
     if(d.settings.http_stream_bitrate_kbps!==undefined){document.getElementById('http-stream-bitrate').value=String(d.settings.http_stream_bitrate_kbps)}
     updateHttpStreamUI();
     if(d.settings.crossfade_secs!==undefined){document.getElementById('crossfade-slider').value=d.settings.crossfade_secs;updateCrossfadeLabel()}
+    if(d.settings.audio_detect_threshold!==undefined){var _dt=document.getElementById('detect-threshold-slider');if(_dt){_dt.value=d.settings.audio_detect_threshold;updateDetectThresholdLabel()}}
     if(d.settings.device_volumes)window._deviceVolumes=d.settings.device_volumes;
     if(d.settings.app_name){document.getElementById('app-name').textContent=d.settings.app_name;document.title=d.settings.app_name}
     if(d.settings.theme)applyTheme(d.settings.theme);

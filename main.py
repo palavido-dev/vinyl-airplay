@@ -637,6 +637,11 @@ async def update_settings(body: dict):
         state.settings["audio_device_index"] = None if v in (None, "", "null") else int(v)
     if "rec_play_audio" in body:
         state.settings["rec_play_audio"] = bool(body["rec_play_audio"])
+    if "audio_detect_threshold" in body:
+        try:
+            state.settings["audio_detect_threshold"] = max(0.001, min(0.05, float(body["audio_detect_threshold"])))
+        except (ValueError, TypeError):
+            pass
     state.live_mp3.configure(
         state.settings.get("http_stream_enabled", False),
         state.settings.get("http_stream_bitrate_kbps", 256),
@@ -1339,7 +1344,8 @@ async def album_recording_start(body: dict):
     # Create the album recorder
     audio_dir = cat.get_audio_storage_dir(state.settings)
     state.album_recorder = rec.AlbumRecorder(album_id, side, album_info,
-                                             audio_dir=audio_dir)
+                                             audio_dir=audio_dir,
+                                             gate_threshold=state.settings.get("audio_detect_threshold", 0.006))
 
     # Notify UI when audio is first detected
     _loop = asyncio.get_event_loop()
@@ -1494,7 +1500,8 @@ async def album_recording_flip(body: dict):
 
     audio_dir = cat.get_audio_storage_dir(state.settings)
     state.album_recorder = rec.AlbumRecorder(album_id, new_side, album_info,
-                                             audio_dir=audio_dir)
+                                             audio_dir=audio_dir,
+                                             gate_threshold=state.settings.get("audio_detect_threshold", 0.006))
 
     # Notify UI when audio is first detected on new side
     _loop2 = asyncio.get_event_loop()

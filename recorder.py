@@ -76,13 +76,15 @@ class RecordingBuffer:
                  on_level_update,         # callback(rms_float): for UI meter
                  on_audio_detected=None,  # callback(): fired once when startup gate opens
                  on_end_of_side=None,     # callback(): fired when end-of-side silence detected
-                 auto_split: bool = True):
+                 auto_split: bool = True,
+                 gate_threshold: float = SILENCE_RATIO_MIN):
         self._lock            = threading.Lock()
         self._on_track_ready     = on_track_ready
         self._on_level_update    = on_level_update
         self._on_audio_detected  = on_audio_detected
         self._on_end_of_side     = on_end_of_side
         self._auto_split         = auto_split
+        self._gate_threshold     = gate_threshold
 
         self._chunks: list[bytes] = []
         self._total_bytes   = 0
@@ -272,7 +274,7 @@ class RecordingBuffer:
         chunk_secs = len(pcm_chunk) / (SAMPLE_RATE * CHANNELS * 2)
 
         if not self._audio_seen:
-            if rms >= SILENCE_RATIO_MIN:
+            if rms >= self._gate_threshold:
                 self._sustained_audio_secs += chunk_secs
                 self._silence_secs = 0.0  # reset gate silence counter
                 if self._sustained_audio_secs >= STARTUP_AUDIO_SECS:
@@ -280,7 +282,7 @@ class RecordingBuffer:
                     # Seed signal level from the startup burst so threshold is
                     # calibrated before the first track even ends
                     self._signal_level = rms
-                    thresh = max(SILENCE_RATIO_MIN, rms * SILENCE_RATIO)
+                    thresh = max(self._gate_threshold, rms * SILENCE_RATIO)
                     print(f"[recorder] Audio detected: silence detection active"
                           f"  signal={rms:.5f}  silence_threshold={thresh:.5f}")
                     if self._on_audio_detected:
@@ -304,7 +306,7 @@ class RecordingBuffer:
                 # Periodic log while gate is closed so we can diagnose issues
                 self._silence_log_countdown -= 1
                 if self._silence_log_countdown <= 0:
-                    print(f"[recorder] Gate closed: RMS={rms:.5f}  gate_thresh={SILENCE_RATIO_MIN}"
+                    print(f"[recorder] Gate closed: RMS={rms:.5f}  gate_thresh={self._gate_threshold}"
                           f"  silence={self._silence_secs:.1f}s  eos={self._eos_silence_secs:.1f}s")
                     self._silence_log_countdown = 20
                 # Mark where silence started so _split_track trims correctly
@@ -326,7 +328,7 @@ class RecordingBuffer:
 
         # Adaptive silence detection (gate is open)
         # Compute dynamic threshold from current signal level estimate
-        silence_threshold = max(SILENCE_RATIO_MIN, self._signal_level * SILENCE_RATIO)
+        silence_threshold = max(self._gate_threshold, self._signal_level * SILENCE_RATIO)
 
         if rms < silence_threshold:
             self._silence_secs += chunk_secs
@@ -700,12 +702,14 @@ class AlbumRecorder:
     """
 
     def __init__(self, album_id: int, side: str, album_info: dict,
-                 audio_dir: Path | None = None):
+                 audio_dir: Path | None = None,
+                 gate_threshold: float = SILENCE_RATIO_MIN):
         self._lock = threading.Lock()
         self.album_id = album_id
         self.side = side
         self.album_info = album_info  # {artist, title, year, genre, ...}
         self._audio_dir = (audio_dir or DEFAULT_AUDIO_DIR).resolve()
+        self._gate_threshold = gate_threshold
 
         self._chunks: list[bytes] = []
         self._total_bytes = 0
@@ -750,7 +754,7 @@ class AlbumRecorder:
             if rms is None:
                 samples = np.frombuffer(pcm_chunk, dtype=np.int16).astype(np.float32) / 32768.0
                 rms = float(np.sqrt(np.mean(samples ** 2)))
-            if rms >= 0.006:  # same as SILENCE_RATIO_MIN
+            if rms >= self._gate_threshold:
                 self._audio_started = True
                 print("[album-rec] Audio detected: recording")
                 if self.on_audio_detected:

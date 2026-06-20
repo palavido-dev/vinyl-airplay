@@ -30,6 +30,7 @@ def load_settings() -> dict:
         "device_volumes": {},
         "http_stream_enabled": False,
         "http_stream_bitrate_kbps": 256,
+        "audio_detect_threshold": 0.006,
     }
     if SETTINGS_FILE.exists():
         s = json.loads(SETTINGS_FILE.read_text())

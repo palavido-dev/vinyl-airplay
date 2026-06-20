@@ -40,7 +40,7 @@ async def _auto_stream_watcher():
     streaming starts: this prevents ALSA 'device busy' errors when run_stream
     opens its own InputStream.
     """
-    RMS_THRESHOLD = 0.008
+    RMS_THRESHOLD = state.settings.get("audio_detect_threshold", 0.006)
     SUSTAIN_SECS  = 2.0
     POLL_SECS     = 1.0     # longer interval: open/close device each cycle
     COOLDOWN_SECS = 15.0
@@ -337,6 +337,7 @@ async def _run_stream_inner(targets, audio_device_index, volume):
         on_audio_detected  = _on_audio_detected,
         on_end_of_side     = _on_end_of_side,
         auto_split         = True,
+        gate_threshold     = state.settings.get("audio_detect_threshold", 0.006),
     )
 
     # Start recogniser
@@ -429,6 +430,7 @@ async def _start_listen_mode():
         on_audio_detected = _on_audio_detected,
         on_end_of_side    = _on_end_of_side,
         auto_split        = True,
+        gate_threshold     = state.settings.get("audio_detect_threshold", 0.006),
     )
     state.fp_buffer.clear()
     state.recogniser = cat.Recogniser(
