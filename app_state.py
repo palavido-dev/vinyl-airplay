@@ -10,6 +10,7 @@ evaluated at runtime; they are imported under TYPE_CHECKING only for tooling.
 import asyncio
 import concurrent.futures
 import json
+import threading
 from typing import TYPE_CHECKING
 
 import catalog as cat
@@ -34,6 +35,10 @@ class AppState:
         self.audio_devices       = []
         self.stream_task: asyncio.Task | None = None
         self.stop_event: asyncio.Event | None = None
+        # Serializes access to the single ALSA capture device. The watcher,
+        # AirPlay streaming, and listen mode each open an InputStream on it, and
+        # ALSA capture is exclusive, so only one may hold it at a time.
+        self.capture_lock = threading.Lock()
         self.ws_clients          = []
         self.eq = EQ(
             bass_db   = self.settings.get("bass",   0),

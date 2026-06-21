@@ -32,6 +32,41 @@ BLOCK_SIZE    = 8192
 INPUT_LATENCY = 0.5
 
 
+def _poll_capture(device, frames):
+    """Open the capture device briefly and return one block of float32 frames.
+
+    Runs in a worker thread (blocking read) so it never stalls the event loop.
+    The caller holds state.capture_lock for the duration.
+    """
+    with sd.InputStream(device=device, samplerate=SAMPLE_RATE,
+                        channels=_capture_channels(device), dtype="float32",
+                        blocksize=frames) as stream:
+        data, _ = stream.read(frames)
+    return data
+
+
+def _open_input_stream(device, callback):
+    """Open and start the main capture InputStream, retrying briefly if ALSA has
+    not finished releasing the device from a previous open.
+
+    Runs in a worker thread. The caller holds state.capture_lock and is
+    responsible for stop()/close() on the returned stream.
+    """
+    last_err = None
+    for _ in range(4):
+        try:
+            stream = sd.InputStream(device=device, samplerate=SAMPLE_RATE,
+                                    channels=_capture_channels(device), dtype="float32",
+                                    blocksize=BLOCK_SIZE, latency=INPUT_LATENCY,
+                                    callback=callback)
+            stream.start()
+            return stream
+        except sd.PortAudioError as e:
+            last_err = e
+            time.sleep(0.25)
+    raise last_err
+
+
 async def _auto_stream_watcher():
     """
     Poll Scarlett RMS while idle; auto-start stream when record plays.
@@ -44,7 +79,7 @@ async def _auto_stream_watcher():
     SUSTAIN_SECS  = 2.0
     POLL_SECS     = 1.0     # longer interval: open/close device each cycle
     COOLDOWN_SECS = 15.0
-    POLL_FRAMES   = int(44100 * POLL_SECS)
+    POLL_FRAMES   = int(44100 * 0.2)   # 0.2s read: hold the capture device only briefly
 
     print("[auto-stream] Watcher started")
     sustained = 0.0
@@ -83,19 +118,25 @@ async def _auto_stream_watcher():
                 cooldown = COOLDOWN_SECS
                 continue
             audio_idx = state.settings.get("audio_device_index")
+            # Non-blocking grab of the shared capture device: skip this poll if a
+            # stream / listen / recording session holds it. The read runs in a
+            # worker thread so it never stalls the event loop.
+            if not state.capture_lock.acquire(blocking=False):
+                continue
             try:
-                with sd.InputStream(device=audio_idx, samplerate=44100,
-                                    channels=_capture_channels(audio_idx), dtype="float32",
-                                    blocksize=POLL_FRAMES) as stream:
-                    data, _ = stream.read(POLL_FRAMES)
-                rms = float(np.sqrt(np.mean(data[:, :min(2, data.shape[1])] ** 2)))
+                data = await asyncio.to_thread(_poll_capture, audio_idx, POLL_FRAMES)
             except Exception as e:
+                data = None
                 # Suppress noisy errors when something else has the device
                 if not (state.listen_task or state.is_streaming
                         or (state.album_recorder and state.album_recorder.is_active)):
                     print(f"[auto-stream] Read error: {e}")
+            finally:
+                state.capture_lock.release()
+            if data is None:
                 await asyncio.sleep(5.0)
                 continue
+            rms = float(np.sqrt(np.mean(data[:, :min(2, data.shape[1])] ** 2)))
 
             if rms >= RMS_THRESHOLD:
                 sustained += POLL_SECS
@@ -351,25 +392,33 @@ async def _run_stream_inner(targets, audio_device_index, volume):
 
     callback = make_callback(list(audio_streams.values()) + local_streams + bt_streams, state.eq, state.fp_buffer)
 
+    got_capture = False
+    in_stream = None
     try:
-        with sd.InputStream(device=audio_device_index, samplerate=SAMPLE_RATE,
-                            channels=_capture_channels(audio_device_index), dtype="float32",
-                            blocksize=BLOCK_SIZE, latency=INPUT_LATENCY,
-                            callback=callback):
-            stop_task    = asyncio.create_task(state.stop_event.wait())
-            if confs:
-                threads_task = asyncio.create_task(threads_done.wait())
-                done, pending = await asyncio.wait(
-                    [stop_task, threads_task], return_when=asyncio.FIRST_COMPLETED
-                )
-            else:
-                # Local-only: just wait for stop
-                await stop_task
-                pending = set()
-            for t in pending:
-                t.cancel()
-            await asyncio.gather(*pending, return_exceptions=True)
+        got_capture = await asyncio.to_thread(state.capture_lock.acquire, True, 5.0)
+        if not got_capture:
+            raise RuntimeError("Capture device busy: could not acquire within 5s")
+        in_stream = await asyncio.to_thread(_open_input_stream, audio_device_index, callback)
+        stop_task    = asyncio.create_task(state.stop_event.wait())
+        if confs:
+            threads_task = asyncio.create_task(threads_done.wait())
+            done, pending = await asyncio.wait(
+                [stop_task, threads_task], return_when=asyncio.FIRST_COMPLETED
+            )
+        else:
+            # Local-only: just wait for stop
+            await stop_task
+            pending = set()
+        for t in pending:
+            t.cancel()
+        await asyncio.gather(*pending, return_exceptions=True)
     finally:
+        if in_stream is not None:
+            with suppress(Exception):
+                in_stream.stop()
+                in_stream.close()
+        if got_capture:
+            state.capture_lock.release()
         if state.recogniser:
             state.recogniser.set_auto_learn_album(None)
             state.recogniser.stop()
@@ -444,19 +493,27 @@ async def _start_listen_mode():
 
     async def _run():
         callback = make_callback({}, state.eq, state.fp_buffer)
+        got_capture = False
+        in_stream = None
         try:
-            with sd.InputStream(device=audio_device_index, samplerate=SAMPLE_RATE,
-                                channels=_capture_channels(audio_device_index), dtype="float32",
-                                blocksize=BLOCK_SIZE, latency=INPUT_LATENCY,
-                                callback=callback):
-                print("[listen] Audio-only mode started")
-                await broadcast("status", {"streaming": False, "listening": True,
-                                           "message": "Listening (no AirPlay)"})
-                await stop_event.wait()
+            got_capture = await asyncio.to_thread(state.capture_lock.acquire, True, 5.0)
+            if not got_capture:
+                raise RuntimeError("Capture device busy: could not acquire within 5s")
+            in_stream = await asyncio.to_thread(_open_input_stream, audio_device_index, callback)
+            print("[listen] Audio-only mode started")
+            await broadcast("status", {"streaming": False, "listening": True,
+                                       "message": "Listening (no AirPlay)"})
+            await stop_event.wait()
         except Exception as e:
             print(f"[listen] ERROR: {e}")
             traceback.print_exc()
         finally:
+            if in_stream is not None:
+                with suppress(Exception):
+                    in_stream.stop()
+                    in_stream.close()
+            if got_capture:
+                state.capture_lock.release()
             if state.recogniser:
                 state.recogniser.stop()
                 state.recogniser = None
