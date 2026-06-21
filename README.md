@@ -172,6 +172,10 @@ To check for updates, open the app settings and look for the "Check for Updates"
 
 The update system shows your current version, how many commits behind you are, and displays progress during the update process.
 
+### Troubleshooting
+
+Seeing WiFi disconnects, especially under load or on a mesh network? The Pi's built-in Broadcom WiFi tends to roam between mesh access points and drop. See [WiFi keeps dropping](docs/reference.md#wifi-keeps-dropping-especially-on-mesh-networks) in the Reference for the diagnosis and the one-time fix.
+
 ---
 
 ## Mobile Access and HTTPS
