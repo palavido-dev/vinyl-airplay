@@ -1,4 +1,4 @@
-numpy>=1.26.4
+numpy>=2.4.6
 scipy>=1.11.0
 sounddevice>=0.4.7
 pyatv>=0.17.0
