@@ -693,6 +693,60 @@ The `data/` directory and `settings.json` are created on first run and are exclu
 
 ---
 
+## Troubleshooting
+
+### WiFi keeps dropping (especially on mesh networks)
+
+The Raspberry Pi's built-in Broadcom WiFi (`brcmfmac`) can disconnect over and over, often under sustained load like a large file copy, when more than one access point broadcasts the same SSID. That covers any mesh system (eero, Orbi, Deco, Google WiFi, and so on) and any router-plus-extender setup. The Pi keeps roaming between the access points, each roam is a brief outage, and under heavy traffic the radio can lock up entirely and only recover after a reboot. The power supply and the WiFi power-save setting are common red herrings; the real tell is constant roaming.
+
+Since the Pi sits in one place, it never needs to roam. The fix is to pin it to a single access point.
+
+**Diagnose.** Look for repeated re-associations to different BSSIDs (access point MAC addresses):
+
+```
+journalctl -b | grep "Connection to"
+```
+
+If you see it connecting to several different BSSIDs every minute or two, that is the roaming flap. (If the journal is empty after a reboot, enable persistent logging first, see below.)
+
+**Fix: pin to the strongest access point.** Find the BSSID you are on now and its signal strength:
+
+```
+iw dev wlan0 link
+```
+
+Pin your connection to that BSSID (use your own WiFi profile name and the BSSID from above):
+
+```
+sudo nmcli connection modify "<your-wifi-name>" 802-11-wireless.bssid AA:BB:CC:DD:EE:FF
+sudo nmcli connection up "<your-wifi-name>"
+```
+
+Optionally also disable the chip's firmware roaming engine:
+
+```
+echo 'options brcmfmac roamoff=1' | sudo tee /etc/modprobe.d/brcmfmac.conf
+sudo reboot
+```
+
+Both settings survive reboots. If you later swap your router or mesh hardware (which changes the BSSID), clear the pin:
+
+```
+sudo nmcli connection modify "<your-wifi-name>" 802-11-wireless.bssid ""
+```
+
+**Keep logs across reboots.** By default the journal is wiped on every boot, which makes intermittent WiFi problems nearly impossible to trace. Turn on persistent logging so the next failure is preserved:
+
+```
+sudo mkdir -p /var/log/journal
+sudo systemd-tmpfiles --create --prefix /var/log/journal
+sudo systemctl restart systemd-journald
+```
+
+After a drop, read the previous boot with `journalctl -b -1`.
+
+---
+
 ## Where next
 
 - **[Getting Started](getting-started.md)**: 5 minute intro for new users.
