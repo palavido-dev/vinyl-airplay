@@ -53,6 +53,7 @@ class AppState:
         self.rec_level: float = 0.0          # current RMS for UI meter
         self.learn_executor = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="fpcalc")
         self.auto_stream_task: asyncio.Task | None = None
+        self.heartbeat_task: asyncio.Task | None = None  # periodic WS keepalive ping
         self.manual_stop_until: float = 0.0  # monotonic: auto-stream suppressed after manual stop
         self.pairing_sessions: dict = {}  # device_id → active pyatv pairing object
         self.listen_task: asyncio.Task | None = None  # audio-only (no AirPlay) task
@@ -128,3 +129,17 @@ async def broadcast(event: str, data: dict | None = None):
             dead.append(ws)
     for ws in dead:
         state.ws_clients.remove(ws)
+
+
+async def ws_heartbeat(interval: float = 20.0):
+    """Periodically ping WebSocket clients so an idle-but-healthy connection keeps
+    receiving traffic.
+
+    This lets the browser notice a silently-dead socket (device sleep, NAT idle
+    eviction) and reconnect via its watchdog, and it prunes dead clients
+    server-side since broadcast() drops any that fail to send.
+    """
+    while True:
+        await asyncio.sleep(interval)
+        if state.ws_clients:
+            await broadcast("ping")

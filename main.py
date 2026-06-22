@@ -25,7 +25,7 @@ from pyatv.storage.file_storage import FileStorage
 import catalog as cat
 import player as plr
 import recorder as rec
-from app_state import broadcast, spawn_bg, state
+from app_state import broadcast, spawn_bg, state, ws_heartbeat
 from audio_mp3 import LiveMP3Broadcaster
 from audio_streams import (
     BrowserAudioStream,
@@ -115,6 +115,7 @@ async def lifespan(app: FastAPI):
     )
     loop = asyncio.get_event_loop()
     state.loop = loop
+    state.heartbeat_task = asyncio.create_task(ws_heartbeat())
 
     # Load saved AirPlay credentials so streaming can authenticate without
     # asking the user to re-pair every time. pyatv 0.17 only attaches creds
@@ -148,6 +149,10 @@ async def lifespan(app: FastAPI):
         state.auto_stream_task.cancel()
         with suppress(asyncio.CancelledError, Exception):
             await state.auto_stream_task
+    if state.heartbeat_task:
+        state.heartbeat_task.cancel()
+        with suppress(asyncio.CancelledError, Exception):
+            await state.heartbeat_task
     if state.stream_task:
         state.stream_task.cancel()
         with suppress(asyncio.CancelledError, Exception):
