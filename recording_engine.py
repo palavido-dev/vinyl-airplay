@@ -2,8 +2,9 @@
 """Vinyl AirPlay: album-recording finalization engine.
 
 Auto-finalizes a recorded side (encode FLAC, save, advance) plus the stream-stall
-watchdog. Stops the capture stream by signalling state.stop_event so the
-coordinators own cleanup runs (no import of the route layer). Shares AppState via app_state.
+watchdog. Stops capture by signalling state.stop_event and
+state.listen_stop_event so the coordinators own cleanup runs (no import of the
+route layer). Shares AppState via app_state.
 """
 
 import asyncio
@@ -104,19 +105,16 @@ async def _auto_finalize_album_side_inner():
                 "message": f"Side {side} saved: {duration:.0f}s, "
                            f"{file_size / (1024*1024):.1f} MB. All sides complete!",
             })
-            # Last side done: clean up recorder and stop audio stream/recogniser
+            # Last side done: clean up recorder and stop capture. Signal both
+            # the stream and listen coordinators (no import of the route
+            # layer); the capture manager tears down the shared recogniser and
+            # rec_buffer when the last consumer detaches. Suppress
+            # auto-restart for 60s.
             state.album_recorder = None
-            if state.recogniser:
-                state.recogniser.stop()
-                state.recogniser = None
-            if state.rec_buffer:
-                state.rec_buffer.stop()
-                state.rec_buffer = None
-            # Stop the capture stream without importing the route layer:
-            # signal stop_event + cancel the task; the coordinator finally-block
-            # resets state and broadcasts. Suppress auto-restart for 60s.
             if state.stop_event:
                 state.stop_event.set()
+            if state.listen_stop_event:
+                state.listen_stop_event.set()
             if state.stream_task:
                 state.stream_task.cancel()
                 with suppress(asyncio.CancelledError, Exception):

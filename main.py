@@ -138,6 +138,8 @@ async def lifespan(app: FastAPI):
     yield
     if state.stop_event:
         state.stop_event.set()
+    if state.listen_stop_event:
+        state.listen_stop_event.set()
     if state.player:
         state.player.stop()
         state.player = None
@@ -593,6 +595,9 @@ async def stop_stream():
         with suppress(asyncio.CancelledError, Exception):
             await state.stream_task
         state.stream_task = None
+    # Also stop listen mode, unless an album recording still needs the capture
+    if state.listen_task and not (state.album_recorder and state.album_recorder.is_active):
+        _stop_listen_mode()
     # Suppress auto-stream for 60s after manual stop so it doesn't immediately restart
     state.manual_stop_until = time.monotonic() + 60.0
     # Force-reset state in case scan failed before setting is_streaming=False
@@ -1323,8 +1328,10 @@ async def album_recording_start(body: dict):
     if state.album_recorder and state.album_recorder.is_active:
         return {"ok": False, "error": "Album recording already in progress: stop it first"}
 
-    # Auto-start audio capture if not already running
-    if not _ensure_audio_active():
+    # Give the recording its own reference on the shared capture (attaches to
+    # the running capture when streaming): stopping the stream mid-recording
+    # then leaves the recording running
+    if not state.listen_task:
         await _start_listen_mode()
         await asyncio.sleep(0.5)
 

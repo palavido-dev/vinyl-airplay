@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """Vinyl AirPlay: live-capture stream coordinator + audio-only listen mode.
 
-Drives the capture InputStream: the auto-stream watcher (idle RMS polling),
-run_stream / _run_stream_inner (AirPlay + local + Bluetooth + HTTP fan-out with
-recognition and recording wired in), and the listen mode used during learn
-sessions. Shares AppState via app_state.
+Owns the capture InputStream through CaptureManager (one shared open; consumers
+attach/detach, so streaming and recording can run at once): the auto-stream
+watcher (idle RMS polling), run_stream / _run_stream_inner (AirPlay + local +
+Bluetooth + HTTP fan-out with recognition and recording wired in), and the
+listen mode used during learn and recording sessions. Shares AppState via
+app_state.
 """
 
 import asyncio
@@ -65,6 +67,192 @@ def _open_input_stream(device, callback):
             last_err = e
             time.sleep(0.25)
     raise last_err
+
+
+class _SinkSet:
+    """Thread-safe fan-out list for the capture callback.
+
+    Consumers register their output sinks under a token; the audio callback
+    iterates an immutable snapshot, so attach/detach never races the hot loop.
+    """
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._by_token = {}
+        self._snapshot = ()
+
+    def add(self, token, sinks):
+        with self._lock:
+            self._by_token[token] = list(sinks)
+            self._rebuild()
+
+    def remove(self, token):
+        with self._lock:
+            self._by_token.pop(token, None)
+            self._rebuild()
+
+    def _rebuild(self):
+        flat = []
+        for sinks in self._by_token.values():
+            flat.extend(sinks)
+        self._snapshot = tuple(flat)
+
+    def __iter__(self):
+        return iter(self._snapshot)
+
+
+class CaptureManager:
+    """Single owner of the ALSA capture InputStream (issue #42).
+
+    ALSA capture is exclusive, so streaming and listen/recording used to fight
+    over the device. Now every consumer attaches to one shared InputStream:
+    the first attach opens the device and creates the shared RecordingBuffer +
+    Recogniser, later attaches just register their output sinks, and the last
+    detach tears everything down.
+    """
+
+    def __init__(self):
+        self._alock = asyncio.Lock()   # serializes attach/detach
+        self._stream = None
+        self._device = None
+        self._tokens = set()
+        self._sinks = _SinkSet()
+
+    @property
+    def active(self) -> bool:
+        return self._stream is not None
+
+    async def attach(self, token, sinks, device_index):
+        """Register a consumer; opens the capture stream on first attach."""
+        async with self._alock:
+            if self._stream is not None and device_index != self._device:
+                print(f"[capture] Device {device_index} requested but capture "
+                      f"already open on {self._device}; reusing open device")
+            self._sinks.add(token, sinks)
+            self._tokens.add(token)
+            if self._stream is None:
+                try:
+                    await self._open(device_index)
+                except Exception:
+                    self._sinks.remove(token)
+                    self._tokens.discard(token)
+                    raise
+
+    async def detach(self, token) -> bool:
+        """Unregister a consumer. Returns True when this was the last consumer
+        and the capture stream was fully torn down."""
+        async with self._alock:
+            self._sinks.remove(token)
+            self._tokens.discard(token)
+            if self._tokens or self._stream is None:
+                return False
+            await self._close()
+            return True
+
+    async def _open(self, device_index):
+        loop = asyncio.get_running_loop()
+        got = await asyncio.to_thread(state.capture_lock.acquire, True, 5.0)
+        if not got:
+            raise RuntimeError("Capture device busy: could not acquire within 5s")
+        try:
+            self._make_shared_consumers(loop)
+            callback = make_callback(self._sinks, state.eq, state.fp_buffer)
+            self._stream = await asyncio.to_thread(_open_input_stream, device_index, callback)
+            self._device = device_index
+            print(f"[capture] Opened shared capture on device {device_index}")
+        except Exception:
+            self._teardown_shared_consumers()
+            state.capture_lock.release()
+            raise
+
+    async def _close(self):
+        stream, self._stream = self._stream, None
+        self._device = None
+        with suppress(Exception):
+            await asyncio.to_thread(stream.stop)
+            await asyncio.to_thread(stream.close)
+        state.capture_lock.release()
+        self._teardown_shared_consumers()
+        state.now_playing = None
+        print("[capture] Shared capture closed")
+
+    def _make_shared_consumers(self, loop):
+        """Create the shared RecordingBuffer + Recogniser that every capture
+        consumer uses. Album recording overrides _on_track_ready dynamically."""
+
+        def _on_track_ready(pcm, duration):
+            # Learn sessions consume the captured track; otherwise a track
+            # boundary just resets the recogniser for the next track.
+            if state.learn_session and state.learn_session.active:
+                state.learn_executor.submit(state.learn_session.on_track_captured, pcm)
+            elif state.recogniser:
+                state.recogniser.reset_match()
+
+        def _on_level(rms):
+            state.rec_level = rms
+            try:
+                db = 20 * math.log10(max(rms, 1e-8))
+                asyncio.run_coroutine_threadsafe(
+                    broadcast("level", {"db": db, "rms": rms}), loop)
+            except Exception:
+                pass
+
+        def _on_audio_detected():
+            """Fires when startup gate opens: needle dropped, new side starting."""
+            if state.recogniser and not (state.learn_session and state.learn_session.active):
+                state.recogniser.reset_match()
+            asyncio.run_coroutine_threadsafe(broadcast("audio_detected", {}), loop)
+            if state.learn_session and state.learn_session.active:
+                s = state.learn_session
+                asyncio.run_coroutine_threadsafe(
+                    broadcast("learn_audio_detected", {
+                        "learned":     s.learned,
+                        "track_count": s.track_count,
+                        "next_track":  s.next_track_name(),
+                    }), loop)
+
+        def _on_end_of_side():
+            """Fires after END_OF_SIDE_SECS of silence: final track flushed."""
+            if state.album_recorder and state.album_recorder.is_active:
+                asyncio.run_coroutine_threadsafe(_auto_finalize_album_side(), loop)
+            if state.learn_session and state.learn_session.active:
+                s = state.learn_session
+                asyncio.run_coroutine_threadsafe(
+                    broadcast("learn_end_of_side", {
+                        "learned":     s.learned,
+                        "track_count": s.track_count,
+                        "message":     "End of side detected: last track saved. "
+                                       + ("Flip the record and press Continue."
+                                          if s.pending_tracks else "All tracks learned!"),
+                    }), loop)
+
+        state.rec_buffer = rec.RecordingBuffer(
+            on_track_ready    = _on_track_ready,
+            on_level_update   = _on_level,
+            on_audio_detected = _on_audio_detected,
+            on_end_of_side    = _on_end_of_side,
+            auto_split        = True,
+            gate_threshold    = state.settings.get("audio_detect_threshold", 0.006),
+        )
+        state.fp_buffer.clear()
+        state.recogniser = cat.Recogniser(
+            buffer     = state.fp_buffer,
+            on_match   = _make_on_match(loop),
+            on_unknown = _make_on_unknown(loop),
+        )
+        state.recogniser.start()
+
+    def _teardown_shared_consumers(self):
+        if state.recogniser:
+            state.recogniser.set_auto_learn_album(None)
+            state.recogniser.stop()
+            state.recogniser = None
+        if state.rec_buffer and state.rec_buffer.is_active:
+            state.rec_buffer.stop()
+        state.rec_buffer = None
+
+
+capture = CaptureManager()
 
 
 async def _auto_stream_watcher():
@@ -317,92 +505,19 @@ async def _run_stream_inner(targets, audio_device_index, volume):
             daemon=True
         ).start()
 
-    # Init recorder buffer
-    def _on_track_ready(pcm, duration):
-        """Called by RecordingBuffer when silence gap detected: new track starting."""
-        # Always reset recogniser on track boundary, even when not recording
-        if state.recogniser and not (state.learn_session and state.learn_session.active):
-            state.recogniser.reset_match()
-
-    def _on_level(rms):
-        state.rec_level = rms
-        # Broadcast real-time input level to all WebSocket clients using main_loop
-        try:
-            db = 20 * math.log10(max(rms, 1e-8))
-            asyncio.run_coroutine_threadsafe(
-                broadcast("level", {"db": db, "rms": rms}),
-                main_loop
-            )
-        except Exception:
-            pass
-
-    def _on_audio_detected():
-        """Fires when startup gate opens: needle dropped, new side starting."""
-        # Reset recogniser so it starts fresh for the first track
-        if state.recogniser and not (state.learn_session and state.learn_session.active):
-            state.recogniser.reset_match()
-        if state.learn_session and state.learn_session.active:
-            s = state.learn_session
-            asyncio.run_coroutine_threadsafe(
-                broadcast("learn_audio_detected", {
-                    "learned":     s.learned,
-                    "track_count": s.track_count,
-                    "next_track":  s.next_track_name(),
-                }),
-                main_loop
-            )
-
-    def _on_end_of_side():
-        """Fires after END_OF_SIDE_SECS of silence: final track flushed, gate re-armed."""
-        # Auto-finalize album recording if active
-        if state.album_recorder and state.album_recorder.is_active:
-            asyncio.run_coroutine_threadsafe(
-                _auto_finalize_album_side(), main_loop)
-
-        if state.learn_session and state.learn_session.active:
-            s = state.learn_session
-            asyncio.run_coroutine_threadsafe(
-                broadcast("learn_end_of_side", {
-                    "learned":     s.learned,
-                    "track_count": s.track_count,
-                    "message":     "End of side detected: last track saved. "
-                                   + ("Flip the record and press Continue."
-                                      if s.pending_tracks else "All tracks learned!"),
-                }),
-                main_loop
-            )
-
-    state.rec_buffer = rec.RecordingBuffer(
-        on_track_ready     = _on_track_ready,
-        on_level_update    = _on_level,
-        on_audio_detected  = _on_audio_detected,
-        on_end_of_side     = _on_end_of_side,
-        auto_split         = True,
-        gate_threshold     = state.settings.get("audio_detect_threshold", 0.006),
-    )
-
-    # Start recogniser
-    state.fp_buffer.clear()
-    state.recogniser = cat.Recogniser(
-        buffer           = state.fp_buffer,
-        on_match         = _make_on_match(main_loop),
-        on_unknown       = _make_on_unknown(main_loop),
-    )
-    state.recogniser.start()
-
-    callback = make_callback(list(audio_streams.values()) + local_streams + bt_streams, state.eq, state.fp_buffer)
-
-    got_capture = False
-    in_stream = None
+    # Attach to the shared capture stream: opens the device (plus the shared
+    # RecordingBuffer and Recogniser) on first attach, otherwise just adds
+    # this stream's output sinks to the existing capture.
+    token = object()
+    sinks = list(audio_streams.values()) + local_streams + bt_streams
+    attached = False
     try:
-        got_capture = await asyncio.to_thread(state.capture_lock.acquire, True, 5.0)
-        if not got_capture:
-            raise RuntimeError("Capture device busy: could not acquire within 5s")
-        in_stream = await asyncio.to_thread(_open_input_stream, audio_device_index, callback)
+        await capture.attach(token, sinks, audio_device_index)
+        attached = True
         stop_task    = asyncio.create_task(state.stop_event.wait())
         if confs:
             threads_task = asyncio.create_task(threads_done.wait())
-            done, pending = await asyncio.wait(
+            _done, pending = await asyncio.wait(
                 [stop_task, threads_task], return_when=asyncio.FIRST_COMPLETED
             )
         else:
@@ -413,20 +528,9 @@ async def _run_stream_inner(targets, audio_device_index, volume):
             t.cancel()
         await asyncio.gather(*pending, return_exceptions=True)
     finally:
-        if in_stream is not None:
-            with suppress(Exception):
-                in_stream.stop()
-                in_stream.close()
-        if got_capture:
-            state.capture_lock.release()
-        if state.recogniser:
-            state.recogniser.set_auto_learn_album(None)
-            state.recogniser.stop()
-            state.recogniser = None
-        if state.rec_buffer and state.rec_buffer.is_active:
-            state.rec_buffer.stop()
-        state.rec_buffer = None
-        state.now_playing = None
+        full_stop = False
+        if attached:
+            full_stop = await capture.detach(token)
         for s in audio_streams.values():
             s.stop()
         for lo in local_streams:
@@ -436,101 +540,57 @@ async def _run_stream_inner(targets, audio_device_index, volume):
         state.is_streaming = False
         state.active_devices = []
         state.stop_event = None
-        await broadcast("status",      {"streaming": False, "message": "Stopped"})
-        await broadcast("now_playing", {"track_title": None})
+        await broadcast("status", {"streaming": False,
+                                   "listening": state.listen_task is not None,
+                                   "message": "Stopped"})
+        if full_stop:
+            # Capture fully torn down: clear now-playing in the UI. When
+            # listen/recording still holds the capture, recognition continues.
+            await broadcast("now_playing", {"track_title": None})
 
 
 async def _start_listen_mode():
-    """Open sounddevice input without AirPlay streaming: for learning/recording only."""
-    if state.is_streaming or state.listen_task:
+    """Ensure audio capture is running for learning/recording, with no output
+    sinks of its own. Attaches to the shared capture, so it can run alongside
+    streaming: this gives a recording its own capture reference, and stopping
+    the stream then leaves the recording running (issue #42)."""
+    if state.listen_task:
         return  # already running
     audio_device_index = int(state.settings.get("audio_device_index") or 0)
-    loop = asyncio.get_event_loop()
 
-    def _on_track_ready(pcm, dur):
-        if state.learn_session and state.learn_session.active:
-            state.learn_executor.submit(state.learn_session.on_track_captured, pcm)
-
-    def _on_level(rms):
-        db = 20 * np.log10(rms + 1e-9)
-        asyncio.run_coroutine_threadsafe(
-            broadcast("level", {"rms": round(rms, 5), "db": round(db, 1)}), loop)
-
-    def _on_audio_detected():
-        asyncio.run_coroutine_threadsafe(broadcast("audio_detected", {}), loop)
-
-    def _on_end_of_side():
-        # Auto-finalize album recording if active
-        if state.album_recorder and state.album_recorder.is_active:
-            asyncio.run_coroutine_threadsafe(
-                _auto_finalize_album_side(), loop)
-
-        if state.learn_session:
-            asyncio.run_coroutine_threadsafe(
-                broadcast("learn_end_of_side", {
-                    "learned": state.learn_session.learned,
-                    "track_count": state.learn_session.track_count,
-                    "message": "End of side: flip record and press Continue.",
-                }), loop)
-
-    state.rec_buffer = rec.RecordingBuffer(
-        on_track_ready    = _on_track_ready,
-        on_level_update   = _on_level,
-        on_audio_detected = _on_audio_detected,
-        on_end_of_side    = _on_end_of_side,
-        auto_split        = True,
-        gate_threshold     = state.settings.get("audio_detect_threshold", 0.006),
-    )
-    state.fp_buffer.clear()
-    state.recogniser = cat.Recogniser(
-        buffer           = state.fp_buffer,
-        on_match         = _make_on_match(loop),
-        on_unknown       = _make_on_unknown(loop),
-    )
-    state.recogniser.start()
     stop_event = asyncio.Event()
-    state.stop_event = stop_event
+    state.listen_stop_event = stop_event
 
     async def _run():
-        callback = make_callback({}, state.eq, state.fp_buffer)
-        got_capture = False
-        in_stream = None
+        token = object()
+        attached = False
         try:
-            got_capture = await asyncio.to_thread(state.capture_lock.acquire, True, 5.0)
-            if not got_capture:
-                raise RuntimeError("Capture device busy: could not acquire within 5s")
-            in_stream = await asyncio.to_thread(_open_input_stream, audio_device_index, callback)
+            await capture.attach(token, [], audio_device_index)
+            attached = True
             print("[listen] Audio-only mode started")
-            await broadcast("status", {"streaming": False, "listening": True,
-                                       "message": "Listening (no AirPlay)"})
+            if not state.is_streaming:
+                # When attached alongside a stream, keep the streaming status
+                await broadcast("status", {"streaming": False, "listening": True,
+                                           "message": "Listening (no AirPlay)"})
             await stop_event.wait()
         except Exception as e:
             print(f"[listen] ERROR: {e}")
             traceback.print_exc()
         finally:
-            if in_stream is not None:
-                with suppress(Exception):
-                    in_stream.stop()
-                    in_stream.close()
-            if got_capture:
-                state.capture_lock.release()
-            if state.recogniser:
-                state.recogniser.stop()
-                state.recogniser = None
-            if state.rec_buffer and state.rec_buffer.is_active:
-                state.rec_buffer.stop()
-            state.rec_buffer  = None
-            state.stop_event  = None
+            if attached:
+                await capture.detach(token)
+            state.listen_stop_event = None
             state.listen_task = None
             print("[listen] Audio-only mode stopped")
-            await broadcast("status", {"streaming": False, "listening": False, "message": "Stopped"})
+            await broadcast("status", {"streaming": state.is_streaming, "listening": False,
+                                       "message": "Streaming" if state.is_streaming else "Stopped"})
 
     state.listen_task = asyncio.create_task(_run())
 
 
 def _stop_listen_mode():
-    if state.stop_event and state.listen_task:
-        state.stop_event.set()
+    if state.listen_stop_event and state.listen_task:
+        state.listen_stop_event.set()
 
 
 def _ensure_audio_active() -> bool:

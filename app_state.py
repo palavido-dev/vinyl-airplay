@@ -35,10 +35,11 @@ class AppState:
         self.audio_devices       = []
         self.stream_task: asyncio.Task | None = None
         self.stop_event: asyncio.Event | None = None
-        # Serializes access to the single ALSA capture device. The watcher,
-        # AirPlay streaming, and listen mode each open an InputStream on it, and
-        # ALSA capture is exclusive, so only one may hold it at a time.
+        # Serializes access to the single ALSA capture device. The capture
+        # manager holds it while its shared InputStream is open; the
+        # auto-stream watcher grabs it briefly (non-blocking) for idle polls.
         self.capture_lock = threading.Lock()
+        self.listen_stop_event: asyncio.Event | None = None  # stops listen mode only
         self.ws_clients          = []
         self.eq = EQ(
             bass_db   = self.settings.get("bass",   0),
