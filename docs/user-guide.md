@@ -227,6 +227,7 @@ Settings is the big modal with everything else. It is divided into collapsible g
 - **Default device**: which audio device the Pi uses as its local output.
 - **Audio Input**: pick the capture device (HiFiBerry, Scarlett, USB mic, and so on) and adjust input gain.
 - **Crossfade**: 0 to 2 seconds of equal power crossfade between album sides, or 0 for pure gapless.
+- **HTTP live stream**: when the persistent MP3 URL is enabled, any device on your network can listen at `http://<pi>:8080/live.mp3` (VLC, a browser tab, another phone). The stream is a shared broadcast: the audio is encoded once and fanned out, so up to 10 devices can listen at the same time, including while a recording is in progress, and connecting or dropping a listener never disturbs the recording or other listeners. The status bar shows how many devices are tuned in. Expect listeners to run a few seconds apart from each other due to client side buffering; for tightly synced multi room audio use AirPlay devices instead. The encoder only runs while someone is connected, so an idle enabled stream costs nothing.
 
 ### Recording Detection
 

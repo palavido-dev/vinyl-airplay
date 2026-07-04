@@ -23,6 +23,10 @@ class LiveMP3Broadcaster:
     """Encodes live PCM to MP3 once and fans out bytes to any number of clients."""
 
     ALLOWED_BITRATES: ClassVar[set[int]] = {128, 192, 256, 320}
+    # Soft cap on simultaneous listeners. Encoding is shared, so the cost per
+    # listener is only bandwidth, but a runaway client loop shouldn't be able
+    # to open unbounded response streams.
+    MAX_CLIENTS = 10
     # Tune chunk size for ffmpeg and smoother streaming (use 1152 samples per MP3 frame for 44.1kHz stereo)
     # 1152 samples * 2 channels * 2 bytes/sample = 4608 bytes
     PCM_CHUNK_BYTES = 4608
@@ -33,6 +37,7 @@ class LiveMP3Broadcaster:
         self.bitrate_kbps = 256
         self._proc = None
         self._running = threading.Event()
+        self._start_lock = threading.Lock()
         self._input_lock = threading.Lock()
         # 16384 chunks ~= ~7 minutes at PCM_CHUNK_SECS. Generous buffer
         # for transient capture/encode stalls.
@@ -42,10 +47,6 @@ class LiveMP3Broadcaster:
         # complete a full chunk instead of the feed loop padding with
         # silence (which is audibly choppy).
         self._partial_input = b""
-        # Pre-fill input buffer with silence to avoid underruns at startup
-        silence = b"\x00" * self.PCM_CHUNK_BYTES
-        for _ in range(128):
-            self._input_chunks.append(silence)
         self._clients_lock = threading.Lock()
         self._clients = {}
         self._client_seq = 0
@@ -72,56 +73,76 @@ class LiveMP3Broadcaster:
         if not self.enabled:
             self.stop()
             return
-        if should_restart or not self.is_running():
-            self.start()
+        # Encoder lifecycle is tied to listeners: ffmpeg runs only while at
+        # least one client is connected, instead of encoding silence around
+        # the clock whenever the option is enabled.
+        if self.listener_count() > 0 and (should_restart or not self.is_running()):
+            self.start(force=should_restart)
 
-    def start(self):
-        # Tear down any previous encoder without flipping enabled. start()
-        # may be called from configure() right after the user toggles the
-        # stream on, and we don't want our own cleanup to immediately
-        # disable us again.
-        self._teardown_encoder()
-        cmd = [
-            "ffmpeg",
-            "-hide_banner",
-            "-loglevel",
-            "error",
-            "-nostdin",
-            "-f",
-            "s16le",
-            "-ar",
-            str(SAMPLE_RATE),
-            "-ac",
-            str(CHANNELS),
-            "-i",
-            "pipe:0",
-            "-acodec",
-            "libmp3lame",
-            "-b:a",
-            f"{self.bitrate_kbps}k",
-            "-f",
-            "mp3",
-            "pipe:1",
-        ]
-        try:
-            self._proc = subprocess.Popen(
-                cmd,
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL,
-                bufsize=0,
-            )
-        except Exception as e:
-            self._proc = None
-            print(f"[http-stream] Failed to start ffmpeg encoder: {e}")
-            return
+    def listener_count(self) -> int:
+        with self._clients_lock:
+            return len(self._clients)
 
-        self._running.set()
-        self._feeder_thread = threading.Thread(target=self._feed_loop, name="http-mp3-feed", daemon=True)
-        self._reader_thread = threading.Thread(target=self._read_loop, name="http-mp3-read", daemon=True)
-        self._feeder_thread.start()
-        self._reader_thread.start()
-        print(f"[http-stream] Encoder started at {self.bitrate_kbps} kbps")
+    def start(self, force: bool = False):
+        """Start the encoder. Serialized by _start_lock (register_client on
+        the event loop and put() on the audio callback thread can race);
+        no-op when already running unless force=True (bitrate change)."""
+        with self._start_lock:
+            if self.is_running() and not force:
+                return
+            # Tear down any previous encoder without flipping enabled. start()
+            # may be called from configure() right after the user toggles the
+            # stream on, and we don't want our own cleanup to immediately
+            # disable us again.
+            self._teardown_encoder()
+            # Pre-fill input with silence so a client that connects while the
+            # capture stream is idle still gets a playable (silent) stream
+            # immediately instead of a stalled response.
+            silence = b"\x00" * self.PCM_CHUNK_BYTES
+            with self._input_lock:
+                for _ in range(128):
+                    self._input_chunks.append(silence)
+            cmd = [
+                "ffmpeg",
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-nostdin",
+                "-f",
+                "s16le",
+                "-ar",
+                str(SAMPLE_RATE),
+                "-ac",
+                str(CHANNELS),
+                "-i",
+                "pipe:0",
+                "-acodec",
+                "libmp3lame",
+                "-b:a",
+                f"{self.bitrate_kbps}k",
+                "-f",
+                "mp3",
+                "pipe:1",
+            ]
+            try:
+                self._proc = subprocess.Popen(
+                    cmd,
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.DEVNULL,
+                    bufsize=0,
+                )
+            except Exception as e:
+                self._proc = None
+                print(f"[http-stream] Failed to start ffmpeg encoder: {e}")
+                return
+
+            self._running.set()
+            self._feeder_thread = threading.Thread(target=self._feed_loop, name="http-mp3-feed", daemon=True)
+            self._reader_thread = threading.Thread(target=self._read_loop, name="http-mp3-read", daemon=True)
+            self._feeder_thread.start()
+            self._reader_thread.start()
+            print(f"[http-stream] Encoder started at {self.bitrate_kbps} kbps")
 
     def stop(self):
         # Public stop: hard stop. Sets enabled=False so put() will
@@ -163,6 +184,10 @@ class LiveMP3Broadcaster:
         if not self.enabled or not pcm_bytes:
             return
         if not self.is_running():
+            # Auto-recovery from a dead ffmpeg, but only while someone is
+            # actually listening: with no clients the encoder stays down
+            if self.listener_count() == 0:
+                return
             self.start()
             if not self.is_running():
                 return
@@ -181,17 +206,28 @@ class LiveMP3Broadcaster:
                 self._input_chunks.append(data[i * chunk:(i + 1) * chunk])
             self._partial_input = data[full_count * chunk:]
 
-    def register_client(self) -> int:
+    def register_client(self) -> int | None:
+        """Register a listener. Returns None when the soft cap is reached.
+        The first listener starts the encoder."""
         with self._clients_lock:
+            if len(self._clients) >= self.MAX_CLIENTS:
+                return None
             self._client_seq += 1
             cid = self._client_seq
             # Further increase per-client buffer size (e.g., 8192 chunks)
             self._clients[cid] = collections.deque(maxlen=8192)
-            return cid
+        if self.enabled and not self.is_running():
+            self.start()
+        return cid
 
     def unregister_client(self, client_id: int):
         with self._clients_lock:
             self._clients.pop(client_id, None)
+            remaining = len(self._clients)
+        # Last listener gone: stop encoding (keep enabled so the next
+        # listener starts it again)
+        if remaining == 0:
+            self._teardown_encoder()
 
     def get_chunk(self, client_id: int) -> bytes | None:
         with self._clients_lock:

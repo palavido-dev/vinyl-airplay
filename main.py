@@ -458,6 +458,13 @@ async def stream_live_mp3():
         )
 
     client_id = state.live_mp3.register_client()
+    if client_id is None:
+        return JSONResponse(
+            status_code=503,
+            content={"ok": False,
+                     "error": f"Listener limit reached ({state.live_mp3.MAX_CLIENTS} max)"},
+        )
+    await broadcast("live_listeners", {"count": state.live_mp3.listener_count()})
 
     async def generate():
         try:
@@ -471,6 +478,8 @@ async def stream_live_mp3():
                     await asyncio.sleep(0.02)
         finally:
             state.live_mp3.unregister_client(client_id)
+            with suppress(Exception):
+                await broadcast("live_listeners", {"count": state.live_mp3.listener_count()})
 
     # Prevent seeking by disabling Range requests and setting headers
     return StreamingResponse(
@@ -569,6 +578,7 @@ async def get_status():
         "storage":          storage_info,
         "album_recording":  rec_info,
         "input_level":      state.rec_level,
+        "live_listeners":   state.live_mp3.listener_count(),
     }
 
 

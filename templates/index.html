@@ -2052,7 +2052,7 @@
     </div>
   </div>
 </div>
-<div class="status-bar"><span class="status-dot" id="dot"></span><span id="status-text">Connecting…</span></div>
+<div class="status-bar"><span class="status-dot" id="dot"></span><span id="status-text">Connecting…</span><span id="live-listeners" style="display:none;margin-left:auto;color:var(--amber-dk);font-weight:600"></span></div>
 <div class="main-content" id="main-content">
   <div class="album-grid-wrap" id="album-grid-wrap">
     <div class="pull-to-refresh-indicator" id="pull-indicator">🔄</div>
@@ -2915,7 +2915,14 @@ function handleEvent(d){
   if(d.event==='artwork_fetch_progress')onArtworkFetchProgress(d);
   if(d.event==='export_progress')handleExportProgress(d);
   if(d.event==='rebuild_fingerprints_progress')onRebuildFpProgress(d);
+  if(d.event==='live_listeners')updateLiveListeners(d.count);
   if(d.eq)applyEQValues(d.eq.bass,d.eq.treble,d.eq.volume);
+}
+
+function updateLiveListeners(n){
+  var el=document.getElementById('live-listeners');if(!el)return;
+  if(n>0){el.textContent='🎧 '+n+' listening';el.style.display=''}
+  else{el.style.display='none'}
 }
 
 function setStatus(d){
@@ -2944,6 +2951,7 @@ async function refreshStatus(){
   try{
     const d=await fetch('/api/status',{cache:'no-store'}).then(r=>r.json());
     setStatus(d);
+    if(typeof d.live_listeners==='number')updateLiveListeners(d.live_listeners);
     // Also update input bar if input_level is present
     if (typeof d.input_level === 'number') {
       const rms = Math.max(d.input_level, 1e-8);
