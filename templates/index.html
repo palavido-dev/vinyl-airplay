@@ -315,8 +315,10 @@
   .np-progress-row { display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.5rem; position: relative; }
   .np-time { font-size: 0.65rem; color: rgba(245,235,216,0.5); min-width: 32px; text-align: center; font-variant-numeric: tabular-nums; }
   /* Vertical padding + background-clip keeps the track visually thin while
-     giving a ~20px touch target that no longer collides with the EQ row */
-  .np-progress-bar { flex: 1; height: 4px; padding: 8px 0; background: rgba(255,255,255,0.1); background-clip: content-box; border-radius: 2px; cursor: pointer; }
+     giving a ~20px touch target that no longer collides with the EQ row.
+     content-box is required: the global border-box sizing would otherwise
+     collapse the 4px content area to 0 and the track would vanish */
+  .np-progress-bar { flex: 1; box-sizing: content-box; height: 4px; padding: 8px 0; background: rgba(255,255,255,0.1); background-clip: content-box; border-radius: 2px; cursor: pointer; }
   .np-progress-fill { height: 100%; background: linear-gradient(90deg, var(--amber-dk), var(--amber)); border-radius: 2px; transition: width 0.3s linear; }
   .eq-row { display: flex; align-items: center; gap: 0.6rem; padding-top: 0.5rem; border-top: 1px solid rgba(255,255,255,0.06); position: relative; }
   .eq-group { display: flex; align-items: center; gap: 0.3rem; flex: 1; }
@@ -1770,6 +1772,14 @@
 
     .settings-nav { width: 180px; }
     .settings-panel-area { padding: 1rem 1.5rem; }
+  }
+
+  /* ── Tablet (up to 1024px, e.g. iPad portrait) ──
+     The header gets too crowded for an inline search bar well above the
+     phone breakpoints, so wrap it onto its own full-width row here too */
+  @media (max-width: 1024px) {
+    .app-header { flex-wrap: wrap; }
+    .search-wrap { order: 5; flex-basis: 100%; min-width: 0; }
   }
 
   /* ── Small Tablet (480px to 768px) ── */

@@ -426,6 +426,7 @@ async def _run_stream_inner(targets, audio_device_index, volume):
 
     # Set up local output streams
     local_streams = []
+    local_failures = []
     for lt in local_targets:
         alsa_dev = lt.get("alsa_device")
         if not alsa_dev:
@@ -435,6 +436,7 @@ async def _run_stream_inner(targets, audio_device_index, volume):
                 alsa_dev = info["alsa_device"]
         if not alsa_dev:
             print(f"[local-out] No ALSA device for {lt.get('id')}, skipping")
+            local_failures.append(f"{lt.get('name') or lt.get('id')}: not found")
             continue
         try:
             lo = LocalOutputStream(alsa_dev)
@@ -442,6 +444,7 @@ async def _run_stream_inner(targets, audio_device_index, volume):
             local_streams.append(lo)
         except Exception as e:
             print(f"[local-out] Failed to open {alsa_dev}: {e}")
+            local_failures.append(f"{lt.get('name') or alsa_dev}: {e}")
 
     # Set up Bluetooth output streams
     bt_streams = []
@@ -465,7 +468,15 @@ async def _run_stream_inner(targets, audio_device_index, volume):
             http_only = True
             print("[http-stream] No playback targets selected; running capture for /live.mp3 only")
         else:
-            await broadcast("error", {"message": "No paired devices found on network"})
+            # Tell the user what actually went wrong: a local output that
+            # failed to open is not a network discovery problem
+            if local_failures:
+                msg = "Local output failed: " + "; ".join(local_failures)
+            elif airplay_targets:
+                msg = "No paired devices found on network"
+            else:
+                msg = "No output devices available"
+            await broadcast("error", {"message": msg})
             state.stop_event=None
             return
 
