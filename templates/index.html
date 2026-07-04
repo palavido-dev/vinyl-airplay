@@ -3783,6 +3783,7 @@ function renderNowPlaying(d){
 }
 
 var _lastPositionSave=0;
+var _npDurationSecs=0; // current side duration from player status, used by playerSeekClick
 function onPlayerStatus(d){
   if(typeof ssOnPlayerStatus==='function')ssOnPlayerStatus(d);
   if(d.state==='stopped'){_playerActive=false;_playerAlbumId=null;document.getElementById('np-transport').style.display='none';document.getElementById('np-progress-row').style.display='none';updateRepeatButton('off');if(_playerSource==='player')hideNPFooter();stopKeepAlive();closeNowPlayingFullscreen();updateQueueFab();return}
@@ -3790,7 +3791,7 @@ function onPlayerStatus(d){
   document.getElementById('np-transport').style.display='flex';document.getElementById('np-progress-row').style.display='flex';
   document.getElementById('np-play-pause').innerHTML=d.state==='paused'?'<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="6 3 20 12 6 21"/></svg>':'<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="5" y="3" width="4" height="18" rx="1"/><rect x="15" y="3" width="4" height="18" rx="1"/></svg>';
   updateVinylSpin(d.state);
-  const pos=d.position_secs||0,dur=d.duration_secs||1;
+  const pos=d.position_secs||0,dur=d.duration_secs||1;_npDurationSecs=dur;
   document.getElementById('np-progress-fill').style.width=Math.min(100,(pos/dur)*100)+'%';
   document.getElementById('np-time-cur').textContent=fmtTime(pos);var rem=Math.max(0,dur-pos);document.getElementById('np-time-dur').textContent='-'+fmtTime(rem);
   if(d.side_index!==undefined&&d.side_count>1){var sideEl=document.getElementById('np-side-count');if(sideEl)sideEl.textContent='Side '+(d.side_index+1)+' of '+d.side_count}
@@ -3850,7 +3851,7 @@ function setRecordingIndicator(active){
   }
 }
 function jumpToRecording(){if(_recAlbumId){openAlbumDetail(_recAlbumId)}}
-function playerSeekClick(e){const b=e.currentTarget,r=b.getBoundingClientRect(),pct=(e.clientX-r.left)/r.width,pts=document.getElementById('np-time-dur').textContent.split(':'),dur=parseInt(pts[0])*60+parseInt(pts[1]);fetch('/api/player/seek',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({position_secs:pct*dur})})}
+function playerSeekClick(e){if(!_npDurationSecs)return;const b=e.currentTarget,r=b.getBoundingClientRect(),pct=Math.max(0,Math.min(1,(e.clientX-r.left)/r.width));fetch('/api/player/seek',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({position_secs:pct*_npDurationSecs})})}
 
 var _queuePanelOpen=false;
 function toggleQueue(){var p=document.getElementById('queue-panel');_queuePanelOpen=!_queuePanelOpen;p.classList.toggle('open',_queuePanelOpen);document.getElementById('queue-backdrop').style.display=_queuePanelOpen?'block':'none';if(_queuePanelOpen){refreshQueueDisplay();document.addEventListener('click',closeQueueOnClickOutside,true)}else{closeNowPlayingFullscreen();document.removeEventListener('click',closeQueueOnClickOutside,true)}}
