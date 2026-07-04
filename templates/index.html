@@ -1782,7 +1782,7 @@
     .view-toggle-btn:first-child { border-radius: 4px 0 0 4px; }
     .view-toggle-btn:last-child { border-radius: 0 4px 4px 0; }
     .app-header > .header-btn { order: 2; min-height: 40px; min-width: 40px; font-size: 0.9rem; }
-    .search-wrap { order: 3; flex: 1; min-width: 0; }
+    .search-wrap { order: 3; flex-basis: 100%; min-width: 0; }
     .search-bar { padding: 0.45rem 0.6rem; font-size: 0.8rem; }
     .album-grid { grid-template-columns: repeat(1, 1fr); gap: 0.4rem; }
     .album-card { border-radius: 6px; }
@@ -1848,8 +1848,9 @@
       min-height: 40px; min-width: 40px;
     }
 
-    /* Row 3: Search bar full width */
-    .search-wrap { order: 3; flex: 1; min-width: 0; }
+    /* Row 3: Search bar full width. flex-basis 100% forces its own row;
+       with flex:1 it got crushed to a sliver next to the header buttons */
+    .search-wrap { order: 3; flex-basis: 100%; min-width: 0; }
 
     /* Album Grid: Smaller columns, 3 fit on mobile */
     .album-grid {
