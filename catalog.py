@@ -1702,7 +1702,8 @@ def get_listening_stats() -> dict:
             SELECT COUNT(p.id) as play_count,
                    t.title,
                    t.artist,
-                   a.title as album_title
+                   a.title as album_title,
+                   a.id as album_id
             FROM plays p
             JOIN tracks t ON p.track_id = t.id
             JOIN albums a ON p.album_id = a.id
