@@ -24,7 +24,7 @@ from pyatv.interface import MediaMetadata
 import catalog as cat
 import recorder as rec
 from app_state import broadcast, state
-from audio_streams import AsyncAudioStream, LocalOutputStream, make_callback, run_device_stream
+from audio_streams import AsyncAudioStream, LocalOutputStream, _browser_streams, make_callback, run_device_stream
 from device_helpers import _capture_channels, _get_local_outputs
 from recognition import _art_jpeg, _make_on_match, _make_on_unknown
 from recording_engine import _auto_finalize_album_side
@@ -391,10 +391,11 @@ async def _run_stream_inner(targets, audio_device_index, volume):
     state.stop_event     = asyncio.Event()
     main_loop            = asyncio.get_event_loop()
 
-    # Separate local vs Bluetooth vs AirPlay targets
+    # Separate local vs Bluetooth vs browser vs AirPlay targets
     local_targets      = [t for t in targets if str(t.get("id", "")).startswith("local:")]
     bluetooth_targets  = [t for t in targets if str(t.get("id", "")).startswith("bt:")]
-    airplay_targets    = [t for t in targets if not str(t.get("id", "")).startswith(("local:", "bt:"))]
+    browser_targets    = [t for t in targets if str(t.get("id", "")).startswith("browser")]
+    airplay_targets    = [t for t in targets if not str(t.get("id", "")).startswith(("local:", "bt:", "browser"))]
 
     # A2DP supports only one device at a time
     if len(bluetooth_targets) > 1:
@@ -462,8 +463,23 @@ async def _run_stream_inner(targets, audio_device_index, volume):
         except Exception as e:
             print(f"[bluetooth] Failed to open {address}: {e}")
 
+    # Set up browser output streams ("This Device" in the picker). The
+    # frontend creates the stream via /api/stream/create and passes its id
+    # as browser:<stream_id>; we attach that stream as a live sink, same as
+    # the catalog player does.
+    browser_streams = []
+    for br in browser_targets:
+        stream_id = str(br.get("id", "")).replace("browser:", "", 1)
+        bs_obj = _browser_streams.get(stream_id) if stream_id != "browser" else None
+        if bs_obj:
+            browser_streams.append(bs_obj)
+            print(f"[browser-stream] Added live vinyl sink {stream_id}")
+        else:
+            print(f"[browser-stream] No browser stream for target {br.get('id')}: "
+                  "frontend must call /api/stream/create first")
+
     http_only = False
-    if not confs and not local_streams and not bt_streams:
+    if not confs and not local_streams and not bt_streams and not browser_streams:
         if state.settings.get("http_stream_enabled"):
             http_only = True
             print("[http-stream] No playback targets selected; running capture for /live.mp3 only")
@@ -486,7 +502,7 @@ async def _run_stream_inner(targets, audio_device_index, volume):
     status_message = (
         "Streaming (HTTP MP3 live URL active)"
         if http_only
-        else f"Streaming to {len(confs) + len(local_streams) + len(bt_streams)} device(s)"
+        else f"Streaming to {len(confs) + len(local_streams) + len(bt_streams) + len(browser_streams)} device(s)"
     )
     await broadcast("status", {
         "streaming": True, "devices": state.active_devices,
@@ -520,7 +536,7 @@ async def _run_stream_inner(targets, audio_device_index, volume):
     # RecordingBuffer and Recogniser) on first attach, otherwise just adds
     # this stream's output sinks to the existing capture.
     token = object()
-    sinks = list(audio_streams.values()) + local_streams + bt_streams
+    sinks = list(audio_streams.values()) + local_streams + bt_streams + browser_streams
     attached = False
     try:
         await capture.attach(token, sinks, audio_device_index)
@@ -548,6 +564,8 @@ async def _run_stream_inner(targets, audio_device_index, volume):
             lo.stop()
         for bts in bt_streams:
             bts.stop()
+        for brs in browser_streams:
+            brs.stop()
         state.is_streaming = False
         state.active_devices = []
         state.stop_event = None

@@ -5269,9 +5269,18 @@ async function beginRecordingWithDevice(devIdx){
     var target={id:dev.id,name:dev.name};
     if(dev.type==='local'){target.hw_index=dev.hw_index;if(dev.alsa_device)target.alsa_device=dev.alsa_device}
     if(dev.type==='bluetooth'){target.address=dev.address||dev.id.replace('bt:','')}
+    // "This Device": create a browser stream first so the server can attach
+    // it as a live sink, then start Web Audio playback after the stream starts
+    var recBrowser=false;
+    if(dev.type==='browser'||dev.id==='browser'){
+      stopBrowserAudioStream();
+      var sr=await fetch('/api/stream/create',{method:'POST'}).then(function(r){return r.json()});
+      if(sr.ok){target.id='browser:'+sr.stream_id;recBrowser=true}
+    }
     _recOutputDevice=target;
     await fetch('/api/start',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({devices:[target],volume:parseInt(document.getElementById('volume-slider')?.value||80)})});
     await new Promise(function(r){setTimeout(r,500)});
+    if(recBrowser)startBrowserAudioStream(target.id.replace('browser:',''));
   }
   // Now start recording
   var r=await fetch('/api/album-recording/start',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({album_id:currentAlbumId,side:side})}).then(function(r){return r.json()});
@@ -5369,10 +5378,19 @@ async function startStream(){
   const bs=document.getElementById('btn-start-stream'),bt=document.getElementById('btn-stop-stream');
   if(bs)bs.disabled=true;if(bt)bt.disabled=true;
   try{
+    // "This Device" selected: create a browser stream so the server can
+    // attach it as a live sink
+    var bIdx=devs.findIndex(function(d){return d.id==='browser'||String(d.id).indexOf('browser:')===0});
+    if(bIdx>=0){
+      stopBrowserAudioStream();
+      var sr=await fetch('/api/stream/create',{method:'POST'}).then(function(res){return res.json()}).catch(function(){return{ok:false}});
+      if(sr.ok)devs[bIdx].id='browser:'+sr.stream_id;
+    }
     const r=await fetch('/api/start',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({devices:devs,volume:parseInt(document.getElementById('eq-volume').value)})}).then(res=>res.json()).catch(()=>({ok:false,error:'Network error'}));
     if(r&&r.ok===false){showError(r.error||'Failed to start streaming');await refreshStatus();return}
     const ok=await waitForStreamingState(true,16,250);
     if(!ok){showError('Start requested, but stream did not become active');await refreshStatus()}
+    else if(bIdx>=0&&String(devs[bIdx].id).indexOf('browser:')===0){startBrowserAudioStream(devs[bIdx].id.replace('browser:',''))}
   }finally{
     _streamActionPending=false;
     if(bs)bs.disabled=false;if(bt)bt.disabled=false;
