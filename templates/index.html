@@ -1769,6 +1769,19 @@
     #album-modal.open .modal-art {
       max-width: 200px;
     }
+    /* In the stacked mobile layout #modal-detail is the scroll container, so
+       the right column must flow at natural height. Without this the global
+       full-page rules (.album-detail-right flex:1 + .track-list flex:1)
+       collapse the track list to ~0 in an auto-height column, hiding every
+       track once the recorded-audio section appears below it (issue #51). */
+    .album-detail-right {
+      flex: none;
+      overflow: visible;
+    }
+    #album-modal.open .track-list {
+      flex: none;
+      overflow: visible;
+    }
 
     .settings-nav { width: 180px; }
     .settings-panel-area { padding: 1rem 1.5rem; }
