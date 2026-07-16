@@ -511,6 +511,10 @@ async def create_browser_stream():
     Uses a per-session MP3 encoder so the browser can play it from an <audio>
     element (keeps playing when Safari is backgrounded / locked on iOS, #54).
     """
+    # Purge any finished streams so the registry doesn't accumulate stopped
+    # encoders (the endpoint no longer removes them, to survive iOS reconnects).
+    for sid in [s for s, st in _browser_streams.items() if st.is_stopped()]:
+        _browser_streams.pop(sid, None)
     bitrate = state.settings.get("http_stream_bitrate_kbps", 256)
     stream = BrowserMP3Stream(bitrate_kbps=bitrate)
     _browser_streams[stream.stream_id] = stream
@@ -520,44 +524,47 @@ async def create_browser_stream():
 
 @app.get("/api/stream/{stream_id}")
 async def stream_audio(stream_id: str):
-    """Stream the session's live MP3 to the browser <audio> element."""
+    """Stream the session's live MP3 to the browser <audio> element.
+
+    iOS opens several connections per media element, so each gets its own
+    client cursor and disconnecting one does not tear down the encoder.
+    """
     stream = _browser_streams.get(stream_id)
     if not stream:
         return JSONResponse({"error": "Stream not found"}, status_code=404)
 
+    client_id = stream.register_client()
+
     async def generate():
-        chunks_sent = 0
         empty_polls = 0
-        max_empty = 1000  # ~10s of no data before giving up
+        max_empty = 3000  # ~30s of no data before giving up
         try:
             while True:
-                chunk = stream.get_chunk()
+                chunk = stream.get_chunk(client_id)
                 if chunk is None:
-                    break  # stopped and drained
+                    break  # encoder stopped and drained
                 if chunk:
                     empty_polls = 0
-                    chunks_sent += 1
                     yield chunk
                 else:
                     empty_polls += 1
                     if empty_polls > max_empty:
-                        print(f"[browser-stream] Timeout waiting for data on {stream_id}")
                         break
                     await asyncio.sleep(0.01)
-        except GeneratorExit:
-            print(f"[browser-stream] Client disconnected from {stream_id} after {chunks_sent} chunks")
-        except Exception as e:
-            print(f"[browser-stream] Error in stream {stream_id}: {e}")
+        except (GeneratorExit, Exception):
+            pass
         finally:
-            with suppress(Exception):
-                stream.stop()
-            _browser_streams.pop(stream_id, None)
-            print(f"[browser-stream] Closed stream {stream_id}")
+            stream.unregister_client(client_id)
 
     return StreamingResponse(
         generate(),
         media_type="audio/mpeg",
-        headers={"Cache-Control": "no-cache, no-store", "Accept-Ranges": "none"},
+        headers={
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Pragma": "no-cache",
+            "Accept-Ranges": "none",
+            "X-Content-Duration": "live",
+        },
     )
 
 

@@ -240,9 +240,13 @@ class BrowserMP3Stream:
         self.stream_id = uuid.uuid4().hex
         self._stop = threading.Event()
         self._fed = False
-        # ~MP3 output buffer; a slow client drops old chunks rather than
-        # stalling the encoder. 4000 * 4KB is generous headroom.
-        self._mp3 = collections.deque(maxlen=4000)
+        # Per-client MP3 buffers. iOS Safari opens several connections to a
+        # media element (a metadata probe, the playback stream, range probes),
+        # so each connection gets its own read cursor. A single shared buffer
+        # would let those connections steal each other's chunks and stutter.
+        self._clients = {}
+        self._clients_lock = threading.Lock()
+        self._client_seq = 0
         self._proc = None
         try:
             self._proc = subprocess.Popen(
@@ -280,7 +284,9 @@ class BrowserMP3Stream:
                 data = out.read(4096)
                 if not data:
                     break
-                self._mp3.append(data)
+                with self._clients_lock:
+                    for q in self._clients.values():
+                        q.append(data)
         except Exception:
             pass
 
@@ -292,11 +298,27 @@ class BrowserMP3Stream:
         with suppress(BrokenPipeError, OSError):
             proc.stdin.write(pcm_bytes)
 
-    def get_chunk(self):
-        """Return the next MP3 chunk, b"" if none yet, or None once stopped
-        and drained."""
-        if self._mp3:
-            return self._mp3.popleft()
+    def register_client(self) -> int:
+        """Register an HTTP consumer; returns a client id with its own buffer."""
+        with self._clients_lock:
+            self._client_seq += 1
+            cid = self._client_seq
+            self._clients[cid] = collections.deque(maxlen=4000)
+            return cid
+
+    def unregister_client(self, client_id: int):
+        """Drop one consumer. Does NOT stop the encoder: other connections (and
+        the player) may still need it. The encoder is stopped by the player on
+        playback end and by the startup watchdog if never used."""
+        with self._clients_lock:
+            self._clients.pop(client_id, None)
+
+    def get_chunk(self, client_id: int):
+        """Next MP3 chunk for a client: b"" if none yet, None once stopped."""
+        with self._clients_lock:
+            q = self._clients.get(client_id)
+            if q is not None and q:
+                return q.popleft()
         return None if self._stop.is_set() else b""
 
     def stop(self):
