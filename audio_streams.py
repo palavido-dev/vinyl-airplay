@@ -274,10 +274,8 @@ class BrowserMP3Stream:
         proc = self._proc
         if self._stop.is_set() or not proc or not proc.stdin:
             return
-        try:
+        with suppress(BrokenPipeError, OSError):
             proc.stdin.write(pcm_bytes)
-        except (BrokenPipeError, OSError):
-            pass
 
     def get_chunk(self):
         """Return the next MP3 chunk, b"" if none yet, or None once stopped
