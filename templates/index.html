@@ -2422,7 +2422,12 @@
           <div class="form-row" style="margin-top:0.3rem"><label>Stream URL</label><div style="display:flex;gap:0.4rem;align-items:center;flex:1"><input type="text" class="form-input" id="http-stream-url" readonly><button class="btn btn-ghost" onclick="copyHttpStreamUrl()">Copy</button></div></div>
           <div id="http-stream-status" style="font-size:0.72rem;color:var(--muted);margin-top:0.2rem">Disabled</div>
         </div>
-        <div class="settings-section"><h3>Audio Input</h3><select class="form-input" id="audio-select" onchange="saveAudioDevice()"><option value="">Loading…</option></select></div>
+        <div class="settings-section"><h3>Audio Input</h3><select class="form-input" id="audio-select" onchange="saveAudioDevice()"><option value="">Loading…</option></select>
+          <div id="adc-gain-panel" style="display:none;margin-top:0.6rem">
+            <div class="form-row"><label>Input gain</label><div style="display:flex;gap:0.5rem;align-items:center;flex:1"><input type="range" id="adc-gain-slider" min="-12" max="40" step="0.5" value="6" oninput="updateAdcGainLabel()" onchange="saveAdcGain()" style="flex:1"><span id="adc-gain-label" style="font-size:0.72rem;color:var(--muted);min-width:3.2rem;text-align:right">+6.0 dB</span></div></div>
+            <div style="font-size:0.68rem;color:var(--muted);margin-top:0.3rem"><span id="adc-gain-hint">Analog capture gain for <span id="adc-gain-card">the ADC</span>. Raise it if recordings are too quiet; lower it if loud records distort.</span></div>
+          </div>
+        </div>
         <div class="settings-section"><h3>Recording Detection</h3><div class="form-row"><label>Threshold</label><div style="display:flex;gap:0.5rem;align-items:center;flex:1"><input type="range" id="detect-threshold-slider" min="0.001" max="0.02" step="0.001" value="0.006" oninput="updateDetectThresholdLabel()" onchange="saveDetectThreshold()" style="flex:1"><span id="detect-threshold-label" style="font-size:0.72rem;color:var(--muted);min-width:3.2rem;text-align:right">0.006</span></div></div><div style="font-size:0.68rem;color:var(--muted);margin-top:0.3rem">Lower this if auto-record won't start with a quieter turntable or preamp (default 0.006).</div></div>
         <div class="settings-section"><h3>Playback</h3>
           <div class="form-row"><label>Crossfade</label>
@@ -5336,7 +5341,22 @@ async function selectResult(idx){const r=window._searchResults[idx];if(!r)return
 async function saveRelease(){if(!_pendingRelease)return;const r=await fetch('/api/catalog/release',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({release:_pendingRelease})}).then(r=>r.json());if(r.ok){hideAddForm();loadCatalog()}else showError(r.error||'Failed to save')}
 async function submitManual(){const t=document.getElementById('m-album-title').value.trim(),a=document.getElementById('m-artist').value.trim();if(!t||!a){showError('Album title and artist required');return}const ta=document.getElementById('m-tracks-a').value.split('\n').map(s=>s.trim()).filter(Boolean).map((x,i)=>({title:x,side:'A',track_number:String(i+1)}));const tb=document.getElementById('m-tracks-b').value.split('\n').map(s=>s.trim()).filter(Boolean).map((x,i)=>({title:x,side:'B',track_number:String(i+1)}));const tracks=[...ta,...tb];if(!tracks.length){showError('Enter at least one track');return}const r=await fetch('/api/catalog/manual',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({album_title:t,album_artist:a,year:parseInt(document.getElementById('m-year').value)||null,genre:document.getElementById('m-genre').value.trim()||null,label:document.getElementById('m-label').value.trim()||null,notes:document.getElementById('m-notes').value.trim()||null,tracks})}).then(r=>r.json());if(r.ok){hideAddForm();loadCatalog()}else showError(r.error||'Failed')}
 
-function showSettings(){document.getElementById('settings-modal').classList.add('open');document.body.classList.add('settings-open');loadBluetoothPaired();document.getElementById('setting-app-name').value=document.getElementById('app-name').textContent}
+function showSettings(){document.getElementById('settings-modal').classList.add('open');document.body.classList.add('settings-open');loadBluetoothPaired();loadAdcGain();document.getElementById('setting-app-name').value=document.getElementById('app-name').textContent}
+async function loadAdcGain(){
+  try{
+    const g=await fetch('/api/audio/gain').then(r=>r.json());
+    const panel=document.getElementById('adc-gain-panel');
+    if(!g.detected){panel.style.display='none';return}
+    panel.style.display='block';
+    document.getElementById('adc-gain-card').textContent=g.label||'the ADC';
+    const sl=document.getElementById('adc-gain-slider');
+    sl.min=g.min_db;sl.max=g.max_db;sl.step=g.step_db||0.5;
+    var val=(g.configured_db!=null?g.configured_db:(g.current_db!=null?g.current_db:6));
+    sl.value=val;updateAdcGainLabel();
+  }catch(e){}
+}
+function updateAdcGainLabel(){var v=parseFloat(document.getElementById('adc-gain-slider').value);document.getElementById('adc-gain-label').textContent=(v>=0?'+':'')+v.toFixed(1)+' dB'}
+function saveAdcGain(){var v=parseFloat(document.getElementById('adc-gain-slider').value);fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({adc_gain_db:v})}).then(()=>showToast('Input gain set to '+(v>=0?'+':'')+v.toFixed(1)+' dB')).catch(()=>showToast('Failed to set gain'))}
 async function loadCertInfo(){
   try{var r=await fetch('/api/system/cert-info').then(d=>d.json());
   var el=document.getElementById('cert-info');

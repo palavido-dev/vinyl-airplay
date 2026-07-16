@@ -22,6 +22,7 @@ from fastapi import Body, FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 from pyatv.storage.file_storage import FileStorage
 
+import audio_gain
 import catalog as cat
 import player as plr
 import recorder as rec
@@ -106,6 +107,17 @@ async def lifespan(app: FastAPI):
     audio_idx = state.settings.get("audio_device_index")
     ch = _capture_channels(audio_idx)
     print(f"[audio] Input device={audio_idx}, capture_channels={ch}")
+    # Auto-set analog capture gain on known ADCs (e.g. HiFiBerry) so a quiet
+    # line/phono input still triggers auto-record (issue #40).
+    try:
+        if state.settings.get("adc_auto_gain_enabled", True):
+            _gidx, _gprof = audio_gain.detect_adc()
+            if _gidx is not None:
+                _gain = state.settings.get("adc_gain_db", audio_gain.DEFAULT_GAIN_DB)
+                _ok, _msg = audio_gain.apply_gain(_gain, _gidx, _gprof)
+                print(f"[adc-gain] {_msg}" if _ok else f"[adc-gain] Failed: {_msg}")
+    except Exception as e:
+        print(f"[adc-gain] Error: {e}")
     if state.settings.get("auto_stream_enabled"):
         state.auto_stream_task = asyncio.create_task(_auto_stream_watcher())
         print("[auto-stream] Watcher started on boot")
@@ -660,12 +672,30 @@ async def update_settings(body: dict):
     if "audio_detect_threshold" in body:
         with suppress(ValueError, TypeError):
             state.settings["audio_detect_threshold"] = max(0.001, min(0.05, float(body["audio_detect_threshold"])))
+    if "adc_auto_gain_enabled" in body:
+        state.settings["adc_auto_gain_enabled"] = bool(body["adc_auto_gain_enabled"])
+    if "adc_gain_db" in body:
+        with suppress(ValueError, TypeError):
+            state.settings["adc_gain_db"] = float(body["adc_gain_db"])
+        # Apply immediately so the user hears the change without a restart
+        if state.settings.get("adc_auto_gain_enabled", True):
+            _ok, _msg = audio_gain.apply_gain(state.settings["adc_gain_db"])
+            print(f"[adc-gain] {_msg}" if _ok else f"[adc-gain] Failed: {_msg}")
     state.live_mp3.configure(
         state.settings.get("http_stream_enabled", False),
         state.settings.get("http_stream_bitrate_kbps", 256),
     )
     save_settings(state.settings)
     return {"ok": True}
+
+
+@app.get("/api/audio/gain")
+async def get_audio_gain():
+    """ADC detection + current analog capture gain, for the Settings UI."""
+    st = audio_gain.status()
+    st["auto_gain_enabled"] = state.settings.get("adc_auto_gain_enabled", True)
+    st["configured_db"] = state.settings.get("adc_gain_db", audio_gain.DEFAULT_GAIN_DB)
+    return st
 
 
 # ── Catalog Routes ────────────────────────────────────────────────────────────
