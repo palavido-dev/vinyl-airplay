@@ -3596,6 +3596,29 @@ async function playMultipleAlbums(ids,devices,entries){
 // Plays the session's server-side MP3 stream through an <audio> media element.
 // A media element (unlike Web Audio) keeps playing when Safari is backgrounded
 // or the screen is locked on iOS, and drives the lock-screen controls (#54).
+// Browsers block audio playback that is not tied to a user gesture. Because we
+// only get the stream id after awaiting /api/stream/create + /api/player/play,
+// the eventual el.play() is outside the click that started it and gets blocked
+// (this was the "no sound on PC" bug). So we "unlock" the element on the user's
+// first interaction by playing a silent clip once; after that, play() is
+// allowed for the rest of the session.
+var _browserAudioPrimed=false;
+function primeBrowserAudio(){
+  if(_browserAudioPrimed)return;
+  var el=document.getElementById('browser-audio');
+  if(!el)return;
+  _browserAudioPrimed=true;
+  if(el.getAttribute('src'))return;  // already playing a real stream
+  el.muted=true;
+  el.src='data:audio/wav;base64,UklGRiYAAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YQIAAAAAAA==';
+  var p=el.play();
+  var done=function(){try{el.pause()}catch(e){}el.removeAttribute('src');el.muted=false};
+  if(p&&p.then)p.then(done).catch(done); else done();
+}
+['pointerdown','touchend','click'].forEach(function(ev){
+  document.addEventListener(ev,primeBrowserAudio,{capture:true,passive:true});
+});
+
 function stopBrowserAudioStream(){
   _browserStreamActive=false;
   var el=document.getElementById('browser-audio');
@@ -3607,13 +3630,19 @@ function startBrowserAudioStream(streamId){
   _browserStreamActive=true;
   var el=document.getElementById('browser-audio');
   if(!el){showError('Browser stream failed');return}
+  el.muted=false; el.volume=1;
   el.src='/api/stream/'+streamId;
   el.onerror=function(){if(_browserStreamActive)console.warn('[browser-audio] element error')};
-  var p=el.play();
-  if(p&&p.catch)p.catch(function(e){
-    console.warn('[browser-audio] play() rejected:',e);
-    showToast('Tap play to start audio on this device');
-  });
+  var attempts=0;
+  function tryPlay(){
+    var p=el.play();
+    if(p&&p.catch)p.catch(function(e){
+      // If autoplay was still blocked, prime and retry once
+      if(attempts++<1){primeBrowserAudio();setTimeout(tryPlay,150);}
+      else{console.warn('[browser-audio] play() rejected:',e);showToast('Tap the play button to start audio on this device');}
+    });
+  }
+  tryPlay();
 }
 
 // ── Output Picker ──
