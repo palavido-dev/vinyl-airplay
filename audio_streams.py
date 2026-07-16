@@ -231,9 +231,15 @@ class BrowserMP3Stream:
     backgrounded or the screen is locked on iOS (issue #54).
     """
 
+    # If nothing is ever fed within this window of creation (playback aborted,
+    # user navigated away before connecting), the encoder self-terminates so an
+    # idle ffmpeg does not leak.
+    STARTUP_GRACE_SECS = 30.0
+
     def __init__(self, bitrate_kbps: int = 256):
         self.stream_id = uuid.uuid4().hex
         self._stop = threading.Event()
+        self._fed = False
         # ~MP3 output buffer; a slow client drops old chunks rather than
         # stalling the encoder. 4000 * 4KB is generous headroom.
         self._mp3 = collections.deque(maxlen=4000)
@@ -255,6 +261,14 @@ class BrowserMP3Stream:
         self._reader = threading.Thread(target=self._read_loop,
                                         name="browser-mp3-read", daemon=True)
         self._reader.start()
+        threading.Thread(target=self._grace_watchdog, daemon=True).start()
+
+    def _grace_watchdog(self):
+        if self._stop.wait(self.STARTUP_GRACE_SECS):
+            return  # already stopped
+        if not self._fed:
+            print(f"[browser-mp3] Unused stream {self.stream_id[:8]}, self-stopping")
+            self.stop()
 
     def _read_loop(self):
         proc = self._proc
@@ -274,6 +288,7 @@ class BrowserMP3Stream:
         proc = self._proc
         if self._stop.is_set() or not proc or not proc.stdin:
             return
+        self._fed = True
         with suppress(BrokenPipeError, OSError):
             proc.stdin.write(pcm_bytes)
 
