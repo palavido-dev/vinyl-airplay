@@ -2008,6 +2008,21 @@
     #error-msg { font-size: 0.75rem; padding: 0.4rem 0.8rem; }
     #toast-msg { font-size: 0.75rem; padding: 0.4rem 0.8rem; bottom: 4rem; }
   }
+
+  /* ── Landscape phones / very short viewports ──
+     Portrait mobile wraps the header into three rows (icon buttons plus a
+     full-width search), which swallows the whole screen when the viewport is
+     short. Keep the header on one compact row here so the library and the
+     now-playing bar stay visible (issue #46). Placed after the width queries
+     so it overrides the search/toggle full-row rules by source order. */
+  @media (max-height: 500px) and (min-width: 481px) {
+    .app-header { flex-wrap: nowrap; gap: 0.3rem; padding: 0.3rem 0.5rem; }
+    .brand { display: none; }
+    .view-toggle { order: 0; flex-basis: auto; }
+    .search-wrap { order: 0; flex: 1 1 auto; flex-basis: auto; min-width: 60px; }
+    .header-btn { min-height: 34px; min-width: 34px; }
+    .np-art, .np-art-placeholder { width: 38px; height: 38px; }
+  }
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"></script>
 </head>
