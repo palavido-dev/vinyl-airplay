@@ -1482,6 +1482,30 @@
   }
   .screensaver.active { opacity: 1; pointer-events: auto; }
   .screensaver.off { background: #000; }
+  /* "Still running" hint: shown only on the black (not-playing) screensaver so
+     the kiosk doesn't look powered off. Kept very dim and slowly drifting to
+     stay screensaver-friendly and avoid burn-in. */
+  .ss-hint {
+    display: none;
+    flex-direction: column; align-items: center; gap: 0.9rem;
+    text-align: center; pointer-events: none;
+    color: rgba(212,162,78,0.30);
+    animation: ss-hint-drift 48s ease-in-out infinite alternate;
+  }
+  .screensaver.off .ss-hint { display: flex; }
+  .ss-hint-disc {
+    width: 72px; height: 72px; border-radius: 50%;
+    border: 2px solid rgba(212,162,78,0.30);
+    background: radial-gradient(circle at 50% 50%, rgba(212,162,78,0.14) 20%, transparent 22%);
+    animation: ss-spin 12s linear infinite, ss-hint-pulse 4.5s ease-in-out infinite;
+  }
+  .ss-hint-title { font-family: var(--display-font); font-size: 1.15rem; letter-spacing: 0.02em; }
+  .ss-hint-sub { font-size: 0.72rem; color: rgba(245,235,216,0.20); letter-spacing: 0.03em; }
+  @keyframes ss-hint-drift {
+    0%   { transform: translate(-7vw, -5vh); }
+    100% { transform: translate(7vw, 5vh); }
+  }
+  @keyframes ss-hint-pulse { 0%,100% { opacity: 0.65; } 50% { opacity: 1; } }
   .ss-content {
     display: flex; align-items: center; gap: 2rem;
     animation: ss-drift 30s ease-in-out infinite alternate;
@@ -2801,6 +2825,11 @@
       </div>
       <div class="ss-eq-viz" id="ss-eq-viz"></div>
     </div>
+  </div>
+  <div class="ss-hint" id="ss-hint" aria-hidden="true">
+    <div class="ss-hint-disc"></div>
+    <div class="ss-hint-title" id="ss-hint-title">The Listening Room</div>
+    <div class="ss-hint-sub">Asleep. Tap to wake.</div>
   </div>
 </div>
 
@@ -5965,6 +5994,9 @@ function ssGoIdle(){
   } else {
     ss.classList.add('off');
     content.style.display = 'none';
+    var _hint = document.getElementById('ss-hint-title');
+    var _appName = document.getElementById('app-name');
+    if(_hint && _appName && _appName.textContent.trim()) _hint.textContent = _appName.textContent.trim();
   }
   ss.classList.add('active');
 }
