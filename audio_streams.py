@@ -15,6 +15,7 @@ import threading
 import time
 import traceback
 import uuid
+from contextlib import suppress
 
 import numpy as np
 import pyatv
@@ -215,6 +216,93 @@ class BrowserAudioStream:
 
     def stop(self):
         self._stop.set()
+
+    def is_stopped(self):
+        return self._stop.is_set()
+
+
+class BrowserMP3Stream:
+    """Per-session PCM->MP3 encoder for "This Device" playback.
+
+    Same put()/stop()/is_stopped() sink interface as BrowserAudioStream, but
+    pipes the player's PCM through ffmpeg to MP3 and buffers the encoded bytes.
+    A browser can play the result from an <audio> element, which (unlike the
+    Web Audio path or a raw streaming WAV) keeps playing when Safari is
+    backgrounded or the screen is locked on iOS (issue #54).
+    """
+
+    def __init__(self, bitrate_kbps: int = 256):
+        self.stream_id = uuid.uuid4().hex
+        self._stop = threading.Event()
+        # ~MP3 output buffer; a slow client drops old chunks rather than
+        # stalling the encoder. 4000 * 4KB is generous headroom.
+        self._mp3 = collections.deque(maxlen=4000)
+        self._proc = None
+        try:
+            self._proc = subprocess.Popen(
+                ["ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin",
+                 "-f", "s16le", "-ar", str(SAMPLE_RATE), "-ac", str(CHANNELS),
+                 "-i", "pipe:0",
+                 "-acodec", "libmp3lame", "-b:a", f"{int(bitrate_kbps)}k",
+                 "-f", "mp3", "pipe:1"],
+                stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL, bufsize=0,
+            )
+        except Exception as e:
+            print(f"[browser-mp3] Failed to start encoder: {e}")
+            self._proc = None
+            return
+        self._reader = threading.Thread(target=self._read_loop,
+                                        name="browser-mp3-read", daemon=True)
+        self._reader.start()
+
+    def _read_loop(self):
+        proc = self._proc
+        if not proc or not proc.stdout:
+            return
+        out = proc.stdout
+        try:
+            while not self._stop.is_set():
+                data = out.read(4096)
+                if not data:
+                    break
+                self._mp3.append(data)
+        except Exception:
+            pass
+
+    def put(self, pcm_bytes):
+        proc = self._proc
+        if self._stop.is_set() or not proc or not proc.stdin:
+            return
+        try:
+            proc.stdin.write(pcm_bytes)
+        except (BrokenPipeError, OSError):
+            pass
+
+    def get_chunk(self):
+        """Return the next MP3 chunk, b"" if none yet, or None once stopped
+        and drained."""
+        if self._mp3:
+            return self._mp3.popleft()
+        return None if self._stop.is_set() else b""
+
+    def stop(self):
+        if self._stop.is_set():
+            return
+        self._stop.set()
+        proc = self._proc
+        self._proc = None
+        if proc:
+            with suppress(Exception):
+                if proc.stdin:
+                    proc.stdin.close()
+            try:
+                proc.terminate()
+                proc.wait(timeout=1.5)
+            except Exception:
+                with suppress(Exception):
+                    proc.kill()
+        print("[browser-mp3] Encoder stopped")
 
     def is_stopped(self):
         return self._stop.is_set()

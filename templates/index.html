@@ -2053,6 +2053,9 @@
 <body>
 <div id="error-msg"></div>
 <div id="toast-msg"></div>
+<!-- "This Device" playback sink. A media element on the session's MP3 stream,
+     so iOS keeps it alive on the lock screen / when Safari is backgrounded (#54). -->
+<audio id="browser-audio" playsinline preload="none" style="display:none"></audio>
 <div class="frame">
 <div class="app-header">
   <span class="brand"><span class="brand-icon"></span><span id="app-name">The Listening Room</span><span class="album-count" id="album-count"></span></span>
@@ -3589,68 +3592,28 @@ async function playMultipleAlbums(ids,devices,entries){
   else if(isBrowser){startBrowserAudioStream(devs[0].id.replace('browser:',''))}
 }
 
-// ── Browser Audio Stream (Web Audio API) ──
-// Decodes the server's continuous PCM/WAV stream and schedules it through Web
-// Audio. Note: a plain <audio> element cannot play this stream (Chrome will
-// not start an infinite chunked WAV), so background playback on iOS still
-// needs the persistent /live.mp3 URL. Tracked in #54.
+// ── Browser Audio Stream ("This Device") ──
+// Plays the session's server-side MP3 stream through an <audio> media element.
+// A media element (unlike Web Audio) keeps playing when Safari is backgrounded
+// or the screen is locked on iOS, and drives the lock-screen controls (#54).
 function stopBrowserAudioStream(){
   _browserStreamActive=false;
-  if(_browserStreamReader){try{_browserStreamReader.cancel()}catch(e){}_browserStreamReader=null}
-  if(_browserAudioCtx&&_browserAudioCtx.state!=='closed'){try{_browserAudioCtx.close()}catch(e){}_browserAudioCtx=null}
+  var el=document.getElementById('browser-audio');
+  if(el){try{el.pause()}catch(e){}el.removeAttribute('src');try{el.load()}catch(e){}}
   stopKeepAlive();
 }
-async function startBrowserAudioStream(streamId){
+function startBrowserAudioStream(streamId){
   stopBrowserAudioStream();
-  var ctx=new (window.AudioContext||window.webkitAudioContext)({sampleRate:44100});
-  _browserAudioCtx=ctx;
   _browserStreamActive=true;
-  var resp=await fetch('/api/stream/'+streamId);
-  if(!resp.ok||!resp.body){showError('Browser stream failed');return}
-  var reader=resp.body.getReader();
-  _browserStreamReader=reader;
-  // WAV header is 44 bytes, skip it
-  var headerLeft=44;
-  var leftover=null;
-  var BYTES_PER_SAMPLE=4; // 16-bit stereo = 4 bytes per frame
-  var nextTime=ctx.currentTime+0.1;
-  async function pump(){
-    while(_browserStreamActive){
-      var result;
-      try{result=await reader.read()}catch(e){break}
-      if(result.done)break;
-      var data=result.value;
-      if(headerLeft>0){
-        if(data.length<=headerLeft){headerLeft-=data.length;continue}
-        data=data.slice(headerLeft);headerLeft=0;
-      }
-      if(leftover){
-        var combined=new Uint8Array(leftover.length+data.length);
-        combined.set(leftover);combined.set(data,leftover.length);
-        data=combined;leftover=null;
-      }
-      var usable=data.length-(data.length%BYTES_PER_SAMPLE);
-      if(usable<data.length){leftover=data.slice(usable);data=data.slice(0,usable)}
-      if(usable===0)continue;
-      var frames=usable/BYTES_PER_SAMPLE;
-      var buf=ctx.createBuffer(2,frames,44100);
-      var left=buf.getChannelData(0);
-      var right=buf.getChannelData(1);
-      var view=new DataView(data.buffer,data.byteOffset,usable);
-      for(var i=0;i<frames;i++){
-        left[i]=view.getInt16(i*4,true)/32768;
-        right[i]=view.getInt16(i*4+2,true)/32768;
-      }
-      var src=ctx.createBufferSource();
-      src.buffer=buf;
-      src.connect(ctx.destination);
-      var now=ctx.currentTime;
-      if(nextTime<now)nextTime=now+0.02;
-      src.start(nextTime);
-      nextTime+=buf.duration;
-    }
-  }
-  pump().catch(function(e){console.error('Browser stream pump error:',e)});
+  var el=document.getElementById('browser-audio');
+  if(!el){showError('Browser stream failed');return}
+  el.src='/api/stream/'+streamId;
+  el.onerror=function(){if(_browserStreamActive)console.warn('[browser-audio] element error')};
+  var p=el.play();
+  if(p&&p.catch)p.catch(function(e){
+    console.warn('[browser-audio] play() rejected:',e);
+    showToast('Tap play to start audio on this device');
+  });
 }
 
 // ── Output Picker ──
@@ -3864,6 +3827,10 @@ function updateMediaSession(title,artist,album,artUrl){
   navigator.mediaSession.playbackState='playing';
 }
 function startKeepAlive(){
+  // When This Device is the output, the real <audio> element already holds the
+  // media session and keeps the tab alive, so skip the silent keep-alive to
+  // avoid two elements competing for audio focus on iOS.
+  if(_browserStreamActive)return;
   if(_keepAliveAudio)return;
   // Silent looping audio element keeps the browser tab alive on mobile
   _keepAliveAudio=document.createElement('audio');
@@ -3917,6 +3884,8 @@ function onPlayerStatus(d){
   updateVinylSpin(d.state);
   // Keep the lock-screen play/pause state in sync with the server player
   if('mediaSession' in navigator)navigator.mediaSession.playbackState=(d.state==='paused')?'paused':'playing';
+  // If This Device is the sink, mirror server pause/resume onto the element
+  if(_browserStreamActive){var _bel=document.getElementById('browser-audio');if(_bel&&_bel.getAttribute('src')){if(d.state==='paused'&&!_bel.paused){try{_bel.pause()}catch(e){}}else if(d.state==='playing'&&_bel.paused){var _pp=_bel.play();if(_pp&&_pp.catch)_pp.catch(function(){})}}}
   const pos=d.position_secs||0,dur=d.duration_secs||1;_npDurationSecs=dur;
   document.getElementById('np-progress-fill').style.width=Math.min(100,(pos/dur)*100)+'%';
   document.getElementById('np-time-cur').textContent=fmtTime(pos);var rem=Math.max(0,dur-pos);document.getElementById('np-time-dur').textContent='-'+fmtTime(rem);

@@ -29,9 +29,8 @@ import recorder as rec
 from app_state import broadcast, spawn_bg, state, ws_heartbeat
 from audio_mp3 import LiveMP3Broadcaster
 from audio_streams import (
-    BrowserAudioStream,
+    BrowserMP3Stream,
     _browser_streams,
-    wav_header,
 )
 from config import TEMPLATES, save_settings
 from device_helpers import _capture_channels, _get_bluetooth_devices, _get_local_outputs
@@ -507,46 +506,42 @@ async def stream_live_mp3():
 
 @app.post("/api/stream/create")
 async def create_browser_stream():
-    """Create a new browser audio stream and return its stream_id."""
-    stream = BrowserAudioStream()
+    """Create a new browser audio stream and return its stream_id.
+
+    Uses a per-session MP3 encoder so the browser can play it from an <audio>
+    element (keeps playing when Safari is backgrounded / locked on iOS, #54).
+    """
+    bitrate = state.settings.get("http_stream_bitrate_kbps", 256)
+    stream = BrowserMP3Stream(bitrate_kbps=bitrate)
     _browser_streams[stream.stream_id] = stream
-    print(f"[browser-stream] Created stream {stream.stream_id}")
+    print(f"[browser-stream] Created MP3 stream {stream.stream_id}")
     return {"ok": True, "stream_id": stream.stream_id}
 
 
 @app.get("/api/stream/{stream_id}")
 async def stream_audio(stream_id: str):
-    """Stream PCM audio as WAV to browser."""
+    """Stream the session's live MP3 to the browser <audio> element."""
     stream = _browser_streams.get(stream_id)
     if not stream:
         return JSONResponse({"error": "Stream not found"}, status_code=404)
 
     async def generate():
         chunks_sent = 0
+        empty_polls = 0
+        max_empty = 1000  # ~10s of no data before giving up
         try:
-            # Send WAV header first
-            yield wav_header()
-            print(f"[browser-stream] Sent WAV header for {stream_id}")
-            empty_polls = 0
-            max_empty = 500  # 5 seconds of empty polls before giving up
-            # Stream chunks from buffer
             while True:
-                if stream._deque:
-                    chunk = stream._deque.popleft()
+                chunk = stream.get_chunk()
+                if chunk is None:
+                    break  # stopped and drained
+                if chunk:
                     empty_polls = 0
                     chunks_sent += 1
                     yield chunk
-                elif stream.is_stopped():
-                    # Drain remaining
-                    while stream._deque:
-                        yield stream._deque.popleft()
-                        chunks_sent += 1
-                    print(f"[browser-stream] Stream {stream_id} stopped by player after {chunks_sent} chunks")
-                    break
                 else:
                     empty_polls += 1
                     if empty_polls > max_empty:
-                        print(f"[browser-stream] Timeout waiting for data on {stream_id} after {chunks_sent} chunks")
+                        print(f"[browser-stream] Timeout waiting for data on {stream_id}")
                         break
                     await asyncio.sleep(0.01)
         except GeneratorExit:
@@ -554,10 +549,16 @@ async def stream_audio(stream_id: str):
         except Exception as e:
             print(f"[browser-stream] Error in stream {stream_id}: {e}")
         finally:
+            with suppress(Exception):
+                stream.stop()
             _browser_streams.pop(stream_id, None)
             print(f"[browser-stream] Closed stream {stream_id}")
 
-    return StreamingResponse(generate(), media_type="audio/wav")
+    return StreamingResponse(
+        generate(),
+        media_type="audio/mpeg",
+        headers={"Cache-Control": "no-cache, no-store", "Accept-Ranges": "none"},
+    )
 
 
 @app.get("/api/status")
