@@ -193,6 +193,9 @@ def _migrate_db(db: sqlite3.Connection):
     if "last_position_secs" not in cols_albums:
         db.execute("ALTER TABLE albums ADD COLUMN last_position_secs REAL DEFAULT 0")
         print("[catalog] Migration: added albums.last_position_secs")
+    if "eq_settings" not in cols_albums:
+        db.execute("ALTER TABLE albums ADD COLUMN eq_settings TEXT")
+        print("[catalog] Migration: added albums.eq_settings")
 
 
 # ── Fingerprint Buffer ────────────────────────────────────────────────────────
@@ -1298,6 +1301,51 @@ def clear_track_fingerprints(track_id: int) -> int:
         return cur.rowcount
     finally:
         db.close()
+
+
+def set_album_eq(album_id: int, eq: dict) -> bool:
+    """Save a per-album EQ preset. eq: {bass, treble, bands:[5], volume?}."""
+    payload = {
+        "bass":   float(eq.get("bass", 0)),
+        "treble": float(eq.get("treble", 0)),
+        "bands":  [float(b) for b in (eq.get("bands") or [0, 0, 0, 0, 0])][:5],
+    }
+    if eq.get("volume") is not None:
+        payload["volume"] = int(eq["volume"])
+    db = get_db()
+    try:
+        db.execute("UPDATE albums SET eq_settings = ? WHERE id = ?",
+                   (json.dumps(payload), album_id))
+        db.commit()
+        return True
+    finally:
+        db.close()
+
+
+def clear_album_eq(album_id: int) -> bool:
+    """Remove a per-album EQ preset."""
+    db = get_db()
+    try:
+        db.execute("UPDATE albums SET eq_settings = NULL WHERE id = ?", (album_id,))
+        db.commit()
+        return True
+    finally:
+        db.close()
+
+
+def get_album_eq(album_id: int) -> dict | None:
+    """Return the saved per-album EQ preset, or None."""
+    db = get_db()
+    try:
+        row = db.execute("SELECT eq_settings FROM albums WHERE id = ?", (album_id,)).fetchone()
+    finally:
+        db.close()
+    if not row or not row[0]:
+        return None
+    try:
+        return json.loads(row[0])
+    except (ValueError, TypeError):
+        return None
 
 
 def clear_album_fingerprints(album_id: int) -> int:

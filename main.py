@@ -669,6 +669,8 @@ async def update_settings(body: dict):
         state.settings["audio_device_index"] = None if v in (None, "", "null") else int(v)
     if "rec_play_audio" in body:
         state.settings["rec_play_audio"] = bool(body["rec_play_audio"])
+    if "eq_auto_load" in body:
+        state.settings["eq_auto_load"] = bool(body["eq_auto_load"])
     if "audio_detect_threshold" in body:
         with suppress(ValueError, TypeError):
             state.settings["audio_detect_threshold"] = max(0.001, min(0.05, float(body["audio_detect_threshold"])))
@@ -1164,6 +1166,46 @@ async def update_album_notes(album_id: int, body: dict):
     """Update the notes field for an album. body: { notes: string }"""
     notes = body.get("notes", "")
     cat.update_album_notes(album_id, notes)
+    return {"ok": True}
+
+
+async def _apply_eq_dict(eq: dict):
+    """Apply an EQ preset (bass/treble/bands/volume) to the live EQ, persist it
+    as the current settings, and broadcast so open UIs update their sliders."""
+    bass   = float(eq.get("bass", 0))
+    treble = float(eq.get("treble", 0))
+    bands  = [float(b) for b in (eq.get("bands") or [0, 0, 0, 0, 0])][:5]
+    state.eq.set_eq(bass, treble)
+    state.eq.set_bands(bands)
+    state.settings["bass"] = bass
+    state.settings["treble"] = treble
+    state.settings["eq_bands"] = state.eq.band_values
+    if eq.get("volume") is not None:
+        vol = int(eq["volume"])
+        state.eq.set_volume(vol)
+        state.settings["volume"] = vol
+    save_settings(state.settings)
+    await broadcast("eq_update", {"eq": {"bass": bass, "treble": treble,
+                                         "bands": state.eq.band_values,
+                                         "volume": state.eq.values[2]}})
+
+
+@app.post("/api/catalog/{album_id}/eq")
+async def save_album_eq(album_id: int):
+    """Save the current live EQ (bass/treble/bands/volume) as this album's preset."""
+    bass, treble, volume = state.eq.values
+    cat.set_album_eq(album_id, {
+        "bass": bass, "treble": treble,
+        "bands": state.eq.band_values, "volume": volume,
+    })
+    return {"ok": True, "eq": {"bass": bass, "treble": treble,
+                               "bands": state.eq.band_values, "volume": volume}}
+
+
+@app.delete("/api/catalog/{album_id}/eq")
+async def delete_album_eq(album_id: int):
+    """Remove this album's saved EQ preset."""
+    cat.clear_album_eq(album_id)
     return {"ok": True}
 
 
@@ -1754,6 +1796,12 @@ async def player_play(body: dict):
     volume = body.get("volume", state.settings.get("volume", 80))
     track_id = body.get("track_id")
     resume_position = body.get("resume_position_secs")
+
+    # Auto-load this album's saved EQ preset before playback starts (#53)
+    if state.settings.get("eq_auto_load"):
+        _album_eq = cat.get_album_eq(album_id)
+        if _album_eq:
+            await _apply_eq_dict(_album_eq)
 
     # Stop any active vinyl streaming first
     if state.is_streaming:
