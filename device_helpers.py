@@ -78,6 +78,11 @@ def _capture_device_index(selection=None) -> int | None:
 
     Accepts a card id string, a legacy int index, or None. Returns an int index
     to hand to sd.InputStream, or None to let PortAudio use its default input.
+
+    Matches by the card's ALSA driver name (e.g. snd_rpi_hifiberry_dacplusadcpro)
+    rather than the kernel index: PortAudio caches its device list at init, so
+    its "(hw:N,...)" can diverge from the live /proc index after a reorder, but
+    the driver-name token stays tied to the real hardware.
     """
     if selection is None:
         selection = _capture_selection()
@@ -86,18 +91,26 @@ def _capture_device_index(selection=None) -> int | None:
     # Legacy: an integer sounddevice index was stored.
     if isinstance(selection, int) or (isinstance(selection, str) and selection.isdigit()):
         return int(selection)
-    # Preferred: a stable card id. Find the current sounddevice input device
-    # that belongs to that card (its name carries "(hw:<index>,<dev>)").
-    cidx = _card_index_for_id(str(selection))
-    if cidx is None:
-        return None
-    needle = f"hw:{cidx},"
+    card_id = str(selection)
+    needles = []
+    desc = _card_description(card_id)
+    if desc:
+        needles.append(desc.split(" - ")[-1].strip())  # ALSA driver/long name
+    needles.append(card_id)
+    cidx = _card_index_for_id(card_id)
+    if cidx is not None:
+        needles.append(f"hw:{cidx},")
+    needles = [n for n in needles if n]
     try:
-        for i, d in enumerate(sd.query_devices()):
-            if d["max_input_channels"] > 0 and needle in d["name"]:
-                return i
+        devices = sd.query_devices()
     except Exception:
         return None
+    for i, d in enumerate(devices):
+        if d["max_input_channels"] <= 0:
+            continue
+        name = d["name"]
+        if any(n in name for n in needles):
+            return i
     return None
 
 
