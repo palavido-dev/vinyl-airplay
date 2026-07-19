@@ -16,7 +16,6 @@ from pathlib import Path
 from typing import Annotated
 
 import pyatv
-import sounddevice as sd
 import uvicorn
 from fastapi import Body, FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
