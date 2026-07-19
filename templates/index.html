@@ -3743,7 +3743,7 @@ async function pickOutput(idx){
   var displayName=dev.custom_name||dev.name;
   showToast('Connecting to '+displayName+'\u2026');
   var target={id:dev.id,name:dev.name};
-  if(dev.type==='local'){target.hw_index=dev.hw_index;if(dev.alsa_device)target.alsa_device=dev.alsa_device}
+  if(dev.type==='local'){if(dev.alsa_device)target.alsa_device=dev.alsa_device}
   if(dev.type==='bluetooth'){target.address=dev.address||dev.id.replace('bt:','')}
   if(dev.type==='browser'){
     (async function(){
@@ -5399,7 +5399,7 @@ async function beginRecordingWithDevice(devIdx){
   // If a device was chosen, start streaming to it first
   if(dev){
     var target={id:dev.id,name:dev.name};
-    if(dev.type==='local'){target.hw_index=dev.hw_index;if(dev.alsa_device)target.alsa_device=dev.alsa_device}
+    if(dev.type==='local'){if(dev.alsa_device)target.alsa_device=dev.alsa_device}
     if(dev.type==='bluetooth'){target.address=dev.address||dev.id.replace('bt:','')}
     // "This Device": create a browser stream first so the server can attach
     // it as a live sink, then start Web Audio playback after the stream starts
@@ -5893,8 +5893,8 @@ async function browseExports(path){
 function downloadAlbumZip(path){window.location='/api/export/download-album?path='+encodeURIComponent(path)}
 function downloadAllExports(){window.location='/api/export/download-all'}
 
-async function loadAudioDevices(){try{const d=await fetch('/api/audio-devices').then(r=>r.json());const sel=document.getElementById('audio-select');const saved=(d.current_index!==undefined&&d.current_index!==null)?String(d.current_index):'';sel.innerHTML='<option value="">(none / default)</option>'+d.devices.map(dv=>`<option value="${dv.index}"${String(dv.index)===saved?' selected':''}>${esc(dv.name)}</option>`).join('')}catch(e){}}
-function saveAudioDevice(){const v=document.getElementById('audio-select').value;const idx=v===''?null:parseInt(v,10);fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({audio_device_index:idx})}).then(()=>showToast('Audio input saved')).catch(()=>showToast('Failed to save audio input'))}
+async function loadAudioDevices(){try{const d=await fetch('/api/audio-devices').then(r=>r.json());const sel=document.getElementById('audio-select');const saved=d.current_card?String(d.current_card):'';sel.innerHTML='<option value="">(none / default)</option>'+(d.devices||[]).map(dv=>`<option value="${esc(dv.card_id)}"${String(dv.card_id)===saved?' selected':''}>${esc(dv.name)}</option>`).join('')}catch(e){}}
+function saveAudioDevice(){const v=document.getElementById('audio-select').value;fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({audio_device_card:v===''?null:v})}).then(()=>showToast('Audio input saved')).catch(()=>showToast('Failed to save audio input'))}
 
 // ── Bluetooth Management ──
 async function scanBluetoothDevices(){

@@ -25,7 +25,7 @@ import catalog as cat
 import recorder as rec
 from app_state import broadcast, state
 from audio_streams import AsyncAudioStream, LocalOutputStream, _browser_streams, make_callback, run_device_stream
-from device_helpers import _capture_channels, _get_local_outputs
+from device_helpers import _capture_channels, _capture_device_index, _get_local_outputs
 from recognition import _art_jpeg, _make_on_match, _make_on_unknown
 from recording_engine import _auto_finalize_album_side
 
@@ -305,7 +305,7 @@ async def _auto_stream_watcher():
                 sustained = 0.0
                 cooldown = COOLDOWN_SECS
                 continue
-            audio_idx = state.settings.get("audio_device_index")
+            audio_idx = _capture_device_index()
             # Non-blocking grab of the shared capture device: skip this poll if a
             # stream / listen / recording session holds it. The read runs in a
             # worker thread so it never stalls the event loop.
@@ -338,7 +338,7 @@ async def _auto_stream_watcher():
                         print("[auto-stream] Audio detected but no default device set in Settings")
                         continue
                     volume = state.settings.get("volume", 80)
-                    aidx   = state.settings.get("audio_device_index")
+                    aidx   = _capture_device_index()
                     print(f"[auto-stream] Starting stream to {dev.get('name')} (RMS={rms:.4f})")
                     await broadcast("auto_stream_starting", {
                         "device":  dev.get("name"),
@@ -425,16 +425,16 @@ async def _run_stream_inner(targets, audio_device_index, volume):
         id_to_conf = {d.identifier: d for d in found}
         confs      = [id_to_conf[t["id"]] for t in airplay_targets if t["id"] in id_to_conf]
 
-    # Set up local output streams
+    # Set up local output streams. Resolve the ALSA device fresh from the
+    # current card enumeration by the target's stable id, so a card reorder (or
+    # a stale alsa_device saved by an older build) never routes to the wrong
+    # card. Only fall back to a caller-provided alsa_device if the id is unknown.
     local_streams = []
     local_failures = []
+    local_devs = {d["id"]: d for d in _get_local_outputs()}
     for lt in local_targets:
-        alsa_dev = lt.get("alsa_device")
-        if not alsa_dev:
-            local_devs = {d["id"]: d for d in _get_local_outputs()}
-            info = local_devs.get(lt["id"])
-            if info:
-                alsa_dev = info["alsa_device"]
+        info = local_devs.get(lt["id"])
+        alsa_dev = info["alsa_device"] if info else lt.get("alsa_device")
         if not alsa_dev:
             print(f"[local-out] No ALSA device for {lt.get('id')}, skipping")
             local_failures.append(f"{lt.get('name') or lt.get('id')}: not found")
@@ -585,7 +585,7 @@ async def _start_listen_mode():
     the stream then leaves the recording running (issue #42)."""
     if state.listen_task:
         return  # already running
-    audio_device_index = int(state.settings.get("audio_device_index") or 0)
+    audio_device_index = _capture_device_index()
 
     stop_event = asyncio.Event()
     state.listen_stop_event = stop_event

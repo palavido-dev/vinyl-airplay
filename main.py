@@ -33,7 +33,14 @@ from audio_streams import (
     _browser_streams,
 )
 from config import TEMPLATES, save_settings
-from device_helpers import _capture_channels, _get_bluetooth_devices, _get_local_outputs
+from device_helpers import (
+    _capture_channels,
+    _capture_device_index,
+    _capture_selection,
+    _get_bluetooth_devices,
+    _get_local_outputs,
+    _list_capture_devices,
+)
 from learn_engine import LearnSession
 from player_engine import _build_side_entry, _run_playback, _run_playback_queue, _stop_playback
 from recognition import _art_url
@@ -97,15 +104,11 @@ async def lifespan(app: FastAPI):
         return
     _lifespan_initialized = True
     cat.init_db(state.settings)
-    devices = sd.query_devices()
-    state.audio_devices = [
-        {"index": i, "name": d["name"], "max_input_channels": d["max_input_channels"]}
-        for i, d in enumerate(devices)
-        if d["max_input_channels"] > 0
-    ]
-    audio_idx = state.settings.get("audio_device_index")
+    # Capture-capable cards, addressed by stable ALSA card id (survives reorder)
+    state.audio_devices = _list_capture_devices()
+    audio_idx = _capture_device_index()
     ch = _capture_channels(audio_idx)
-    print(f"[audio] Input device={audio_idx}, capture_channels={ch}")
+    print(f"[audio] Input selection={_capture_selection()} -> index={audio_idx}, capture_channels={ch}")
     # Auto-set analog capture gain on known ADCs (e.g. HiFiBerry) so a quiet
     # line/phono input still triggers auto-record (issue #40).
     try:
@@ -453,7 +456,10 @@ async def rename_device(device_id: str, body: dict | None = None):
 
 @app.get("/api/audio-devices")
 async def audio_devices():
-    return {"devices": state.audio_devices,
+    # Devices are keyed by stable ALSA card id; current_card is the saved
+    # selection. current_index kept for older UIs during the transition.
+    return {"devices": _list_capture_devices(),
+            "current_card": state.settings.get("audio_device_card"),
             "current_index": state.settings.get("audio_device_index")}
 
 
@@ -608,9 +614,10 @@ async def start_stream(body: dict):
         return {"ok": False, "error": "Already streaming"}
     targets   = body.get("devices", [])
     volume    = body.get("volume",   state.settings.get("volume", 80))
-    audio_idx = body.get("audio_device_index", state.settings.get("audio_device_index"))
-    state.settings.update({"saved_devices": targets, "volume": volume,
-                            "audio_device_index": audio_idx})
+    # The capture device is a global setting (Settings > Audio Input), not a
+    # per-play choice; resolve the saved card id to a live index at open time.
+    audio_idx = _capture_device_index()
+    state.settings.update({"saved_devices": targets, "volume": volume})
     save_settings(state.settings)
     state.stream_task = asyncio.create_task(run_stream(targets, audio_idx, volume))
     return {"ok": True}
@@ -672,6 +679,11 @@ async def update_settings(body: dict):
         state.settings["app_name"] = str(body["app_name"])[:40]
     if "theme" in body:
         state.settings["theme"] = str(body["theme"])
+    if "audio_device_card" in body:
+        v = body["audio_device_card"]
+        state.settings["audio_device_card"] = None if v in (None, "", "null") else str(v)
+        # A card selection supersedes any legacy index; clear it to avoid ambiguity
+        state.settings.pop("audio_device_index", None)
     if "audio_device_index" in body:
         v = body["audio_device_index"]
         state.settings["audio_device_index"] = None if v in (None, "", "null") else int(v)

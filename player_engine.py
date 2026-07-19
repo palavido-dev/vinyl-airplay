@@ -152,14 +152,12 @@ async def _run_playback(album_id: int, targets: list[dict], volume: int,
     audio_streams = {conf.identifier: AsyncAudioStream() for conf in confs}
     local_streams = []
 
-    # Set up local output streams
+    # Set up local output streams. Resolve the ALSA device fresh by the target's
+    # stable card id so a reorder (or a stale saved alsa_device) can't misroute.
+    local_devs = {d["id"]: d for d in _get_local_outputs()}
     for lt in local_targets:
-        alsa_dev = lt.get("alsa_device")
-        if not alsa_dev:
-            local_devs = {d["id"]: d for d in _get_local_outputs()}
-            info = local_devs.get(lt["id"])
-            if info:
-                alsa_dev = info["alsa_device"]
+        info = local_devs.get(lt["id"])
+        alsa_dev = info["alsa_device"] if info else lt.get("alsa_device")
         if not alsa_dev:
             print(f"[player] No ALSA device for {lt.get('id')}, skipping")
             continue
@@ -357,13 +355,10 @@ async def _run_playback_queue(album_id: int, album_info: dict,
 
     audio_streams = {conf.identifier: AsyncAudioStream() for conf in confs}
     local_streams = []
+    local_devs = {d["id"]: d for d in _get_local_outputs()}
     for lt in local_targets:
-        alsa_dev = lt.get("alsa_device")
-        if not alsa_dev:
-            local_devs = {d["id"]: d for d in _get_local_outputs()}
-            info = local_devs.get(lt["id"])
-            if info:
-                alsa_dev = info["alsa_device"]
+        info = local_devs.get(lt["id"])
+        alsa_dev = info["alsa_device"] if info else lt.get("alsa_device")
         if not alsa_dev:
             continue
         try:
