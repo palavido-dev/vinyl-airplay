@@ -1,5 +1,7 @@
 numpy>=2.4.6
-scipy>=1.18.0
+# scipy 1.18+ needs Python >=3.12; 1.16 keeps Python 3.11 (RPi OS bookworm)
+# installable while newer Pythons resolve to the latest release
+scipy>=1.16.0
 sounddevice>=0.5.5
 pyatv>=0.18.0
 fastapi>=0.138.0

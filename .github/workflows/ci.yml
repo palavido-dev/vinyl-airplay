@@ -43,13 +43,18 @@ jobs:
     name: Import smoke test
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    strategy:
+      matrix:
+        # 3.11 = Raspberry Pi OS bookworm, 3.13 = trixie (the target Pi).
+        # Testing both catches dependency floors that drop an interpreter.
+        python-version: ["3.11", "3.13"]
     steps:
       - uses: actions/checkout@v7
 
       - name: Set up Python
         uses: actions/setup-python@v7
         with:
-          python-version: "3.11"
+          python-version: ${{ matrix.python-version }}
           cache: pip
 
       - name: System audio libs
