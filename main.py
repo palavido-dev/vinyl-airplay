@@ -9,7 +9,6 @@ import json
 import os
 import random
 import shutil
-import threading
 import time
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
@@ -2441,19 +2440,38 @@ async def websocket_endpoint(ws: WebSocket):
             state.ws_clients.remove(ws)
 
 
+async def _serve_all(servers: list) -> None:
+    """Run several uvicorn servers on ONE event loop.
+
+    The old setup ran the HTTPS instance in a second thread with its own event
+    loop while sharing AppState. Objects bound to one loop (pyatv storage,
+    asyncio primitives) then blew up with "attached to a different loop" when a
+    request landed on the other server. One loop for everything removes that
+    whole class of bug. Each server's serve() captures SIGINT/SIGTERM (last
+    registration wins), so when any server begins shutdown we flip should_exit
+    on the rest for a clean exit under systemd.
+    """
+    tasks = [asyncio.create_task(s.serve()) for s in servers]
+    _done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+    for s in servers:
+        s.should_exit = True
+    if pending:
+        await asyncio.gather(*pending, return_exceptions=True)
+
+
 if __name__ == "__main__":
     cert_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "certs")
     cert_file = os.path.join(cert_dir, "cert.pem")
     key_file = os.path.join(cert_dir, "key.pem")
     has_certs = os.path.exists(cert_file) and os.path.exists(key_file)
+    _servers = [uvicorn.Server(uvicorn.Config(
+        "main:app", host="0.0.0.0", port=8080, reload=False))]
     if has_certs:
         print("[ssl] Certs found. HTTP on :8080 (kiosk), HTTPS on :8443 (mobile)")
-        def run_https():
-            uvicorn.run("main:app", host="0.0.0.0", port=8443, reload=False,
-                        ssl_certfile=cert_file, ssl_keyfile=key_file,
-                        log_level="warning")
-        t = threading.Thread(target=run_https, daemon=True)
-        t.start()
+        _servers.append(uvicorn.Server(uvicorn.Config(
+            "main:app", host="0.0.0.0", port=8443, reload=False,
+            ssl_certfile=cert_file, ssl_keyfile=key_file,
+            log_level="warning")))
     else:
         print("[ssl] No certs found, running plain HTTP only")
-    uvicorn.run("main:app", host="0.0.0.0", port=8080, reload=False)
+    asyncio.run(_serve_all(_servers))
