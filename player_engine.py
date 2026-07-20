@@ -32,6 +32,72 @@ async def _stop_playback():
         state.player_task = None
 
 
+# Album whose EQ (preset or baseline) auto-load last applied, so transitions
+# within the same album don't re-apply on every track.
+_eq_last_album_id: int | None = None
+
+
+def _apply_album_eq_for(album_id, main_loop):
+    """Auto-load the album's saved EQ on album transitions (issue #53).
+
+    Applied TRANSIENTLY: only the live EQ changes, settings are never written.
+    The user's own persisted EQ (settings) is the baseline, restored whenever a
+    playing album has no saved preset. Because presets no longer persist, they
+    also can't leak into later sessions or recordings. Safe to call from the
+    player thread: EQ setters are locked, broadcast marshals onto main_loop.
+    """
+    global _eq_last_album_id
+    if not state.settings.get("eq_auto_load"):
+        _eq_last_album_id = None
+        return
+    if not album_id or album_id == _eq_last_album_id:
+        return
+    _eq_last_album_id = album_id
+    preset = cat.get_album_eq(album_id)
+    if preset is not None:
+        src = "album preset"
+    else:
+        # Baseline: the user's own persisted EQ
+        preset = {
+            "bass":   state.settings.get("bass", 0),
+            "treble": state.settings.get("treble", 0),
+            "bands":  state.settings.get("eq_bands") or [0, 0, 0, 0, 0],
+            "volume": state.settings.get("volume"),
+        }
+        src = "baseline"
+    bass   = float(preset.get("bass", 0))
+    treble = float(preset.get("treble", 0))
+    bands  = [float(b) for b in (preset.get("bands") or [0, 0, 0, 0, 0])][:5]
+    state.eq.set_eq(bass, treble)
+    state.eq.set_bands(bands)
+    if preset.get("volume") is not None:
+        state.eq.set_volume(int(preset["volume"]))
+    print(f"[eq-auto] Applied {src} for album {album_id}: "
+          f"bass={bass} treble={treble} bands={bands}")
+    asyncio.run_coroutine_threadsafe(
+        broadcast("eq_update", {"eq": {"bass": bass, "treble": treble,
+                                       "bands": state.eq.band_values,
+                                       "volume": state.eq.values[2]}}),
+        main_loop)
+
+
+def _reset_album_eq_tracking():
+    """Forget the last-applied album and restore the user's baseline EQ if a
+    preset was in effect. Called when playback stops."""
+    global _eq_last_album_id
+    if _eq_last_album_id is None:
+        return
+    _eq_last_album_id = None
+    if not state.settings.get("eq_auto_load"):
+        return
+    state.eq.set_eq(float(state.settings.get("bass", 0)),
+                    float(state.settings.get("treble", 0)))
+    state.eq.set_bands([float(b) for b in (state.settings.get("eq_bands") or [0, 0, 0, 0, 0])][:5])
+    if state.settings.get("volume") is not None:
+        state.eq.set_volume(int(state.settings["volume"]))
+    print("[eq-auto] Playback ended: restored baseline EQ")
+
+
 async def _run_playback(album_id: int, targets: list[dict], volume: int,
                         start_track_id: int | None = None,
                         resume_position_secs: float | None = None):
@@ -226,6 +292,7 @@ async def _run_playback(album_id: int, targets: list[dict], volume: int,
     # Player callbacks
     def on_track_change(track_info):
         state.now_playing = track_info
+        _apply_album_eq_for(track_info.get("album_id"), main_loop)
         if state.airplay_metadata is not None:
             state.airplay_metadata.title   = track_info.get("track_title")
             state.airplay_metadata.artist  = (
@@ -304,6 +371,7 @@ async def _run_playback(album_id: int, targets: list[dict], volume: int,
         state.player_task = None
         state.now_playing = None
         state.airplay_metadata = None
+        _reset_album_eq_tracking()
         await broadcast("player_status", {"state": "stopped"})
         await broadcast("now_playing", {"track_title": None})
 
@@ -417,6 +485,7 @@ async def _run_playback_queue(album_id: int, album_info: dict,
 
     def on_track_change(track_info):
         state.now_playing = track_info
+        _apply_album_eq_for(track_info.get("album_id"), main_loop)
         if state.airplay_metadata is not None:
             state.airplay_metadata.title = track_info.get("track_title")
             state.airplay_metadata.artist = (
@@ -479,6 +548,7 @@ async def _run_playback_queue(album_id: int, album_info: dict,
         state.player_task = None
         state.now_playing = None
         state.airplay_metadata = None
+        _reset_album_eq_tracking()
         await broadcast("player_status", {"state": "stopped"})
         await broadcast("now_playing", {"track_title": None})
 

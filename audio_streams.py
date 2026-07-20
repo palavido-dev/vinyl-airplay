@@ -156,9 +156,14 @@ class LocalOutputStream:
         self._max_retries = 1
 
     def start(self):
+        # -B 500000: a 500ms ALSA buffer. The default is small enough that CPU
+        # or IO spikes (recording encode, SD-card writes) cause audible
+        # underruns on some sinks, reported as choppy HDMI audio in #57. Music
+        # playback tolerates the extra latency.
         self._proc = subprocess.Popen(
             ["aplay", "-D", self._alsa_device, "-f", "S16_LE",
-             "-r", str(self._samplerate), "-c", str(self._channels), "-"],
+             "-r", str(self._samplerate), "-c", str(self._channels),
+             "-B", "500000", "-"],
             stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
         )
         # Pre-fill with ~30ms of silence so the ALSA device settles

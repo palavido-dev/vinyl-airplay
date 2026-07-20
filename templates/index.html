@@ -6027,23 +6027,37 @@ function _ssActivity(reason){
 
 function ssGoIdle(){
   if(_ssActive) return;
-  var playing = _playerActive || _playerSource === 'vinyl';
+  // During an album recording, the screensaver shows the album being recorded,
+  // not whatever played last (#58). Falls back to now-playing otherwise.
+  var np=_ssLastNP;
+  var recording=!!(_recStartTime&&_recAlbumId);
+  if(recording){
+    var ra=(_catalogAlbums||[]).find(function(a){return a.id===_recAlbumId});
+    if(ra){
+      var rart=ra.user_artwork_path||ra.artwork_path;
+      np={track_title:ra.title,track_artist:ra.artist,
+          album_title:'Recording Side '+(_recSide||'A'),
+          artwork_url:rart?('/artwork/'+encodeURIComponent(String(rart).split('/').pop())):null,
+          side:null};
+    }
+  }
+  var playing = recording || _playerActive || _playerSource === 'vinyl';
   var ss = document.getElementById('screensaver');
   var content = document.getElementById('ss-content');
   _ssActive = true;
-  _ssLog('going idle, playing=' + playing + ', hasNP=' + !!_ssLastNP);
+  _ssLog('going idle, playing=' + playing + ', recording=' + recording + ', hasNP=' + !!np);
 
-  if(playing && _ssLastNP){
+  if(playing && np){
     ss.classList.remove('off');
     var art = document.getElementById('ss-art');
-    if(_ssLastNP.artwork_url){
-      art.outerHTML = '<img class="ss-art" id="ss-art" src="' + _ssLastNP.artwork_url + '?t=' + Date.now() + '" alt="" style="border-radius:50%;animation:ss-spin 8s linear infinite">';
+    if(np.artwork_url){
+      art.outerHTML = '<img class="ss-art" id="ss-art" src="' + np.artwork_url + '?t=' + Date.now() + '" alt="" style="border-radius:50%;animation:ss-spin 8s linear infinite">';
     } else {
       art.outerHTML = '<div class="ss-art-placeholder" id="ss-art"></div>';
     }
-    document.getElementById('ss-track').textContent = _ssLastNP.track_title || '';
-    document.getElementById('ss-artist-album').textContent = [_ssLastNP.track_artist||_ssLastNP.album_artist||'', _ssLastNP.album_title||''].filter(Boolean).join(' - ');
-    document.getElementById('ss-side').textContent = _ssLastNP.side ? 'Side ' + _ssLastNP.side : '';
+    document.getElementById('ss-track').textContent = np.track_title || '';
+    document.getElementById('ss-artist-album').textContent = [np.track_artist||np.album_artist||'', np.album_title||''].filter(Boolean).join(' - ');
+    document.getElementById('ss-side').textContent = np.side ? 'Side ' + np.side : '';
     var viz = document.getElementById('ss-eq-viz');
     viz.innerHTML = '';
     for(var i = 0; i < 16; i++){

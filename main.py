@@ -1188,27 +1188,6 @@ async def update_album_notes(album_id: int, body: dict):
     return {"ok": True}
 
 
-async def _apply_eq_dict(eq: dict):
-    """Apply an EQ preset (bass/treble/bands/volume) to the live EQ, persist it
-    as the current settings, and broadcast so open UIs update their sliders."""
-    bass   = float(eq.get("bass", 0))
-    treble = float(eq.get("treble", 0))
-    bands  = [float(b) for b in (eq.get("bands") or [0, 0, 0, 0, 0])][:5]
-    state.eq.set_eq(bass, treble)
-    state.eq.set_bands(bands)
-    state.settings["bass"] = bass
-    state.settings["treble"] = treble
-    state.settings["eq_bands"] = state.eq.band_values
-    if eq.get("volume") is not None:
-        vol = int(eq["volume"])
-        state.eq.set_volume(vol)
-        state.settings["volume"] = vol
-    save_settings(state.settings)
-    await broadcast("eq_update", {"eq": {"bass": bass, "treble": treble,
-                                         "bands": state.eq.band_values,
-                                         "volume": state.eq.values[2]}})
-
-
 @app.post("/api/catalog/{album_id}/eq")
 async def save_album_eq(album_id: int):
     """Save the current live EQ (bass/treble/bands/volume) as this album's preset."""
@@ -1816,11 +1795,8 @@ async def player_play(body: dict):
     track_id = body.get("track_id")
     resume_position = body.get("resume_position_secs")
 
-    # Auto-load this album's saved EQ preset before playback starts (#53)
-    if state.settings.get("eq_auto_load"):
-        _album_eq = cat.get_album_eq(album_id)
-        if _album_eq:
-            await _apply_eq_dict(_album_eq)
+    # Album EQ auto-load happens on track/album transitions inside the player
+    # engine (transient, never persisted), covering single play and queues (#53)
 
     # Stop any active vinyl streaming first
     if state.is_streaming:
@@ -1832,8 +1808,11 @@ async def player_play(body: dict):
                 await state.stream_task
             state.stream_task = None
 
-    # Stop any active listen mode
-    _stop_listen_mode()
+    # Stop any active listen mode, but never yank the capture out from under an
+    # in-progress album recording: playback only needs outputs, and the side
+    # would otherwise silently truncate at the moment playback started (#56)
+    if not (state.album_recorder and state.album_recorder.is_active):
+        _stop_listen_mode()
     await asyncio.sleep(0.3)  # let audio device release
 
     # Stop any existing playback
@@ -1899,7 +1878,8 @@ async def player_play_queue(body: dict):
     if not combined_playlist:
         return {"ok": False, "error": "No recorded audio found for any of the selected albums"}
 
-    # Stop streaming / listen / existing playback
+    # Stop streaming / listen / existing playback (keep the capture alive for
+    # an in-progress album recording, #56)
     if state.is_streaming:
         if state.stop_event:
             state.stop_event.set()
@@ -1908,7 +1888,8 @@ async def player_play_queue(body: dict):
             with suppress(asyncio.CancelledError, Exception):
                 await state.stream_task
             state.stream_task = None
-    _stop_listen_mode()
+    if not (state.album_recorder and state.album_recorder.is_active):
+        _stop_listen_mode()
     await asyncio.sleep(0.3)
     await _stop_playback()
 
@@ -1983,7 +1964,8 @@ async def player_play_shuffle_tracks(body: dict):
     if not combined_playlist:
         return {"ok": False, "error": "No playable tracks (all missing boundaries)"}
 
-    # Stop streaming / listen / existing playback (same pattern as play-queue)
+    # Stop streaming / listen / existing playback (same pattern as play-queue;
+    # keep the capture alive for an in-progress album recording, #56)
     if state.is_streaming:
         if state.stop_event:
             state.stop_event.set()
@@ -1992,7 +1974,8 @@ async def player_play_shuffle_tracks(body: dict):
             with suppress(asyncio.CancelledError, Exception):
                 await state.stream_task
             state.stream_task = None
-    _stop_listen_mode()
+    if not (state.album_recorder and state.album_recorder.is_active):
+        _stop_listen_mode()
     await asyncio.sleep(0.3)
     await _stop_playback()
 
