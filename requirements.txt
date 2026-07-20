@@ -1,5 +1,5 @@
 numpy>=2.4.6
-scipy>=1.11.0
+scipy>=1.18.0
 sounddevice>=0.5.5
 pyatv>=0.17.0
 fastapi>=0.138.0
