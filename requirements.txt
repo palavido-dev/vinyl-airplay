@@ -1,7 +1,7 @@
 numpy>=2.4.6
 scipy>=1.11.0
 sounddevice>=0.5.5
-pyatv>=0.17.0
+pyatv>=0.18.0
 fastapi>=0.138.0
 uvicorn[standard]>=0.48.0
 pillow>=12.2.0
