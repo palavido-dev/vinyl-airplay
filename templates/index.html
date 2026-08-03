@@ -2315,6 +2315,12 @@
                 <div style="position:absolute;left:83.3%;top:0;bottom:0;width:1px;background:var(--rust);opacity:0.5"></div>
               </div>
             </div>
+            <div id="rec-monitor-controls" style="display:none;margin-bottom:0.5rem;padding:0.4rem 0.5rem;background:rgba(0,0,0,0.04);border-radius:6px">
+              <div style="font-size:0.68rem;color:var(--muted);margin-bottom:0.3rem">Monitor: playback only, the recording level is not affected</div>
+              <div style="display:flex;align-items:center;gap:0.4rem;margin-bottom:0.25rem"><span style="font-size:0.68rem;color:var(--muted);min-width:2.6rem">Vol</span><input type="range" id="rec-mon-volume" min="0" max="100" step="1" value="80" oninput="recMonVolume()" style="flex:1"></div>
+              <div style="display:flex;align-items:center;gap:0.4rem;margin-bottom:0.25rem"><span style="font-size:0.68rem;color:var(--muted);min-width:2.6rem">Bass</span><input type="range" id="rec-mon-bass" min="-12" max="12" step="1" value="0" oninput="recMonEQ()" style="flex:1"></div>
+              <div style="display:flex;align-items:center;gap:0.4rem"><span style="font-size:0.68rem;color:var(--muted);min-width:2.6rem">Treble</span><input type="range" id="rec-mon-treble" min="-12" max="12" step="1" value="0" oninput="recMonEQ()" style="flex:1"></div>
+            </div>
             <div id="album-rec-status-text" style="font-size:0.82rem;font-weight:600;margin-bottom:0.4rem">Waiting for audio…</div>
             <div id="album-rec-track-log" style="font-size:0.78rem;max-height:120px;overflow-y:auto;margin-bottom:0.5rem"></div>
             <div style="display:flex;gap:0.4rem;flex-wrap:wrap">
@@ -2478,6 +2484,10 @@
           <div id="adc-gain-panel" style="display:none;margin-top:0.6rem">
             <div class="form-row"><label>Input gain</label><div style="display:flex;gap:0.5rem;align-items:center;flex:1"><input type="range" id="adc-gain-slider" min="-12" max="40" step="0.5" value="6" oninput="updateAdcGainLabel()" onchange="saveAdcGain()" style="flex:1"><span id="adc-gain-label" style="font-size:0.72rem;color:var(--muted);min-width:3.2rem;text-align:right">+6.0 dB</span></div></div>
             <div style="font-size:0.68rem;color:var(--muted);margin-top:0.3rem"><span id="adc-gain-hint">Analog capture gain for <span id="adc-gain-card">the ADC</span>. Raise it if recordings are too quiet; lower it if loud records distort.</span></div>
+            <div style="display:flex;align-items:center;gap:0.5rem;margin-top:0.5rem;flex-wrap:wrap">
+              <button class="btn btn-accent" id="adc-cal-btn" onclick="calibrateAdcGain()"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:3px"><path d="M12 20v-8"/><path d="M6 20v-4"/><path d="M18 20v-12"/><circle cx="12" cy="8" r="2"/><circle cx="6" cy="12" r="2"/><circle cx="18" cy="4" r="2"/></svg>Calibrate input</button>
+              <span id="adc-cal-status" style="font-size:0.68rem;color:var(--muted)">Play a loud part of a record, then tap to auto-set the gain.</span>
+            </div>
           </div>
         </div>
         <div class="settings-section"><h3>Recording Detection</h3><div class="form-row"><label>Threshold</label><div style="display:flex;gap:0.5rem;align-items:center;flex:1"><input type="range" id="detect-threshold-slider" min="0.001" max="0.02" step="0.001" value="0.006" oninput="updateDetectThresholdLabel()" onchange="saveDetectThreshold()" style="flex:1"><span id="detect-threshold-label" style="font-size:0.72rem;color:var(--muted);min-width:3.2rem;text-align:right">0.006</span></div></div><div style="font-size:0.68rem;color:var(--muted);margin-top:0.3rem">Lower this if auto-record won't start with a quieter turntable or preamp (default 0.006).</div></div>
@@ -3016,6 +3026,7 @@ function updateLiveListeners(n){
 
 function setStatus(d){
   const s=d.streaming;_isStreaming=!!s;
+  syncRecMonitorControls();
   document.getElementById('dot').className='status-dot'+(s?' on':'');
   let msg=d.message||(s?'Streaming':'Idle');
   if(s&&d.devices&&d.devices.length)msg='Streaming to '+d.devices.join(', ');
@@ -4838,7 +4849,18 @@ async function addToNewPlaylistFromModal(){
 let _eqT=null;
 function sendEQ(){clearTimeout(_eqT);_eqT=setTimeout(()=>{fetch('/api/eq',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({bass:parseInt(document.getElementById('eq-bass').value),treble:parseInt(document.getElementById('eq-treble').value)})})},150)}
 function sendVolume(){clearTimeout(_eqT);_eqT=setTimeout(()=>{const vol=parseInt(document.getElementById('eq-volume').value);fetch('/api/volume',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({volume:vol})}).then(r=>r.json()).catch(()=>{});if(_currentDevices&&_currentDevices[0]){const dev=_currentDevices[0];fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({device_volumes:{...(window._deviceVolumes||{}), [dev.id]:vol}})}).catch(()=>{})}},150)}
-function applyEQValues(b,t,v){document.getElementById('eq-bass').value=b;document.getElementById('eq-treble').value=t;document.getElementById('eq-volume').value=v;var ba=document.getElementById('eq-bass-adv');if(ba)ba.value=b;var ta=document.getElementById('eq-treble-adv');if(ta)ta.value=t}
+function applyEQValues(b,t,v){document.getElementById('eq-bass').value=b;document.getElementById('eq-treble').value=t;document.getElementById('eq-volume').value=v;var ba=document.getElementById('eq-bass-adv');if(ba)ba.value=b;var ta=document.getElementById('eq-treble-adv');if(ta)ta.value=t;var rb=document.getElementById('rec-mon-bass');if(rb)rb.value=b;var rt=document.getElementById('rec-mon-treble');if(rt)rt.value=t;var rv=document.getElementById('rec-mon-volume');if(rv)rv.value=v}
+// Monitor controls shown while recording with playback (issue #66). They drive
+// the same /api/volume and /api/eq plumbing as the main EQ row: the recording
+// itself captures raw pre-EQ audio, so these only change what the user hears.
+function recMonVolume(){document.getElementById('eq-volume').value=document.getElementById('rec-mon-volume').value;sendVolume()}
+function recMonEQ(){document.getElementById('eq-bass').value=document.getElementById('rec-mon-bass').value;document.getElementById('eq-treble').value=document.getElementById('rec-mon-treble').value;sendEQ()}
+function syncRecMonitorControls(){
+  var el=document.getElementById('rec-monitor-controls');if(!el)return;
+  var show=!!_isStreaming;
+  el.style.display=show?'block':'none';
+  if(show){document.getElementById('rec-mon-volume').value=document.getElementById('eq-volume').value;document.getElementById('rec-mon-bass').value=document.getElementById('eq-bass').value;document.getElementById('rec-mon-treble').value=document.getElementById('eq-treble').value}
+}
 function showEQPanel(){document.getElementById('eq-modal').classList.add('open');syncAdvEQ()}
 function hideEQPanel(){document.getElementById('eq-modal').classList.remove('open')}
 function syncAdvEQ(){document.getElementById('eq-bass-adv').value=document.getElementById('eq-bass').value;document.getElementById('eq-treble-adv').value=document.getElementById('eq-treble').value}
@@ -5418,14 +5440,14 @@ async function beginRecordingWithDevice(devIdx){
   var r=await fetch('/api/album-recording/start',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({album_id:currentAlbumId,side:side})}).then(function(r){return r.json()});
   if(!r.ok){showError(r.error||'Failed');showAlbumRecPanel();return}
   _recAlbumId=currentAlbumId;_recStartTime=Date.now();setRecordingIndicator(true);
-  document.getElementById('album-rec-setup').style.display='none';document.getElementById('album-rec-active').style.display='block';document.getElementById('album-rec-active-side').textContent=side;document.getElementById('album-rec-timer').textContent='00:00';document.getElementById('album-rec-track-log').innerHTML='';clearInterval(_recTimerInterval);_recTimerInterval=setInterval(()=>{const s=Math.floor((Date.now()-_recStartTime)/1000);document.getElementById('album-rec-timer').textContent=String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0')},1000)
+  document.getElementById('album-rec-setup').style.display='none';document.getElementById('album-rec-active').style.display='block';syncRecMonitorControls();document.getElementById('album-rec-active-side').textContent=side;document.getElementById('album-rec-timer').textContent='00:00';document.getElementById('album-rec-track-log').innerHTML='';clearInterval(_recTimerInterval);_recTimerInterval=setInterval(()=>{const s=Math.floor((Date.now()-_recStartTime)/1000);document.getElementById('album-rec-timer').textContent=String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0')},1000)
 }
 async function stopAlbumRecording(keepStream){clearInterval(_recTimerInterval);_recStartTime=null;_recAlbumId=null;setRecordingIndicator(false);document.getElementById('album-rec-active').style.display='none';var r=await fetch('/api/album-recording/stop',{method:'POST'}).then(function(r){return r.json()});if(!r.ok){document.getElementById('album-rec-saving').style.display='none';showError(r.error||'Failed to stop and save');return}if(r.already_finalized){document.getElementById('album-rec-saving').style.display='none';hideAlbumRecPanel();if(currentAlbumId){loadAlbumAudio(currentAlbumId);loadCatalog()}}else if(r.encoding_in_background){document.getElementById('album-rec-saving').style.display='block';if(r.message)document.getElementById('album-rec-status-text').textContent=r.message}else{document.getElementById('album-rec-saving').style.display='none'}if(!keepStream&&_recOutputDevice){await fetch('/api/stop',{method:'POST'});_recOutputDevice=null}}
 async function cancelAlbumRecording(){clearInterval(_recTimerInterval);_recTimerInterval=null;_recStartTime=null;_recAlbumId=null;_recAwaitingFlipAlbumId=null;_recAwaitingFlipDoneSide=null;_recAwaitingFlipNextSide=null;setRecordingIndicator(false);await fetch('/api/album-recording/cancel',{method:'POST'});hideAlbumRecPanel()}
 function flipAlbumRecording(){stopAlbumRecording(true)}
 function onAlbumRecStatus(d){if(d.message)document.getElementById('album-rec-status-text').textContent=d.message;if(d.recording===false){clearInterval(_recTimerInterval);setRecordingIndicator(false);if(d.error||/failed|too short/i.test((d.message||''))){document.getElementById('album-rec-saving').style.display='none'}}if(d.album_id&&currentAlbumId===d.album_id)refreshModalTracks(d.album_id);if(d.track_name){var log=document.getElementById('album-rec-track-log');log.innerHTML+='<div style="padding:0.15rem 0;color:var(--sage)">\u2713 '+esc(d.track_name)+'</div>';log.scrollTop=log.scrollHeight}}
 function onAlbumRecSideSaved(d){clearInterval(_recTimerInterval);_recTimerInterval=null;setRecordingIndicator(false);_recStartTime=null;_recAlbumId=null;if(d.has_next_side&&d.next_side){_recAwaitingFlipAlbumId=d.album_id||null;_recAwaitingFlipDoneSide=d.side||null;_recAwaitingFlipNextSide=d.next_side}else{_recAwaitingFlipAlbumId=null;_recAwaitingFlipDoneSide=null;_recAwaitingFlipNextSide=null}document.getElementById('album-rec-active').style.display='none';document.getElementById('album-rec-saving').style.display='none';if(d.has_next_side&&d.next_side){document.getElementById('album-rec-flip-prompt').style.display='block';document.getElementById('album-rec-done-side').textContent=d.side||'?';document.getElementById('album-rec-next-side-label').textContent=d.next_side}else{hideAlbumRecPanel();showToast('All sides recorded!')}if(currentAlbumId){loadAlbumAudio(currentAlbumId);loadCatalog()}}
-async function startNextSideRecording(){const ns=document.getElementById('album-rec-next-side-label').textContent;_recSide=ns;document.getElementById('album-rec-flip-prompt').style.display='none';document.getElementById('album-rec-saving').style.display='none';var r=await fetch('/api/album-recording/start',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({album_id:currentAlbumId,side:ns})}).then(function(r){return r.json()});if(!r.ok){showError(r.error||'Failed to start next side');showAlbumRecPanel();return}_recAlbumId=currentAlbumId;_recStartTime=Date.now();setRecordingIndicator(true);document.getElementById('album-rec-setup').style.display='none';document.getElementById('album-rec-active').style.display='block';document.getElementById('album-rec-active-side').textContent=ns;document.getElementById('album-rec-timer').textContent='00:00';document.getElementById('album-rec-track-log').innerHTML='';document.getElementById('album-rec-status-text').textContent='Waiting for audio\u2026';clearInterval(_recTimerInterval);_recTimerInterval=setInterval(()=>{const s=Math.floor((Date.now()-_recStartTime)/1000);document.getElementById('album-rec-timer').textContent=String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0')},1000)}
+async function startNextSideRecording(){const ns=document.getElementById('album-rec-next-side-label').textContent;_recSide=ns;document.getElementById('album-rec-flip-prompt').style.display='none';document.getElementById('album-rec-saving').style.display='none';var r=await fetch('/api/album-recording/start',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({album_id:currentAlbumId,side:ns})}).then(function(r){return r.json()});if(!r.ok){showError(r.error||'Failed to start next side');showAlbumRecPanel();return}_recAlbumId=currentAlbumId;_recStartTime=Date.now();setRecordingIndicator(true);document.getElementById('album-rec-setup').style.display='none';document.getElementById('album-rec-active').style.display='block';syncRecMonitorControls();document.getElementById('album-rec-active-side').textContent=ns;document.getElementById('album-rec-timer').textContent='00:00';document.getElementById('album-rec-track-log').innerHTML='';document.getElementById('album-rec-status-text').textContent='Waiting for audio\u2026';clearInterval(_recTimerInterval);_recTimerInterval=setInterval(()=>{const s=Math.floor((Date.now()-_recStartTime)/1000);document.getElementById('album-rec-timer').textContent=String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0')},1000)}
 function finishAlbumRecSession(){clearInterval(_recTimerInterval);_recTimerInterval=null;_recStartTime=null;_recAlbumId=null;_recAwaitingFlipAlbumId=null;_recAwaitingFlipDoneSide=null;_recAwaitingFlipNextSide=null;hideAlbumRecPanel();if(currentAlbumId){loadAlbumAudio(currentAlbumId);loadCatalog()}}
 
 function openLearnForAlbum(){if(!currentAlbumId)return;const a=_catalogAlbums.find(x=>x.id===currentAlbumId);if(!a)return;document.getElementById('learn-album-input').value=a.artist+' \u2014 '+a.title;document.getElementById('learn-album-id').value=currentAlbumId;const sa=(window._modalTracks||[]).filter(t=>t.side==='A').length;document.getElementById('learn-track-count').value=sa||5;closeModal();showLearnOverlay()}
@@ -5472,6 +5494,20 @@ async function loadAdcGain(){
   }catch(e){}
 }
 function updateAdcGainLabel(){var v=parseFloat(document.getElementById('adc-gain-slider').value);document.getElementById('adc-gain-label').textContent=(v>=0?'+':'')+v.toFixed(1)+' dB'}
+function fmtDb(v){return (v>=0?'+':'')+Number(v).toFixed(1)+' dB'}
+async function calibrateAdcGain(){
+  var btn=document.getElementById('adc-cal-btn'),st=document.getElementById('adc-cal-status');
+  btn.disabled=true;st.textContent='Listening for ~8 seconds. Keep the loud section playing…';
+  try{
+    var d=await fetch('/api/audio/gain/calibrate',{method:'POST'}).then(function(r){return r.json()});
+    if(d.ok){
+      var sl=document.getElementById('adc-gain-slider');sl.value=d.new_db;updateAdcGainLabel();
+      st.textContent='Peak '+d.measured_peak_db.toFixed(1)+' dBFS measured. Gain '+fmtDb(d.old_db)+' → '+fmtDb(d.new_db)+(d.clipped?'. Input was clipping: run it once more to fine-tune.':'.');
+      showToast('Input gain calibrated to '+fmtDb(d.new_db));
+    }else{st.textContent=d.error||'Calibration failed'}
+  }catch(e){st.textContent='Calibration failed'}
+  btn.disabled=false;
+}
 function saveAdcGain(){var v=parseFloat(document.getElementById('adc-gain-slider').value);fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({adc_gain_db:v})}).then(()=>showToast('Input gain set to '+(v>=0?'+':'')+v.toFixed(1)+' dB')).catch(()=>showToast('Failed to set gain'))}
 async function loadCertInfo(){
   try{var r=await fetch('/api/system/cert-info').then(d=>d.json());

@@ -8,6 +8,7 @@ set a configured analog gain via amixer, with the value exposed in Settings so
 the user keeps control and can dial in headroom for their turntable.
 """
 
+import math
 import re
 import subprocess
 
@@ -35,6 +36,46 @@ KNOWN_ADCS = [
 # headroom before clipping on loud pressings. Users tune it in Settings.
 DEFAULT_GAIN_DB = 6.0
 GAIN_STEP_DB = 0.5
+
+# One-tap calibration (issue #67): listen for CALIBRATION_SECS while the user
+# plays a loud section, then set the gain so the measured peak would land at
+# TARGET_PEAK_DB. Peaks below MIN_PEAK_FOR_CAL_DB mean nothing loud was playing
+# (or nothing is connected), so the measurement is rejected rather than cranking
+# the gain to the ceiling. CLIP_SUSPECT_DB flags a measurement taken against a
+# saturated ADC: the true level is unknown above 0 dBFS, so the computed cut is
+# a lower bound and the UI suggests a second pass.
+CALIBRATION_SECS = 8.0
+TARGET_PEAK_DB = -6.0
+MIN_PEAK_FOR_CAL_DB = -40.0
+CLIP_SUSPECT_DB = -0.5
+
+
+class PeakMeter:
+    """Collects the peak sample level fed from the capture callback.
+
+    The callback feeds one float per block (the block's absolute peak, already
+    computed from the raw pre-EQ float32 audio), so this stays allocation-free
+    in the hot loop and needs no locking: a stale read just misses one block.
+    """
+
+    def __init__(self):
+        self.peak = 0.0
+        self.blocks = 0
+
+    def feed(self, block_peak: float):
+        if block_peak > self.peak:
+            self.peak = block_peak
+        self.blocks += 1
+
+    @property
+    def peak_db(self) -> float:
+        return 20.0 * math.log10(max(self.peak, 1e-8))
+
+
+def calibrated_gain(current_db: float, measured_peak_db: float, profile: dict) -> float:
+    """Gain that would move the measured peak to TARGET_PEAK_DB, clamped and
+    snapped to the profile's supported range and step."""
+    return _clamp_snap(current_db + (TARGET_PEAK_DB - measured_peak_db), profile)
 
 
 def _read_cards() -> list[tuple[int, str, str]]:

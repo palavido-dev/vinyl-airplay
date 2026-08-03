@@ -60,6 +60,7 @@ from streaming import (
     _restart_auto_stream_watcher,
     _start_listen_mode,
     _stop_listen_mode,
+    capture,
     run_stream,
 )
 from transports_bluetooth import BluetoothManager
@@ -716,6 +717,71 @@ async def get_audio_gain():
     st["auto_gain_enabled"] = state.settings.get("adc_auto_gain_enabled", True)
     st["configured_db"] = state.settings.get("adc_gain_db", audio_gain.DEFAULT_GAIN_DB)
     return st
+
+
+@app.post("/api/audio/gain/calibrate")
+async def calibrate_audio_gain():
+    """One-tap input gain calibration (issue #67).
+
+    Listens for CALIBRATION_SECS while the user plays a loud section of a
+    record, measures the raw peak at the ADC, and sets the analog gain so that
+    peak would land at TARGET_PEAK_DB of headroom. Attaches to the shared
+    capture with no sinks, so it works while idle, streaming, or listening.
+    """
+    idx, prof = audio_gain.detect_adc()
+    if idx is None:
+        return {"ok": False, "error": "No known capture ADC detected"}
+    if state.album_recorder and state.album_recorder.is_active:
+        return {"ok": False, "error": "Cannot calibrate while a recording is in progress"}
+    if state.gain_cal is not None:
+        return {"ok": False, "error": "Calibration is already running"}
+
+    current_db = audio_gain.read_gain(idx, prof)
+    if current_db is None:
+        current_db = state.settings.get("adc_gain_db", audio_gain.DEFAULT_GAIN_DB)
+
+    token = object()
+    try:
+        await capture.attach(token, [], _capture_device_index())
+    except Exception as e:
+        return {"ok": False, "error": f"Could not open capture device: {e}"}
+    meter = audio_gain.PeakMeter()
+    state.gain_cal = meter
+    try:
+        await asyncio.sleep(audio_gain.CALIBRATION_SECS)
+    finally:
+        state.gain_cal = None
+        await capture.detach(token)
+
+    if meter.blocks == 0:
+        return {"ok": False, "error": "No audio was captured: is the capture device working?"}
+    peak_db = meter.peak_db
+    if peak_db < audio_gain.MIN_PEAK_FOR_CAL_DB:
+        return {
+            "ok": False,
+            "measured_peak_db": round(peak_db, 1),
+            "error": "Input too quiet to calibrate: play a loud section of a record and try again",
+        }
+
+    new_db = audio_gain.calibrated_gain(current_db, peak_db, prof)
+    ok, msg = audio_gain.apply_gain(new_db, idx, prof)
+    if not ok:
+        return {"ok": False, "error": msg}
+    state.settings["adc_gain_db"] = new_db
+    save_settings(state.settings)
+    print(f"[adc-gain] Calibrated: peak {peak_db:.1f} dBFS at {current_db:+.1f} dB, "
+          f"gain set to {new_db:+.1f} dB")
+    return {
+        "ok": True,
+        "old_db": current_db,
+        "new_db": new_db,
+        "measured_peak_db": round(peak_db, 1),
+        "target_peak_db": audio_gain.TARGET_PEAK_DB,
+        # Peak at or above CLIP_SUSPECT_DB means the ADC was likely saturated,
+        # so the measured level (and thus the cut) is a lower bound.
+        "clipped": peak_db >= audio_gain.CLIP_SUSPECT_DB,
+        "message": msg,
+    }
 
 
 # ── Catalog Routes ────────────────────────────────────────────────────────────

@@ -366,6 +366,11 @@ def make_callback(streams, eq, fp_buffer):
         # int16->float32 round-trip that rec_buffer and album_recorder
         # were each doing independently on every callback.
         rms = float(np.sqrt(np.mean(audio_in ** 2)))
+        # Feed the input-gain calibration meter (issue #67) with the raw
+        # pre-EQ block peak. Local ref: the field can be cleared mid-callback.
+        cal = state.gain_cal
+        if cal is not None:
+            cal.feed(float(np.max(np.abs(audio_in))))
         # Feed fingerprint buffer BEFORE EQ/volume: raw signal gives best results
         raw_pcm = (audio_in * 32767).astype(np.int16).tobytes()
         fp_buffer.put(raw_pcm)

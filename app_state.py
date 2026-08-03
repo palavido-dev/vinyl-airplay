@@ -52,6 +52,9 @@ class AppState:
         self.now_playing: dict | None = None
         self.rec_buffer: rec.RecordingBuffer | None = None
         self.rec_level: float = 0.0          # current RMS for UI meter
+        # Set to an audio_gain.PeakMeter while input calibration runs (issue
+        # #67); the capture callback feeds it per-block peaks when non-None.
+        self.gain_cal = None
         self.learn_executor = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="fpcalc")
         self.auto_stream_task: asyncio.Task | None = None
         self.heartbeat_task: asyncio.Task | None = None  # periodic WS keepalive ping
