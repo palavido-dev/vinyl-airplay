@@ -59,6 +59,10 @@ jobs:
         # the real footer markup, both parsed out of templates/index.html.
         run: node tests/swipe-gestures.test.js
 
+      - name: Resume point logic
+        # Guards issue #74: when an album offers Resume, and what it says.
+        run: node tests/resume-point.test.js
+
   import-smoke:
     name: Import smoke test
     runs-on: ubuntu-latest

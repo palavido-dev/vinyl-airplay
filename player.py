@@ -193,8 +193,15 @@ class Player:
     # ── Playback Control ─────────────────────────────────────────────────────
 
     def play(self, album_id: int, album_info: dict,
-             playlist: list[PlaylistEntry], start_track_id: int | None = None):
-        """Start playing an album. Stops any current playback first."""
+             playlist: list[PlaylistEntry], start_track_id: int | None = None,
+             start_side: str | None = None):
+        """Start playing an album. Stops any current playback first.
+
+        start_side resumes onto a specific side (issue #74). It is matched
+        against the side label ("A", "B") rather than a playlist index, so a
+        saved resume point still lands on the right side after a side is
+        re-recorded or added. start_track_id takes precedence when both are given.
+        """
         self.stop()
 
         self.album_id   = album_id
@@ -209,6 +216,17 @@ class Player:
         # Find starting position
         self._side_idx = 0
         start_pos = 0.0
+
+        if start_side is not None and not start_track_id:
+            want = str(start_side).strip().upper()
+            match = next((i for i, e in enumerate(playlist)
+                          if str(getattr(e, "side", "")).strip().upper() == want), None)
+            if match is None:
+                print(f"[player] WARNING: start_side={start_side!r} not in playlist, "
+                      "starting from the first side")
+            else:
+                self._side_idx = match
+                print(f"[player] Resuming on side {want} (side_idx={match})")
 
         if start_track_id:
             found = False

@@ -1190,10 +1190,21 @@ async def play_song_playlist(playlist_id: int, body: dict):
 
 @app.put("/api/catalog/{album_id}/position")
 async def update_playback_position(album_id: int, body: dict):
-    """Save playback position for resume. body: { side_idx: string, secs: float }"""
-    side_idx = body.get("side_idx")
+    """Save playback position for resume (issue #74).
+
+    body: { side: "A", secs: float } and { clear: true } to forget the point.
+    The column stores the side LABEL, not a playlist index, so a resume point
+    still lands on the right side after a side is re-recorded or added.
+    `side_idx` is accepted from older clients but only used as a fallback.
+    """
+    if body.get("clear"):
+        cat.update_playback_position(album_id, None, 0.0)
+        return {"ok": True, "cleared": True}
+    side = body.get("side")
+    if side is None:
+        side = body.get("side_idx")
     secs = body.get("secs", 0.0)
-    cat.update_playback_position(album_id, side_idx, float(secs))
+    cat.update_playback_position(album_id, None if side is None else str(side), float(secs))
     return {"ok": True}
 
 
@@ -1859,6 +1870,7 @@ async def player_play(body: dict):
     volume = body.get("volume", state.settings.get("volume", 80))
     track_id = body.get("track_id")
     resume_position = body.get("resume_position_secs")
+    resume_side = body.get("resume_side")  # side label to resume onto (#74)
 
     # Album EQ auto-load happens on track/album transitions inside the player
     # engine (transient, never persisted), covering single play and queues (#53)
@@ -1886,7 +1898,8 @@ async def player_play(body: dict):
     # Start playback
     state.player_task = asyncio.create_task(
         _run_playback(album_id, targets, volume, start_track_id=track_id,
-                      resume_position_secs=resume_position)
+                      resume_position_secs=resume_position,
+                      start_side=resume_side)
     )
     return {"ok": True}
 

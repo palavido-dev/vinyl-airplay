@@ -2262,7 +2262,8 @@
           </div>
         </div>
         <div class="modal-actions">
-          <button class="btn btn-primary" onclick="playAlbumFromModal()" id="btn-modal-play"><svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="none" style="vertical-align:-1px;margin-right:3px"><polygon points="6 3 20 12 6 21"/></svg>Play</button>
+          <button class="btn btn-primary" onclick="resumeAlbumFromModal()" id="btn-modal-resume" style="display:none" title="Pick up where you left off"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:3px"><path d="M3 3v5h5"/><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8"/><polyline points="12 8 12 12 15 13"/></svg><span id="btn-modal-resume-label">Resume</span></button>
+          <button class="btn btn-primary" onclick="playAlbumFromModal()" id="btn-modal-play"><svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="none" style="vertical-align:-1px;margin-right:3px"><polygon points="6 3 20 12 6 21"/></svg><span id="btn-modal-play-label">Play</span></button>
           <button class="btn btn-accent" onclick="playNextFromModal()" id="btn-modal-play-next" title="Insert after current track">Play Next</button>
           <button class="btn btn-accent" onclick="addToQueueFromModal()" id="btn-modal-queue">+ Queue</button>
           <button class="btn btn-accent" onclick="showAddToPlaylistMenu()" id="btn-modal-playlist">+ Playlist</button>
@@ -3496,10 +3497,11 @@ function updateAlbumCount(){
 
 
 function onAlbumTap(id,has){if(!has){openAlbumDetail(id);return}if(_isStreaming||_playerActive){playAlbum(id)}else{_pendingAlbumId=id;showOutputPicker(id)}}
-async function playAlbum(id,trackId){
+async function playAlbum(id,trackId,resume){
   showToast('Starting playback\u2026');
   var body={album_id:id};
   if(trackId)body.track_id=trackId;
+  if(resume){if(resume.position_secs>0)body.resume_position_secs=resume.position_secs;if(resume.side)body.resume_side=resume.side}
   // If current device is browser, create a fresh stream
   var isBrowser=false;
   if(_currentDevices&&_currentDevices.length>0&&_currentDevices[0].id&&_currentDevices[0].id.startsWith('browser:')){
@@ -3794,7 +3796,7 @@ async function playAlbumTo(id,devices,resume,isBrowser){
   showToast('Starting playback\u2026');
   var body={album_id:id};
   if(devices)body.devices=devices;
-  if(resume){if(resume.track_id)body.track_id=resume.track_id;if(resume.position_secs)body.resume_position_secs=resume.position_secs}
+  if(resume){if(resume.track_id)body.track_id=resume.track_id;if(resume.position_secs)body.resume_position_secs=resume.position_secs;if(resume.side)body.resume_side=resume.side}
   var r=await fetch('/api/player/play',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(function(r){return r.json()});
   if(!r.ok){
     showError(r.error||'Playback failed');
@@ -3933,8 +3935,10 @@ function onPlayerStatus(d){
   if(d.repeat_mode!==undefined)updateRepeatButton(d.repeat_mode);
   if(_playerAlbumId&&d.state==='playing'&&Date.now()-_lastPositionSave>10000){
     _lastPositionSave=Date.now();
-    const sideIdx=d.side_index!==undefined?String(d.side_index):null;
-    fetch('/api/catalog/'+_playerAlbumId+'/position',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({side_idx:sideIdx,secs:pos})}).catch(()=>{});
+    // Save the side LABEL ("A"), not the playlist index: an index silently
+    // points at the wrong side if a side is later added or re-recorded (#74).
+    const side=d.side!==undefined&&d.side!==null?String(d.side):null;
+    fetch('/api/catalog/'+_playerAlbumId+'/position',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({side:side,secs:pos})}).catch(()=>{});
   }
 }
 
@@ -4986,6 +4990,7 @@ async function openAlbumDetail(id){
   window._modalAlbumHasAudio=(ad.audio&&ad.audio.length)?true:false;
   renderModalTracks(window._modalTracks,false,false);
   document.getElementById('btn-modal-play').style.display=(ad.audio&&ad.audio.length)?'':'none';
+  updateResumeButton(a,!!(ad.audio&&ad.audio.length));
   document.getElementById('btn-modal-export').style.display=(ad.audio&&ad.audio.length)?'':'none';
   var expI=_exportStatus[id];
   var dlBtn=document.getElementById('btn-modal-download');
@@ -5089,7 +5094,41 @@ async function setAlbumRating(r){
     if(res.ok){if(album)album.rating=newRating;renderModalRating(newRating)}
   }catch(e){showToast('Failed to save rating')}
 }
-function playAlbumFromModal(){if(!currentAlbumId)return;var aid=currentAlbumId;if(_isStreaming||_playerActive){playAlbum(aid);closeModal()}else{_pendingAlbumId=aid;closeModal();showOutputPicker(aid)}}
+function playAlbumFromModal(){if(!currentAlbumId)return;var aid=currentAlbumId;_modalResume=null;if(_isStreaming||_playerActive){playAlbum(aid);closeModal()}else{_pendingAlbumId=aid;closeModal();showOutputPicker(aid)}}
+
+// ── Resume where you left off (issue #74) ────────────────────────────────────
+// The player saves the album's side and offset every 10s while playing, and
+// clears it when the album plays through. A saved point only earns a Resume
+// button once it is far enough in to be worth returning to.
+var RESUME_MIN_SECS=30;
+var _modalResume=null;
+function albumResumePoint(a){
+  if(!a)return null;
+  var secs=parseFloat(a.last_position_secs||0);
+  if(!(secs>RESUME_MIN_SECS))return null;
+  var side=a.last_position_side_idx;
+  // Older builds stored the playlist index ("0") rather than the side label.
+  // Those cannot be mapped to a side reliably, so resume the offset only.
+  if(side!==null&&side!==undefined&&/^\d+$/.test(String(side)))side=null;
+  return {position_secs:secs,side:side||null};
+}
+function updateResumeButton(a,hasAudio){
+  var btn=document.getElementById('btn-modal-resume');if(!btn)return;
+  _modalResume=hasAudio?albumResumePoint(a):null;
+  if(!_modalResume){btn.style.display='none';document.getElementById('btn-modal-play-label').textContent='Play';return}
+  btn.style.display='';
+  document.getElementById('btn-modal-resume-label').textContent=
+    'Resume '+(_modalResume.side?'Side '+_modalResume.side+', ':'')+fmtTime(_modalResume.position_secs);
+  // Play stays available and always starts from the top; saying so avoids
+  // any doubt about which button does what.
+  document.getElementById('btn-modal-play-label').textContent='Start over';
+}
+function resumeAlbumFromModal(){
+  if(!currentAlbumId||!_modalResume)return;
+  var aid=currentAlbumId,resume=_modalResume;
+  if(_isStreaming||_playerActive){playAlbum(aid,null,resume);closeModal()}
+  else{_pendingAlbumId=aid;_resumeInfo=resume;closeModal();showOutputPicker(aid)}
+}
 
 async function playNextFromModal(){
   if(!currentAlbumId)return;

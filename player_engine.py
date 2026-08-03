@@ -100,7 +100,8 @@ def _reset_album_eq_tracking():
 
 async def _run_playback(album_id: int, targets: list[dict], volume: int,
                         start_track_id: int | None = None,
-                        resume_position_secs: float | None = None):
+                        resume_position_secs: float | None = None,
+                        start_side: str | None = None):
     """
     Connect to AirPlay devices and run catalog playback.
     Similar to _run_stream_inner but feeds from FLAC files instead of sounddevice.
@@ -322,11 +323,17 @@ async def _run_playback(album_id: int, targets: list[dict], volume: int,
 
     def on_finished():
         state.now_playing = None
+        # The album played through to the end, so the saved resume point is
+        # spent: clear it, or the next play would offer to resume 3 seconds
+        # from the end of the last side (issue #74).
+        with suppress(Exception):
+            cat.update_playback_position(album_id, None, 0.0)
         asyncio.run_coroutine_threadsafe(
             broadcast("now_playing", {"track_title": None}), main_loop
         )
         asyncio.run_coroutine_threadsafe(
-            broadcast("player_status", {"state": "stopped", "album_id": album_id}),
+            broadcast("player_status", {"state": "stopped", "album_id": album_id,
+                                        "position_cleared": True}),
             main_loop,
         )
 
@@ -341,7 +348,8 @@ async def _run_playback(album_id: int, targets: list[dict], volume: int,
     state.player = player
     player.set_crossfade(state.settings.get("crossfade_secs", 0))
 
-    player.play(album_id, album_info, playlist, start_track_id=start_track_id)
+    player.play(album_id, album_info, playlist, start_track_id=start_track_id,
+                start_side=start_side)
 
     # If resuming mid-track, seek to exact position
     if resume_position_secs is not None and resume_position_secs > 0:
