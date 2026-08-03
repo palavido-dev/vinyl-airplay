@@ -464,6 +464,21 @@ async def audio_devices():
 
 # ── Browser Stream Routes ─────────────────────────────────────────────────────
 
+def _listener_counts() -> dict:
+    """Everyone currently listening, split by how they connected (issue #49).
+
+    "This Device" sessions used to be invisible here, so the UI could show
+    nobody listening while three phones were playing the record.
+    """
+    http_n = state.live_mp3.listener_count()
+    browser_n = _browser_listener_count()
+    return {"count": http_n + browser_n, "http": http_n, "browser": browser_n}
+
+
+async def _broadcast_listeners():
+    await broadcast("live_listeners", _listener_counts())
+
+
 @app.get("/live.mp3")
 async def stream_live_mp3():
     """Persistent MP3 URL for live turntable audio (silence when no input)."""
@@ -480,7 +495,7 @@ async def stream_live_mp3():
             content={"ok": False,
                      "error": f"Listener limit reached ({state.live_mp3.MAX_CLIENTS} max)"},
         )
-    await broadcast("live_listeners", {"count": state.live_mp3.listener_count()})
+    await _broadcast_listeners()
 
     async def generate():
         try:
@@ -495,7 +510,7 @@ async def stream_live_mp3():
         finally:
             state.live_mp3.unregister_client(client_id)
             with suppress(Exception):
-                await broadcast("live_listeners", {"count": state.live_mp3.listener_count()})
+                await _broadcast_listeners()
 
     # Prevent seeking by disabling Range requests and setting headers
     return StreamingResponse(
@@ -509,22 +524,95 @@ async def stream_live_mp3():
         },
     )
 
+def _browser_listener_count() -> int:
+    """Devices actually listening on "This Device" right now.
+
+    Counts streams with a live HTTP consumer, so a stream that was just
+    created (browser has not connected yet) or one whose listener has gone
+    away does not inflate the number.
+    """
+    return sum(1 for st in _browser_streams.values()
+               if not st.is_stopped() and st.client_count > 0)
+
+
+def _max_browser_listeners() -> int:
+    try:
+        return max(1, int(state.settings.get("max_browser_listeners", 3)))
+    except (TypeError, ValueError):
+        return 3
+
+
 @app.post("/api/stream/create")
-async def create_browser_stream():
+async def create_browser_stream(body: dict | None = Body(default=None)):
     """Create a new browser audio stream and return its stream_id.
 
     Uses a per-session MP3 encoder so the browser can play it from an <audio>
     element (keeps playing when Safari is backgrounded / locked on iOS, #54).
+
+    body: { release?: stream_id } lets a device hand back the stream it was
+    using, so replacing your own stream never counts against the listener cap.
     """
     # Purge any finished streams so the registry doesn't accumulate stopped
     # encoders (the endpoint no longer removes them, to survive iOS reconnects).
     for sid in [s for s, st in _browser_streams.items() if st.is_stopped()]:
         _browser_streams.pop(sid, None)
+    release = (body or {}).get("release")
+    if release:
+        old = _browser_streams.pop(release, None)
+        if old:
+            await _detach_browser_stream(old)
+            old.stop()
+            print(f"[browser-stream] Released {release[:8]} on replace")
+
+    cap = _max_browser_listeners()
+    if _browser_listener_count() >= cap:
+        return {"ok": False, "error": f"Listener limit reached ({cap} devices). "
+                                      "Stop one, or raise the limit in Settings."}
     bitrate = state.settings.get("http_stream_bitrate_kbps", 256)
     stream = BrowserMP3Stream(bitrate_kbps=bitrate)
     _browser_streams[stream.stream_id] = stream
     print(f"[browser-stream] Created MP3 stream {stream.stream_id}")
     return {"ok": True, "stream_id": stream.stream_id}
+
+
+async def _detach_browser_stream(stream) -> bool:
+    """Remove a browser sink from whatever it is currently attached to."""
+    removed = False
+    if state.player is not None:
+        removed = state.player.remove_stream(stream) or removed
+    return await capture.detach_extra(stream) or removed
+
+
+@app.post("/api/stream/join")
+async def join_browser_stream(body: dict):
+    """Attach a browser stream to audio that is ALREADY playing (issue #49).
+
+    This is what lets a second phone listen to the same record without
+    stopping the first one. Works for both catalog playback and a live vinyl
+    stream; the joined sink is dropped automatically when that playback ends.
+    body: { stream_id }
+    """
+    stream_id = (body or {}).get("stream_id")
+    stream = _browser_streams.get(stream_id) if stream_id else None
+    if not stream or stream.is_stopped():
+        return {"ok": False, "error": "Stream not found"}
+
+    cap = _max_browser_listeners()
+    # The joiner's own stream has no consumer yet, so it is not in the count
+    if _browser_listener_count() >= cap:
+        return {"ok": False, "error": f"Listener limit reached ({cap} devices)"}
+
+    if state.player is not None and state.player.state != "stopped":
+        if state.player.add_stream(stream):
+            print(f"[browser-stream] {stream_id[:8]} joined catalog playback")
+            return {"ok": True, "joined": "player"}
+        return {"ok": True, "joined": "player", "already": True}
+
+    if state.is_streaming and await capture.attach_extra(stream):
+        print(f"[browser-stream] {stream_id[:8]} joined the live vinyl stream")
+        return {"ok": True, "joined": "vinyl"}
+
+    return {"ok": False, "error": "Nothing is playing to join"}
 
 
 @app.get("/api/stream/{stream_id}")
@@ -539,6 +627,7 @@ async def stream_audio(stream_id: str):
         return JSONResponse({"error": "Stream not found"}, status_code=404)
 
     client_id = stream.register_client()
+    spawn_bg(_broadcast_listeners())
 
     async def generate():
         empty_polls = 0
@@ -560,6 +649,8 @@ async def stream_audio(stream_id: str):
             pass
         finally:
             stream.unregister_client(client_id)
+            with suppress(Exception):
+                await _broadcast_listeners()
 
     return StreamingResponse(
         generate(),
@@ -603,7 +694,8 @@ async def get_status():
         "storage":          storage_info,
         "album_recording":  rec_info,
         "input_level":      state.rec_level,
-        "live_listeners":   state.live_mp3.listener_count(),
+        "live_listeners":   _listener_counts()["count"],
+        "listener_detail":  _listener_counts(),
     }
 
 
@@ -674,6 +766,9 @@ async def update_settings(body: dict):
         state.settings["http_stream_bitrate_kbps"] = LiveMP3Broadcaster.sanitize_bitrate(
             body["http_stream_bitrate_kbps"]
         )
+    if "max_browser_listeners" in body:
+        with suppress(ValueError, TypeError):
+            state.settings["max_browser_listeners"] = max(1, min(10, int(body["max_browser_listeners"])))
     if "app_name" in body:
         state.settings["app_name"] = str(body["app_name"])[:40]
     if "theme" in body:

@@ -31,6 +31,10 @@ def load_settings() -> dict:
         "http_stream_enabled": False,
         "http_stream_bitrate_kbps": 256,
         "audio_detect_threshold": 0.006,
+        # Max devices playing "This Device" at once (issue #49). Each one runs
+        # its own MP3 encoder, so the ceiling is really the Pi's CPU: 3 is
+        # comfortable on a 4GB Pi 4 that is also recording. Tunable in Settings.
+        "max_browser_listeners": 3,
     }
     if SETTINGS_FILE.exists():
         s = json.loads(SETTINGS_FILE.read_text())

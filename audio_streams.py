@@ -240,6 +240,14 @@ class BrowserMP3Stream:
     # user navigated away before connecting), the encoder self-terminates so an
     # idle ffmpeg does not leak.
     STARTUP_GRACE_SECS = 30.0
+    # Once a stream has had an HTTP consumer, losing every consumer for this
+    # long means the listener really is gone (tab closed, phone off the
+    # network) rather than mid-reconnect. Without this the encoder lived until
+    # the whole stream or player stopped, so abandoned sessions piled up one
+    # ffmpeg each (issue #49). iOS drops and reopens connections routinely, so
+    # this window is deliberately generous.
+    IDLE_REAP_SECS = 90.0
+    WATCHDOG_TICK_SECS = 5.0
 
     def __init__(self, bitrate_kbps: int = 256):
         self.stream_id = uuid.uuid4().hex
@@ -252,6 +260,8 @@ class BrowserMP3Stream:
         self._clients = {}
         self._clients_lock = threading.Lock()
         self._client_seq = 0
+        self._had_client = False
+        self._last_client_at = time.monotonic()
         self._proc = None
         try:
             self._proc = subprocess.Popen(
@@ -270,14 +280,35 @@ class BrowserMP3Stream:
         self._reader = threading.Thread(target=self._read_loop,
                                         name="browser-mp3-read", daemon=True)
         self._reader.start()
-        threading.Thread(target=self._grace_watchdog, daemon=True).start()
+        threading.Thread(target=self._watchdog, daemon=True).start()
 
-    def _grace_watchdog(self):
-        if self._stop.wait(self.STARTUP_GRACE_SECS):
-            return  # already stopped
-        if not self._fed:
-            print(f"[browser-mp3] Unused stream {self.stream_id[:8]}, self-stopping")
-            self.stop()
+    def _watchdog(self):
+        """Reap this encoder once it is provably unused.
+
+        Two cases, both of which used to leak an ffmpeg process (#49):
+        never attached to anything, and attached but since abandoned.
+        """
+        while not self._stop.wait(self.WATCHDOG_TICK_SECS):
+            with self._clients_lock:
+                has_clients = bool(self._clients)
+            now = time.monotonic()
+            if has_clients:
+                self._last_client_at = now
+                continue
+            idle = now - self._last_client_at
+            if not self._had_client:
+                # Never had a consumer. Only reap if it also never received
+                # audio: a stream can legitimately be fed for a few seconds
+                # before the browser opens its connection.
+                if not self._fed and idle >= self.STARTUP_GRACE_SECS:
+                    print(f"[browser-mp3] Unused stream {self.stream_id[:8]}, self-stopping")
+                    self.stop()
+                    return
+            elif idle >= self.IDLE_REAP_SECS:
+                print(f"[browser-mp3] Stream {self.stream_id[:8]} abandoned for "
+                      f"{idle:.0f}s, self-stopping")
+                self.stop()
+                return
 
     def _read_loop(self):
         proc = self._proc
@@ -309,14 +340,24 @@ class BrowserMP3Stream:
             self._client_seq += 1
             cid = self._client_seq
             self._clients[cid] = collections.deque(maxlen=4000)
+            self._had_client = True
+            self._last_client_at = time.monotonic()
             return cid
 
     def unregister_client(self, client_id: int):
-        """Drop one consumer. Does NOT stop the encoder: other connections (and
-        the player) may still need it. The encoder is stopped by the player on
-        playback end and by the startup watchdog if never used."""
+        """Drop one consumer. Does NOT stop the encoder immediately: other
+        connections (and the player) may still need it, and iOS reopens
+        connections constantly. The watchdog reaps the encoder if every
+        consumer stays away for IDLE_REAP_SECS."""
         with self._clients_lock:
             self._clients.pop(client_id, None)
+            if not self._clients:
+                self._last_client_at = time.monotonic()
+
+    @property
+    def client_count(self) -> int:
+        with self._clients_lock:
+            return len(self._clients)
 
     def get_chunk(self, client_id: int):
         """Next MP3 chunk for a client: b"" if none yet, None once stopped."""

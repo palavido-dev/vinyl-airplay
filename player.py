@@ -103,6 +103,11 @@ class Player:
                  on_finished: Callable | None = None):
         self.eq       = eq
         self.streams  = streams  # list of AsyncAudioStream objects
+        # Guards mutation of self.streams while the feed thread iterates it.
+        # add_stream/remove_stream swap in a NEW list rather than mutating in
+        # place, so the feed loop's iteration never sees a half-updated list
+        # (issue #49: a second device joining playback already in progress).
+        self._streams_lock = threading.Lock()
 
         self._on_track_change  = on_track_change or (lambda t: None)
         self._on_status_change = on_status_change or (lambda s: None)
@@ -175,6 +180,26 @@ class Player:
             "side_count":    len(self.playlist),
             "repeat_mode":   self._repeat_mode,
         }
+
+    def add_stream(self, stream) -> bool:
+        """Attach an extra output sink to playback already in progress.
+
+        Used when a second device joins a running catalog playback (#49).
+        Returns False when the sink is already attached.
+        """
+        with self._streams_lock:
+            if stream in self.streams:
+                return False
+            self.streams = [*self.streams, stream]
+        return True
+
+    def remove_stream(self, stream) -> bool:
+        """Detach an output sink without disturbing the others."""
+        with self._streams_lock:
+            if stream not in self.streams:
+                return False
+            self.streams = [s for s in self.streams if s is not stream]
+        return True
 
     def set_crossfade(self, secs: float):
         """Set crossfade duration (0 to disable, max 2 seconds)."""

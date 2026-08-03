@@ -100,3 +100,9 @@ jobs:
         # path), uvicorn would fail to start on the Pi. Catch it here.
         run: |
           python -c "import main; import player; import recorder; import catalog; import exporter"
+
+      - name: Multi-listener behaviour
+        # Guards issue #49: listener registry cleanup, sink join/leave, and
+        # reaping of abandoned browser encoders. Needs the real deps, so it
+        # runs here rather than in the lint job.
+        run: python tests/test_multi_listener.py

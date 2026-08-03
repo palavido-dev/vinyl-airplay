@@ -111,16 +111,51 @@ class CaptureManager:
     detach tears everything down.
     """
 
+    # Sink-set key for listeners that joined an already-running stream. They
+    # are deliberately NOT tokens: a joined listener rides along with the
+    # capture but must never keep the device open on its own (issue #49).
+    JOINED_TOKEN = "joined-listeners"
+
     def __init__(self):
         self._alock = asyncio.Lock()   # serializes attach/detach
         self._stream = None
         self._device = None
         self._tokens = set()
         self._sinks = _SinkSet()
+        self._joined = []
 
     @property
     def active(self) -> bool:
         return self._stream is not None
+
+    @property
+    def joined(self) -> list:
+        return list(self._joined)
+
+    async def attach_extra(self, sink) -> bool:
+        """Add an output sink to capture that is already running.
+
+        Returns False when no capture is open (nothing to join) or the sink is
+        already attached. The sink is dropped automatically when the capture
+        closes, so a joined listener never outlives the stream it joined.
+        """
+        async with self._alock:
+            if self._stream is None or sink in self._joined:
+                return False
+            self._joined.append(sink)
+            self._sinks.add(self.JOINED_TOKEN, self._joined)
+            return True
+
+    async def detach_extra(self, sink) -> bool:
+        async with self._alock:
+            if sink not in self._joined:
+                return False
+            self._joined = [s for s in self._joined if s is not sink]
+            if self._joined:
+                self._sinks.add(self.JOINED_TOKEN, self._joined)
+            else:
+                self._sinks.remove(self.JOINED_TOKEN)
+            return True
 
     async def attach(self, token, sinks, device_index):
         """Register a consumer; opens the capture stream on first attach."""
@@ -171,6 +206,12 @@ class CaptureManager:
         with suppress(Exception):
             await asyncio.to_thread(stream.stop)
             await asyncio.to_thread(stream.close)
+        # Joined listeners end when the stream they joined ends
+        joined, self._joined = self._joined, []
+        self._sinks.remove(self.JOINED_TOKEN)
+        for sink in joined:
+            with suppress(Exception):
+                sink.stop()
         state.capture_lock.release()
         self._teardown_shared_consumers()
         state.now_playing = None

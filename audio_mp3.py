@@ -152,6 +152,14 @@ class LiveMP3Broadcaster:
         # terminating the service. configure() resets enabled=True when
         # the user turns the stream back on in Settings.
         self.enabled = False
+        # Drop the client registry too (issue #49). Without this, generators
+        # already inside /live.mp3 keep polling forever (get_chunk returns b""
+        # rather than None while the client is still registered), the listener
+        # count stays stuck above zero, and the UI badge never clears.
+        # Dropping the entries makes get_chunk return None, so each generator
+        # exits on its next poll.
+        with self._clients_lock:
+            self._clients.clear()
         self._teardown_encoder()
 
     def _teardown_encoder(self):

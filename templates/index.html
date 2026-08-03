@@ -2478,6 +2478,8 @@
           <div id="auto-stream-status" style="font-size:0.72rem;color:var(--muted);margin-top:0.2rem"></div>
           <div class="form-row" style="margin-top:0.5rem"><label>HTTP live stream</label><label class="device-item" style="border:none;padding:0;gap:0.5rem"><input type="checkbox" id="http-stream-enabled" onchange="saveHttpStreamSettings()"><span style="font-size:0.82rem">Enable persistent MP3 URL</span></label></div>
           <div class="form-row" style="margin-top:0.3rem"><label>Bitrate</label><select class="form-input" id="http-stream-bitrate" onchange="saveHttpStreamSettings()"><option value="128">128 kbps</option><option value="192">192 kbps</option><option value="256">256 kbps</option><option value="320">320 kbps</option></select></div>
+          <div class="form-row" style="margin-top:0.3rem"><label>Max listeners</label><select class="form-input" id="max-browser-listeners" onchange="saveMaxBrowserListeners()"><option value="1">1 device</option><option value="2">2 devices</option><option value="3">3 devices</option><option value="4">4 devices</option><option value="5">5 devices</option><option value="6">6 devices</option><option value="8">8 devices</option><option value="10">10 devices</option></select></div>
+          <div style="font-size:0.68rem;color:var(--muted);margin-top:0.3rem">How many devices can play through this app at once. Each one runs its own encoder, so raise it only if the Pi has headroom to spare.</div>
           <div class="form-row" style="margin-top:0.3rem"><label>Stream URL</label><div style="display:flex;gap:0.4rem;align-items:center;flex:1"><input type="text" class="form-input" id="http-stream-url" readonly><button class="btn btn-ghost" onclick="copyHttpStreamUrl()">Copy</button></div></div>
           <div id="http-stream-status" style="font-size:0.72rem;color:var(--muted);margin-top:0.2rem">Disabled</div>
         </div>
@@ -3015,14 +3017,20 @@ function handleEvent(d){
   if(d.event==='artwork_fetch_progress')onArtworkFetchProgress(d);
   if(d.event==='export_progress')handleExportProgress(d);
   if(d.event==='rebuild_fingerprints_progress')onRebuildFpProgress(d);
-  if(d.event==='live_listeners')updateLiveListeners(d.count);
+  if(d.event==='live_listeners')updateLiveListeners(d.count,d);
   if(d.eq)applyEQValues(d.eq.bass,d.eq.treble,d.eq.volume);
 }
 
-function updateLiveListeners(n){
+function updateLiveListeners(n,detail){
   var el=document.getElementById('live-listeners');if(!el)return;
-  if(n>0){el.textContent='🎧 '+n+' listening';el.style.display=''}
-  else{el.style.display='none'}
+  if(n>0){
+    el.textContent='🎧 '+n+' listening';
+    // Break the count down on hover: "This Device" sessions used to be
+    // invisible here entirely (#49)
+    el.title=detail?((detail.browser||0)+' on this app, '+(detail.http||0)+' on the live MP3 URL'):'';
+    el.style.display='';
+  }
+  else{el.style.display='none';el.title=''}
 }
 
 function setStatus(d){
@@ -3052,7 +3060,7 @@ async function refreshStatus(){
   try{
     const d=await fetch('/api/status',{cache:'no-store'}).then(r=>r.json());
     setStatus(d);
-    if(typeof d.live_listeners==='number')updateLiveListeners(d.live_listeners);
+    if(typeof d.live_listeners==='number')updateLiveListeners(d.live_listeners,d.listener_detail);
     // Also update input bar if input_level is present
     if (typeof d.input_level === 'number') {
       const rms = Math.max(d.input_level, 1e-8);
@@ -3506,8 +3514,9 @@ async function playAlbum(id,trackId,resume){
   var isBrowser=false;
   if(_currentDevices&&_currentDevices.length>0&&_currentDevices[0].id&&_currentDevices[0].id.startsWith('browser:')){
     stopBrowserAudioStream();
-    var sr=await fetch('/api/stream/create',{method:'POST',headers:{'Content-Type':'application/json'}}).then(function(r){return r.json()});
+    var sr=await createBrowserStream();
     if(sr.ok){_currentDevices[0].id='browser:'+sr.stream_id;isBrowser=true}
+    else{showError(sr.error||'Failed to create browser stream');return}
   }
   if(_currentDevices)body.devices=_currentDevices;
   var r=await fetch('/api/player/play',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(function(r){return r.json()});
@@ -3596,8 +3605,9 @@ async function playMultipleAlbums(ids,devices,entries){
   var isBrowser=devs&&devs.length>0&&devs[0].id&&devs[0].id.startsWith('browser:');
   if(isBrowser){
     stopBrowserAudioStream();
-    var sr=await fetch('/api/stream/create',{method:'POST',headers:{'Content-Type':'application/json'}}).then(function(r){return r.json()});
+    var sr=await createBrowserStream();
     if(sr.ok){devs[0].id='browser:'+sr.stream_id}
+    else{showError(sr.error||'Failed to create browser stream');return}
   }
   if(devs)body.devices=devs;
   var r=await fetch('/api/player/play-queue',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(function(r){return r.json()});
@@ -3638,6 +3648,30 @@ function stopBrowserAudioStream(){
   if(el){try{el.pause()}catch(e){}el.removeAttribute('src');try{el.load()}catch(e){}}
   stopKeepAlive();
 }
+// Create a browser stream, handing back the one this device was using so
+// replacing your own stream never counts against the listener cap (#49).
+async function createBrowserStream(){
+  var body=_browserStreamId?{release:_browserStreamId}:{};
+  var r=await fetch('/api/stream/create',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
+    .then(function(res){return res.json()}).catch(function(){return{ok:false,error:'Network error'}});
+  if(r.ok)_browserStreamId=r.stream_id;
+  return r;
+}
+// Listen along with whatever is already playing, instead of taking it over
+// or being refused with "Already streaming" (#49).
+async function joinThisDevice(){
+  showToast('Joining…');
+  stopBrowserAudioStream();
+  var sr=await createBrowserStream();
+  if(!sr.ok){showError(sr.error||'Failed to create browser stream');return false}
+  var jr=await fetch('/api/stream/join',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({stream_id:sr.stream_id})})
+    .then(function(res){return res.json()}).catch(function(){return{ok:false,error:'Network error'}});
+  if(!jr.ok){showError(jr.error||'Could not join');return false}
+  startBrowserAudioStream(sr.stream_id);
+  showToast('Listening along on this device');
+  return true;
+}
+function somethingIsPlaying(){return !!(_isStreaming||_playerActive)}
 function startBrowserAudioStream(streamId){
   stopBrowserAudioStream();
   _browserStreamActive=true;
@@ -3760,12 +3794,15 @@ async function pickOutput(idx){
   if(dev.type==='bluetooth'){target.address=dev.address||dev.id.replace('bt:','')}
   if(dev.type==='browser'){
     (async function(){
-      var streamResp=await fetch('/api/stream/create',{method:'POST',headers:{'Content-Type':'application/json'}}).then(function(r){return r.json()});
+      // Audio is already going somewhere: listen along rather than taking it
+      // over, which used to cut off whoever was already listening (#49).
+      if(somethingIsPlaying()&&!_browserStreamActive){await joinThisDevice();return}
+      var streamResp=await createBrowserStream();
       if(streamResp.ok){
         target.id='browser:'+streamResp.stream_id;
         startPlayback(aid,aids,target,trackId,shuffleTracks);
       }else{
-        showError('Failed to create browser stream')
+        showError(streamResp.error||'Failed to create browser stream')
       }
     })();
     return
@@ -5480,8 +5517,9 @@ async function beginRecordingWithDevice(devIdx){
     var recBrowser=false;
     if(dev.type==='browser'||dev.id==='browser'){
       stopBrowserAudioStream();
-      var sr=await fetch('/api/stream/create',{method:'POST'}).then(function(r){return r.json()});
+      var sr=await createBrowserStream();
       if(sr.ok){target.id='browser:'+sr.stream_id;recBrowser=true}
+      else{showError(sr.error||'Failed to create browser stream');showAlbumRecPanel();return}
     }
     _recOutputDevice=target;
     await fetch('/api/start',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({devices:[target],volume:parseInt(document.getElementById('volume-slider')?.value||80)})});
@@ -5618,10 +5656,14 @@ async function startStream(){
     // "This Device" selected: create a browser stream so the server can
     // attach it as a live sink
     var bIdx=devs.findIndex(function(d){return d.id==='browser'||String(d.id).indexOf('browser:')===0});
+    // A stream is already running and This Device is the only thing selected:
+    // join it instead of failing with "Already streaming" (#49).
+    if(bIdx>=0&&devs.length===1&&_isStreaming){await joinThisDevice();return}
     if(bIdx>=0){
       stopBrowserAudioStream();
-      var sr=await fetch('/api/stream/create',{method:'POST'}).then(function(res){return res.json()}).catch(function(){return{ok:false}});
+      var sr=await createBrowserStream();
       if(sr.ok)devs[bIdx].id='browser:'+sr.stream_id;
+      else{showError(sr.error||'Failed to create browser stream');return}
     }
     const r=await fetch('/api/start',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({devices:devs,volume:parseInt(document.getElementById('eq-volume').value)})}).then(res=>res.json()).catch(()=>({ok:false,error:'Network error'}));
     if(r&&r.ok===false){showError(r.error||'Failed to start streaming');await refreshStatus();return}
@@ -5689,6 +5731,11 @@ async function saveHttpStreamSettings(){
   const bitrate=parseInt(document.getElementById('http-stream-bitrate').value,10)||256;
   await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({http_stream_enabled:enabled,http_stream_bitrate_kbps:bitrate})});
   updateHttpStreamUI();
+}
+async function saveMaxBrowserListeners(){
+  const n=parseInt(document.getElementById('max-browser-listeners').value,10)||3;
+  await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({max_browser_listeners:n})});
+  showToast('Max listeners: '+n+' device'+(n===1?'':'s'));
 }
 async function copyHttpStreamUrl(){
   const el=document.getElementById('http-stream-url');
@@ -6074,6 +6121,7 @@ async function init(){
     if(d.settings.auto_stream_enabled!==undefined){document.getElementById('auto-stream-enabled').checked=d.settings.auto_stream_enabled;if(d.settings.auto_stream_device){window._savedAutoStreamDevice=d.settings.auto_stream_device;scanAutoStreamDevices()}const st=document.getElementById('auto-stream-status');if(d.settings.auto_stream_enabled&&d.settings.auto_stream_device)st.textContent=`Auto-streaming to: ${d.settings.auto_stream_device.name}`}
     if(d.settings.http_stream_enabled!==undefined){document.getElementById('http-stream-enabled').checked=!!d.settings.http_stream_enabled}
     if(d.settings.http_stream_bitrate_kbps!==undefined){document.getElementById('http-stream-bitrate').value=String(d.settings.http_stream_bitrate_kbps)}
+    if(d.settings.max_browser_listeners!==undefined){var mbl=document.getElementById('max-browser-listeners');if(mbl)mbl.value=String(d.settings.max_browser_listeners)}
     updateHttpStreamUI();
     if(d.settings.crossfade_secs!==undefined){document.getElementById('crossfade-slider').value=d.settings.crossfade_secs;updateCrossfadeLabel()}
     if(d.settings.audio_detect_threshold!==undefined){var _dt=document.getElementById('detect-threshold-slider');if(_dt){_dt.value=d.settings.audio_detect_threshold;updateDetectThresholdLabel()}}
@@ -6982,9 +7030,9 @@ async function recoverBrowserStream() {
   try {
     await new Promise(r => setTimeout(r, 1000));
 
-    const createResp = await fetch('/api/stream/create', { method: 'POST' }).then(r => r.json());
+    const createResp = await createBrowserStream();
     if (!createResp.ok || !createResp.stream_id) {
-      throw new Error('Failed to create new stream');
+      throw new Error(createResp.error || 'Failed to create new stream');
     }
 
     _browserStreamId = createResp.stream_id;
