@@ -39,6 +39,26 @@ jobs:
         run: |
           python -m compileall -q .
 
+  ui-gestures:
+    name: UI gesture regression test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install jsdom
+        run: npm install --no-save jsdom@25
+
+      - name: Now-playing footer gestures
+        # Guards issue #44: a slider drag inside the footer must not be
+        # read as a prev/next swipe. Runs the real handler source against
+        # the real footer markup, both parsed out of templates/index.html.
+        run: node tests/swipe-gestures.test.js
+
   import-smoke:
     name: Import smoke test
     runs-on: ubuntu-latest

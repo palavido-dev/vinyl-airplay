@@ -3949,18 +3949,31 @@ function switchOutput(){var aid=_playerAlbumId;if(!aid)return;_resumeInfo=null;f
 async function playerNext(){await fetch('/api/player/next',{method:'POST'})}
 async function playerPrev(){await fetch('/api/player/prev',{method:'POST'})}
 
-var _swipeStartX=0,_swipeStartY=0;
+var _swipeStartX=0,_swipeStartY=0,_swipeIgnore=false;
+// Controls inside the footer that own their own horizontal drag. A gesture
+// starting on one of these is never a prev/next swipe: dragging an EQ, volume,
+// or seek control used to bubble up here and skip a track (issue #44), which
+// read as the sliders moving the seek bar.
+var SWIPE_IGNORE_SEL='input,button,select,textarea,a,label,.np-progress-bar,.np-progress-row,.eq-row';
 function initSwipeGestures(){
   const npBar=document.getElementById('np-footer');
   if(!npBar)return;
-  npBar.addEventListener('pointerdown',e=>{_swipeStartX=e.clientX;_swipeStartY=e.clientY},{passive:true});
+  npBar.addEventListener('pointerdown',e=>{
+    const t=e.target;
+    _swipeIgnore=!!(t&&t.closest&&t.closest(SWIPE_IGNORE_SEL));
+    _swipeStartX=e.clientX;_swipeStartY=e.clientY;
+  },{passive:true});
   npBar.addEventListener('pointerup',e=>{
+    if(_swipeIgnore){_swipeIgnore=false;return}
     const dx=e.clientX-_swipeStartX;
     const dy=e.clientY-_swipeStartY;
     const adx=Math.abs(dx);
     const ady=Math.abs(dy);
     if(adx>50&&adx>ady){if(dx>0){playerPrev()}else{playerNext()}}
   },{passive:true});
+  // A drag that leaves the footer (finger sliding past the edge) never fires
+  // pointerup here, so clear the flag on cancel too.
+  npBar.addEventListener('pointercancel',()=>{_swipeIgnore=false},{passive:true});
 }
 async function playerRepeat(){const r=await fetch('/api/player/repeat',{method:'POST'}).then(r=>r.json());if(r.ok)updateRepeatButton(r.repeat_mode)}
 function updateRepeatButton(mode){var btn=document.getElementById('np-repeat');if(!btn)return;var repeatSvg='<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>';var repeatOneSvg='<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/><text x="12" y="15" text-anchor="middle" fill="currentColor" stroke="none" font-size="8" font-weight="bold">1</text></svg>';if(mode==='album'){btn.style.opacity='1';btn.innerHTML=repeatSvg;btn.title='Repeat album'}else if(mode==='track'){btn.style.opacity='1';btn.innerHTML=repeatOneSvg;btn.title='Repeat track'}else{btn.style.opacity='0.4';btn.innerHTML=repeatSvg;btn.title='Repeat off'}}
