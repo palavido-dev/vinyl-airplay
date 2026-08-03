@@ -20,8 +20,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from audio_mp3 import LiveMP3Broadcaster  # noqa: E402
-from player import Player  # noqa: E402
+from audio_mp3 import LiveMP3Broadcaster
+from player import Player
 
 RESULTS = []
 
@@ -31,7 +31,7 @@ def check(name, fn):
         detail = fn()
         ok = detail is True or detail is None
         RESULTS.append((name, ok, "" if ok else str(detail)))
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         RESULTS.append((name, False, f"{type(e).__name__}: {e}"))
 
 

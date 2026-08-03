@@ -542,8 +542,12 @@ def _max_browser_listeners() -> int:
         return 3
 
 
+# Module-level singleton: calling Body() inline in a default triggers ruff B008
+_OPTIONAL_BODY = Body(default=None)
+
+
 @app.post("/api/stream/create")
-async def create_browser_stream(body: dict | None = Body(default=None)):
+async def create_browser_stream(body: dict | None = _OPTIONAL_BODY):
     """Create a new browser audio stream and return its stream_id.
 
     Uses a per-session MP3 encoder so the browser can play it from an <audio>
