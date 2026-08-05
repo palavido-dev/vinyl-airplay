@@ -201,6 +201,18 @@ class Player:
             self.streams = [s for s in self.streams if s is not stream]
         return True
 
+    def joined_streams(self, known) -> list:
+        """Sinks attached after playback began, i.e. everything in self.streams
+        that the caller did not start with.
+
+        _run_playback stops the sinks it created, so without this a listener
+        that joined mid-album kept its encoder alive after playback ended
+        (issue #49).
+        """
+        known_ids = {id(s) for s in known}
+        with self._streams_lock:
+            return [s for s in self.streams if id(s) not in known_ids]
+
     def set_crossfade(self, secs: float):
         """Set crossfade duration (0 to disable, max 2 seconds)."""
         self._crossfade_secs = max(0.0, min(2.0, float(secs)))

@@ -367,6 +367,9 @@ async def _run_playback(album_id: int, targets: list[dict], volume: int,
     except asyncio.CancelledError:
         player.stop()
     finally:
+        # Listeners that joined mid-album are not in the lists built above,
+        # so ask the player what else ended up attached (issue #49).
+        joined = player.joined_streams(all_streams)
         for s in audio_streams.values():
             s.stop()
         for s in local_streams:
@@ -375,6 +378,11 @@ async def _run_playback(album_id: int, targets: list[dict], volume: int,
             s.stop()
         for s in browser_streams:
             s.stop()
+        for s in joined:
+            with suppress(Exception):
+                s.stop()
+        if joined:
+            print(f"[player] Stopped {len(joined)} joined listener(s)")
         state.player = None
         state.player_task = None
         state.now_playing = None
@@ -544,6 +552,9 @@ async def _run_playback_queue(album_id: int, album_info: dict,
     except asyncio.CancelledError:
         player.stop()
     finally:
+        # Listeners that joined mid-album are not in the lists built above,
+        # so ask the player what else ended up attached (issue #49).
+        joined = player.joined_streams(all_streams)
         for s in audio_streams.values():
             s.stop()
         for s in local_streams:
@@ -552,6 +563,11 @@ async def _run_playback_queue(album_id: int, album_info: dict,
             s.stop()
         for s in browser_streams:
             s.stop()
+        for s in joined:
+            with suppress(Exception):
+                s.stop()
+        if joined:
+            print(f"[player] Stopped {len(joined)} joined listener(s)")
         state.player = None
         state.player_task = None
         state.now_playing = None

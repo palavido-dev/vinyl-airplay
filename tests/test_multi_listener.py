@@ -192,6 +192,39 @@ def test_joined_sinks_do_not_hold_capture_open():
 
 # ── 4. Browser stream reaping thresholds are sane ────────────────────────────
 
+def test_joined_streams_reported_for_teardown():
+    """_run_playback stops the sinks it created; anything that joined later
+    must still be findable so it is stopped too (issue #49)."""
+    started_with = [FakeSink(), FakeSink()]
+    p = Player(eq=None, streams=list(started_with))
+    joiner = FakeSink()
+    p.add_stream(joiner)
+
+    joined = p.joined_streams(started_with)
+    if joined != [joiner]:
+        return f"expected only the joiner, got {joined}"
+    # And with nobody joined, nothing extra gets stopped
+    p.remove_stream(joiner)
+    return eq(p.joined_streams(started_with), [])
+
+
+def test_joined_streams_compares_by_identity():
+    """Sinks are plain objects; two distinct sinks must not be conflated even
+    if they compare equal by value."""
+    class AlwaysEqual(FakeSink):
+        def __eq__(self, other):
+            return True
+
+        def __hash__(self):
+            return 1
+
+    known = [AlwaysEqual()]
+    p = Player(eq=None, streams=list(known))
+    joiner = AlwaysEqual()
+    p.streams = [*p.streams, joiner]
+    return eq(p.joined_streams(known), [joiner])
+
+
 def test_reap_windows_are_ordered():
     from audio_streams import BrowserMP3Stream as B
     if not (B.WATCHDOG_TICK_SECS < B.STARTUP_GRACE_SECS < B.IDLE_REAP_SECS):
@@ -247,6 +280,8 @@ def main():
     check("player sinks can join and leave", test_player_add_remove_stream)
     check("joining swaps the sink list, never mutates", test_player_sink_list_is_swapped_not_mutated)
     check("concurrent joins do not lose sinks", test_concurrent_joins_are_serialised)
+    check("joined sinks are reported for teardown", test_joined_streams_reported_for_teardown)
+    check("joined sinks compare by identity", test_joined_streams_compares_by_identity)
     check("cannot join when nothing is capturing", test_capture_join_requires_running_capture)
     check("capture sinks can join and leave", test_capture_join_and_leave)
     check("joined sinks never hold the capture open", test_joined_sinks_do_not_hold_capture_open)

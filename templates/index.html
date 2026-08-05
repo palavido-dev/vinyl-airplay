@@ -2842,6 +2842,27 @@
   </div>
 </div>
 
+<!-- Join or take over (issue #49) -->
+<div class="output-picker-overlay" id="join-choice-overlay" onclick="if(event.target===this)closeJoinChoice()">
+  <div class="output-picker">
+    <div class="output-picker-title">Already playing elsewhere</div>
+    <div class="output-picker-subtitle">Listen along, or move the music to this device?</div>
+    <div style="display:flex;flex-direction:column;gap:0.5rem;margin:0.6rem 0">
+      <button class="btn btn-primary" onclick="resolveJoinChoice('listen')" style="justify-content:flex-start;text-align:left">
+        <div style="font-weight:600">Listen along</div>
+        <div style="font-size:0.7rem;opacity:0.8;font-weight:400">Both devices keep playing, slightly out of step</div>
+      </button>
+      <button class="btn btn-accent" onclick="resolveJoinChoice('takeover')" style="justify-content:flex-start;text-align:left">
+        <div style="font-weight:600">Move playback here</div>
+        <div style="font-size:0.7rem;opacity:0.8;font-weight:400">The other device stops, so nothing plays in an empty room</div>
+      </button>
+    </div>
+    <div class="output-picker-actions">
+      <button class="btn btn-ghost" onclick="closeJoinChoice()">Cancel</button>
+    </div>
+  </div>
+</div>
+
 <!-- Screensaver -->
 <div class="screensaver" id="screensaver" onclick="wakeSS()" ontouchstart="wakeSS()">
   <div class="ss-content" id="ss-content">
@@ -3644,8 +3665,9 @@ function primeBrowserAudio(){
 
 function stopBrowserAudioStream(){
   _browserStreamActive=false;
+  stopBrowserStallWatch();
   var el=document.getElementById('browser-audio');
-  if(el){try{el.pause()}catch(e){}el.removeAttribute('src');try{el.load()}catch(e){}}
+  if(el){el.onended=null;el.onerror=null;try{el.pause()}catch(e){}el.removeAttribute('src');try{el.load()}catch(e){}}
   stopKeepAlive();
 }
 // Create a browser stream, handing back the one this device was using so
@@ -3657,29 +3679,111 @@ async function createBrowserStream(){
   if(r.ok)_browserStreamId=r.stream_id;
   return r;
 }
-// Listen along with whatever is already playing, instead of taking it over
-// or being refused with "Already streaming" (#49).
-async function joinThisDevice(){
-  showToast('Joining…');
+// Attach to whatever is already playing, instead of taking it over silently
+// or being refused with "Already streaming" (#49). The user chooses between
+// listening along and moving the session to this device (handover).
+var _joinChoiceResolver=null;
+function askJoinChoice(){
+  return new Promise(function(resolve){
+    _joinChoiceResolver=resolve;
+    document.getElementById('join-choice-overlay').classList.add('open');
+  });
+}
+function resolveJoinChoice(choice){
+  document.getElementById('join-choice-overlay').classList.remove('open');
+  var r=_joinChoiceResolver;_joinChoiceResolver=null;
+  if(r)r(choice);
+}
+function closeJoinChoice(){resolveJoinChoice(null)}
+
+async function joinThisDevice(mode){
+  if(!mode){mode=await askJoinChoice();if(!mode)return false}
+  var takeover=mode==='takeover';
+  showToast(takeover?'Moving playback here…':'Joining…');
   stopBrowserAudioStream();
   var sr=await createBrowserStream();
   if(!sr.ok){showError(sr.error||'Failed to create browser stream');return false}
-  var jr=await fetch('/api/stream/join',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({stream_id:sr.stream_id})})
+  var jr=await fetch('/api/stream/join',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({stream_id:sr.stream_id,takeover:takeover})})
     .then(function(res){return res.json()}).catch(function(){return{ok:false,error:'Network error'}});
   if(!jr.ok){showError(jr.error||'Could not join');return false}
   startBrowserAudioStream(sr.stream_id);
-  showToast('Listening along on this device');
+  showToast(takeover?'Playing here now':'Listening along on this device');
   return true;
 }
 function somethingIsPlaying(){return !!(_isStreaming||_playerActive)}
+// ── Live element health (issue #49) ──────────────────────────────────────────
+// The live MP3 has no duration and cannot seek. When the element runs out of
+// buffered audio (a second listener starting its encoder briefly starves the
+// Pi, or the connection drops) the browser pauses it. Calling play() then does
+// NOT resume live audio: it replays whatever is still buffered, so the same
+// track repeats forever while other devices play on correctly. The cure is to
+// reopen the stream rather than press play on a dead buffer.
+var _browserStreamId=null;
+var _browserStallTimer=null,_browserLastTime=-1,_browserStallTicks=0,_browserReconnects=0;
+var BROWSER_STALL_TICKS=3;      // ~6s of no progress while supposedly playing
+var BROWSER_MAX_RECONNECTS=5;   // give up rather than reconnect in a tight loop
+
+function reconnectBrowserAudio(reason){
+  if(!_browserStreamActive||!_browserStreamId)return;
+  if(_browserReconnects>=BROWSER_MAX_RECONNECTS){
+    console.warn('[browser-audio] giving up after '+_browserReconnects+' reconnects');
+    showToast('Audio on this device stopped. Pick This Device again to restart.');
+    _browserStreamActive=false;stopBrowserStallWatch();return;
+  }
+  _browserReconnects++;
+  console.warn('[browser-audio] reconnecting ('+reason+'), attempt '+_browserReconnects);
+  var el=document.getElementById('browser-audio');
+  if(!el)return;
+  // A fresh query string forces a new connection instead of the browser
+  // reusing the dead one. Same stream id, so the server-side sink (and its
+  // place in the player) is untouched: only this listener reconnects.
+  _browserLastTime=-1;_browserStallTicks=0;
+  el.src='/api/stream/'+_browserStreamId+'?r='+Date.now();
+  var p=el.play();if(p&&p.catch)p.catch(function(){});
+}
+
+// Resume after a server-side pause. If the element is merely paused it plays
+// on; if its buffer is spent, play() would loop the buffered range, so
+// reconnect instead.
+function resumeBrowserElement(el){
+  var spent=(el.readyState<3)||(el.buffered.length>0&&el.currentTime>=el.buffered.end(el.buffered.length-1)-0.05);
+  if(spent){reconnectBrowserAudio('buffer spent on resume');return}
+  var p=el.play();if(p&&p.catch)p.catch(function(){});
+}
+
+function startBrowserStallWatch(){
+  stopBrowserStallWatch();
+  _browserLastTime=-1;_browserStallTicks=0;
+  _browserStallTimer=setInterval(function(){
+    if(!_browserStreamActive)return;
+    var el=document.getElementById('browser-audio');
+    if(!el||!el.getAttribute('src'))return;
+    if(el.paused)return;                 // a real pause is not a stall
+    var t=el.currentTime;
+    if(_browserLastTime>=0&&t<=_browserLastTime){
+      // Playing, but the clock is not advancing: the buffer has run dry
+      if(++_browserStallTicks>=BROWSER_STALL_TICKS)reconnectBrowserAudio('stalled');
+    }else{
+      _browserStallTicks=0;
+      _browserReconnects=0;              // healthy again, reset the budget
+    }
+    _browserLastTime=t;
+  },2000);
+}
+function stopBrowserStallWatch(){if(_browserStallTimer){clearInterval(_browserStallTimer);_browserStallTimer=null}}
+
 function startBrowserAudioStream(streamId){
   stopBrowserAudioStream();
   _browserStreamActive=true;
+  _browserStreamId=streamId;
+  _browserReconnects=0;
   var el=document.getElementById('browser-audio');
   if(!el){showError('Browser stream failed');return}
   el.muted=false; el.volume=1;
   el.src='/api/stream/'+streamId;
-  el.onerror=function(){if(_browserStreamActive)console.warn('[browser-audio] element error')};
+  el.onerror=function(){if(_browserStreamActive){console.warn('[browser-audio] element error');reconnectBrowserAudio('element error')}};
+  // A live stream should never end. If it does, the connection dropped.
+  el.onended=function(){if(_browserStreamActive)reconnectBrowserAudio('stream ended')};
   var attempts=0;
   function tryPlay(){
     var p=el.play();
@@ -3690,6 +3794,7 @@ function startBrowserAudioStream(streamId){
     });
   }
   tryPlay();
+  startBrowserStallWatch();
 }
 
 // ── Output Picker ──
@@ -3964,7 +4069,7 @@ function onPlayerStatus(d){
   // Keep the lock-screen play/pause state in sync with the server player
   if('mediaSession' in navigator)navigator.mediaSession.playbackState=(d.state==='paused')?'paused':'playing';
   // If This Device is the sink, mirror server pause/resume onto the element
-  if(_browserStreamActive){var _bel=document.getElementById('browser-audio');if(_bel&&_bel.getAttribute('src')){if(d.state==='paused'&&!_bel.paused){try{_bel.pause()}catch(e){}}else if(d.state==='playing'&&_bel.paused){var _pp=_bel.play();if(_pp&&_pp.catch)_pp.catch(function(){})}}}
+  if(_browserStreamActive){var _bel=document.getElementById('browser-audio');if(_bel&&_bel.getAttribute('src')){if(d.state==='paused'&&!_bel.paused){try{_bel.pause()}catch(e){}}else if(d.state==='playing'&&_bel.paused){resumeBrowserElement(_bel)}}}
   const pos=d.position_secs||0,dur=d.duration_secs||1;_npDurationSecs=dur;
   document.getElementById('np-progress-fill').style.width=Math.min(100,(pos/dur)*100)+'%';
   document.getElementById('np-time-cur').textContent=fmtTime(pos);var rem=Math.max(0,dur-pos);document.getElementById('np-time-dur').textContent='-'+fmtTime(rem);
@@ -7011,76 +7116,6 @@ if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('/service-worker.js').catch(err => {
     console.log('Service worker registration failed:', err);
   });
-}
-
-// Feature 5: Browser Stream Recovery
-// _browserStreamActive already declared in main script block
-var _browserStreamId = null;
-var _browserAudioContext = null;
-var _browserAudioSource = null;
-var _browserStreamRetrying = false;
-
-async function recoverBrowserStream() {
-  if (_browserStreamRetrying || !_browserStreamActive) return;
-
-  _browserStreamRetrying = true;
-  console.log('[browser-recovery] Attempting to recover stream...');
-  showToast('Browser stream recovering...');
-
-  try {
-    await new Promise(r => setTimeout(r, 1000));
-
-    const createResp = await createBrowserStream();
-    if (!createResp.ok || !createResp.stream_id) {
-      throw new Error(createResp.error || 'Failed to create new stream');
-    }
-
-    _browserStreamId = createResp.stream_id;
-    console.log('[browser-recovery] Created new stream:', _browserStreamId);
-
-    if (_browserAudioContext) {
-      restartBrowserAudio(_browserStreamId);
-    }
-
-    showToast('Browser stream recovered');
-  } catch (err) {
-    console.error('[browser-recovery] Recovery failed:', err);
-    showError('Browser stream recovery failed');
-  } finally {
-    _browserStreamRetrying = false;
-  }
-}
-
-function monitorBrowserStream(streamId) {
-  _browserStreamId = streamId;
-  _browserStreamActive = true;
-
-  if (!_browserAudioContext) {
-    _browserAudioContext = new (window.AudioContext || window.webkitAudioContext)();
-  }
-
-  const checkStream = async () => {
-    if (!_browserStreamActive) return;
-
-    try {
-      const resp = await fetch('/api/stream/' + streamId, { signal: AbortSignal.timeout(5000) });
-      if (!resp.ok || resp.body.locked) {
-        console.log('[browser-monitor] Stream ended unexpectedly');
-        await recoverBrowserStream();
-      }
-    } catch (err) {
-      if (!_browserStreamRetrying) {
-        console.log('[browser-monitor] Stream monitoring error:', err);
-        await recoverBrowserStream();
-      }
-    }
-
-    if (_browserStreamActive) {
-      setTimeout(checkStream, 30000);
-    }
-  };
-
-  setTimeout(checkStream, 30000);
 }
 
 // Feature 2: Album Art Color Extraction

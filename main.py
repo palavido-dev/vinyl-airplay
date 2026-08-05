@@ -600,23 +600,41 @@ async def join_browser_stream(body: dict):
     stream = _browser_streams.get(stream_id) if stream_id else None
     if not stream or stream.is_stopped():
         return {"ok": False, "error": "Stream not found"}
+    # takeover=True is the handover case: this device continues the session and
+    # the other browser listeners stop, so nothing plays in an empty room and
+    # there is no offset between devices to hear.
+    takeover = bool((body or {}).get("takeover"))
 
     cap = _max_browser_listeners()
     # The joiner's own stream has no consumer yet, so it is not in the count
-    if _browser_listener_count() >= cap:
+    if not takeover and _browser_listener_count() >= cap:
         return {"ok": False, "error": f"Listener limit reached ({cap} devices)"}
 
+    joined = None
     if state.player is not None and state.player.state != "stopped":
-        if state.player.add_stream(stream):
-            print(f"[browser-stream] {stream_id[:8]} joined catalog playback")
-            return {"ok": True, "joined": "player"}
-        return {"ok": True, "joined": "player", "already": True}
+        state.player.add_stream(stream)
+        joined = "player"
+    elif state.is_streaming and await capture.attach_extra(stream):
+        joined = "vinyl"
 
-    if state.is_streaming and await capture.attach_extra(stream):
-        print(f"[browser-stream] {stream_id[:8]} joined the live vinyl stream")
-        return {"ok": True, "joined": "vinyl"}
+    if joined is None:
+        return {"ok": False, "error": "Nothing is playing to join"}
 
-    return {"ok": False, "error": "Nothing is playing to join"}
+    handed_over = 0
+    if takeover:
+        for sid, other in list(_browser_streams.items()):
+            if sid == stream_id or other.is_stopped():
+                continue
+            await _detach_browser_stream(other)
+            other.stop()
+            _browser_streams.pop(sid, None)
+            handed_over += 1
+    print(f"[browser-stream] {stream_id[:8]} "
+          f"{'took over' if takeover else 'joined'} {joined}"
+          + (f", {handed_over} device(s) released" if handed_over else ""))
+    await _broadcast_listeners()
+    return {"ok": True, "joined": joined, "takeover": takeover,
+            "released": handed_over}
 
 
 @app.get("/api/stream/{stream_id}")

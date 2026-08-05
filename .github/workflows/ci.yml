@@ -63,6 +63,11 @@ jobs:
         # Guards issue #74: when an album offers Resume, and what it says.
         run: node tests/resume-point.test.js
 
+      - name: Live audio stall handling
+        # Guards the looping reported on #49: a spent buffer must reconnect,
+        # never replay itself.
+        run: node tests/browser-stall.test.js
+
   import-smoke:
     name: Import smoke test
     runs-on: ubuntu-latest
