@@ -6794,11 +6794,23 @@ document.addEventListener('keydown', function(e){
 
   // Intercept focus on text inputs
   // The built-in OSK is meant for the dedicated Pi touchscreen (a short
-  // ~1024x600 coarse-pointer display with no physical keyboard). On tablets
-  // and phones it just gets in the way of the native keyboard, so auto mode
-  // only enables it on that kiosk profile. Users can force on/off in Settings.
+  // ~1024x600 display with no physical keyboard). On tablets and phones it
+  // just gets in the way of the native keyboard, so auto mode only enables it
+  // on that kiosk profile. Users can force on/off in Settings.
+  //
+  // The kiosk browser is the only client that loads the app from localhost,
+  // which makes that the reliable signal. The two things tried before are not:
+  // screen size alone also matches a phone held in landscape, and
+  // `pointer: coarse` silently flips to fine the moment a wireless keyboard
+  // or mouse dongle is plugged into the Pi, which turned the on-screen
+  // keyboard off on the kiosk itself. `any-pointer: coarse` still confirms a
+  // touchscreen is present without caring what else is attached.
   function isKioskDisplay(){
-    return window.matchMedia('(max-width: 1024px) and (max-height: 640px) and (pointer: coarse)').matches;
+    const h = location.hostname;
+    const onKioskHost = (h === 'localhost' || h === '127.0.0.1' || h === '[::1]');
+    if(!onKioskHost) return false;
+    return window.matchMedia('(max-width: 1024px) and (max-height: 640px)').matches
+        && window.matchMedia('(any-pointer: coarse)').matches;
   }
   function oskMode(){
     try{ return localStorage.getItem('vinyl_osk_mode') || 'auto'; }catch(_e){ return 'auto'; }
