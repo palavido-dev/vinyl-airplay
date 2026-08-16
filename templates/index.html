@@ -3720,8 +3720,15 @@ function somethingIsPlaying(){return !!(_isStreaming||_playerActive)}
 // reopen the stream rather than press play on a dead buffer.
 var _browserStreamId=null;
 var _browserStallTimer=null,_browserLastTime=-1,_browserStallTicks=0,_browserReconnects=0;
-var BROWSER_STALL_TICKS=3;      // ~6s of no progress while supposedly playing
+var _browserEverPlayed=false,_browserStartTicks=0;
+var BROWSER_STALL_TICKS=3;      // ~6s of no progress once audio HAS been flowing
 var BROWSER_MAX_RECONNECTS=5;   // give up rather than reconnect in a tight loop
+// Starting up is not stalling. Nothing has been fed to this stream until the
+// server has finished spinning up the player and attached it as a sink, which
+// routinely takes longer than a stall window. Reconnecting during that gap
+// yanks the source out from under a session that was about to start, which is
+// exactly what caused "no sound until I pick This Device again" (#49).
+var BROWSER_START_TICKS=10;     // ~20s of patience before the first audio
 
 function reconnectBrowserAudio(reason){
   if(!_browserStreamActive||!_browserStreamId)return;
@@ -3737,7 +3744,7 @@ function reconnectBrowserAudio(reason){
   // A fresh query string forces a new connection instead of the browser
   // reusing the dead one. Same stream id, so the server-side sink (and its
   // place in the player) is untouched: only this listener reconnects.
-  _browserLastTime=-1;_browserStallTicks=0;
+  _browserLastTime=-1;_browserStallTicks=0;_browserStartTicks=0;
   el.src='/api/stream/'+_browserStreamId+'?r='+Date.now();
   var p=el.play();if(p&&p.catch)p.catch(function(){});
 }
@@ -3754,12 +3761,24 @@ function resumeBrowserElement(el){
 function startBrowserStallWatch(){
   stopBrowserStallWatch();
   _browserLastTime=-1;_browserStallTicks=0;
+  _browserEverPlayed=false;_browserStartTicks=0;
   _browserStallTimer=setInterval(function(){
     if(!_browserStreamActive)return;
     var el=document.getElementById('browser-audio');
     if(!el||!el.getAttribute('src'))return;
     if(el.paused)return;                 // a real pause is not a stall
     var t=el.currentTime;
+    if(t>0)_browserEverPlayed=true;
+    if(!_browserEverPlayed){
+      // Still waiting for the very first audio. Sit tight: the server may
+      // still be starting the player. Only after a long grace is it worth
+      // assuming the stream is dead and reopening it once.
+      if(++_browserStartTicks>=BROWSER_START_TICKS){
+        _browserStartTicks=0;
+        reconnectBrowserAudio('no audio after startup grace');
+      }
+      return;
+    }
     if(_browserLastTime>=0&&t<=_browserLastTime){
       // Playing, but the clock is not advancing: the buffer has run dry
       if(++_browserStallTicks>=BROWSER_STALL_TICKS)reconnectBrowserAudio('stalled');
