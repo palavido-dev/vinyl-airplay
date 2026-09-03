@@ -116,3 +116,8 @@ jobs:
         # reaping of abandoned browser encoders. Needs the real deps, so it
         # runs here rather than in the lint job.
         run: python tests/test_multi_listener.py
+
+      - name: Capture rate negotiation
+        # Guards issue #76: a capture card that refuses 44100 is opened at a
+        # rate it accepts and resampled, instead of failing every stream start.
+        run: python tests/test_capture_rate.py

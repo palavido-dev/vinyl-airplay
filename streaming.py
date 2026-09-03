@@ -24,6 +24,7 @@ from pyatv.interface import MediaMetadata
 import catalog as cat
 import recorder as rec
 from app_state import broadcast, state
+from audio_resample import FALLBACK_RATES, StreamResampler
 from audio_streams import AsyncAudioStream, LocalOutputStream, _browser_streams, make_callback, run_device_stream
 from device_helpers import _capture_channels, _capture_device_index, _get_local_outputs
 from recognition import _art_jpeg, _make_on_match, _make_on_unknown
@@ -34,17 +35,80 @@ BLOCK_SIZE    = 8192
 INPUT_LATENCY = 0.5
 
 
+# Capture rate the device actually accepted, per sounddevice index (issue #76).
+# Probing opens the device, so the answer is remembered until an open fails.
+_capture_rates: dict = {}
+
+
+def _rate_supported(device, rate, channels) -> bool:
+    try:
+        sd.check_input_settings(device=device, samplerate=rate,
+                                channels=channels, dtype="float32")
+        return True
+    except Exception:
+        return False
+
+
+def _negotiate_capture_rate(device, channels=None) -> int:
+    """Return the rate to open the capture device at.
+
+    The pipeline wants SAMPLE_RATE. Some USB dongles only do 48000 (or a
+    single other rate), and PortAudio opens the raw hw device so ALSA's plug
+    layer never gets a chance to convert. Prefer SAMPLE_RATE; otherwise try
+    the card's own default, then the common fixed rates. The capture callback
+    resamples back to SAMPLE_RATE when they differ.
+    """
+    cached = _capture_rates.get(device)
+    if cached:
+        return cached
+    if channels is None:
+        channels = _capture_channels(device)
+    if _rate_supported(device, SAMPLE_RATE, channels):
+        _capture_rates[device] = SAMPLE_RATE
+        return SAMPLE_RATE
+    candidates = []
+    try:
+        native = int(sd.query_devices(device, kind="input")["default_samplerate"])
+        if native > 0:
+            candidates.append(native)
+    except Exception:
+        pass
+    candidates += [r for r in FALLBACK_RATES if r not in candidates]
+    for rate in candidates:
+        if rate != SAMPLE_RATE and _rate_supported(device, rate, channels):
+            print(f"[capture] Device {device} does not support {SAMPLE_RATE} Hz; "
+                  f"capturing at {rate} Hz and resampling")
+            _capture_rates[device] = rate
+            return rate
+    # Nothing probed clean. Let the open at SAMPLE_RATE produce the real error.
+    return SAMPLE_RATE
+
+
 def _poll_capture(device, frames):
     """Open the capture device briefly and return one block of float32 frames.
 
     Runs in a worker thread (blocking read) so it never stalls the event loop.
-    The caller holds state.capture_lock for the duration.
+    The caller holds state.capture_lock for the duration. `frames` is in
+    SAMPLE_RATE units; the read is scaled if the device runs at another rate.
     """
-    with sd.InputStream(device=device, samplerate=SAMPLE_RATE,
-                        channels=_capture_channels(device), dtype="float32",
+    channels = _capture_channels(device)
+    rate = _negotiate_capture_rate(device, channels)
+    frames = int(frames * rate / SAMPLE_RATE)
+    with sd.InputStream(device=device, samplerate=rate,
+                        channels=channels, dtype="float32",
                         blocksize=frames) as stream:
         data, _ = stream.read(frames)
     return data
+
+
+def _resampling_callback(callback, resampler):
+    """Wrap a capture callback so it sees SAMPLE_RATE audio regardless of the
+    rate the device was opened at."""
+    def wrapped(indata, frames, cb_time, status):
+        data = resampler.process(indata)
+        if data.shape[0]:
+            callback(data, data.shape[0], cb_time, status)
+    return wrapped
 
 
 def _open_input_stream(device, callback):
@@ -54,11 +118,15 @@ def _open_input_stream(device, callback):
     Runs in a worker thread. The caller holds state.capture_lock and is
     responsible for stop()/close() on the returned stream.
     """
+    channels = _capture_channels(device)
+    rate = _negotiate_capture_rate(device, channels)
+    if rate != SAMPLE_RATE:
+        callback = _resampling_callback(callback, StreamResampler(rate, SAMPLE_RATE, channels))
     last_err = None
     for _ in range(4):
         try:
-            stream = sd.InputStream(device=device, samplerate=SAMPLE_RATE,
-                                    channels=_capture_channels(device), dtype="float32",
+            stream = sd.InputStream(device=device, samplerate=rate,
+                                    channels=channels, dtype="float32",
                                     blocksize=BLOCK_SIZE, latency=INPUT_LATENCY,
                                     callback=callback)
             stream.start()
@@ -66,6 +134,8 @@ def _open_input_stream(device, callback):
         except sd.PortAudioError as e:
             last_err = e
             time.sleep(0.25)
+    # Forget the negotiated rate so the next attempt re-probes the hardware
+    _capture_rates.pop(device, None)
     raise last_err
 
 
