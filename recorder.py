@@ -843,8 +843,9 @@ class AlbumRecorder:
         # The audio callback only hands blocks to a queue; a writer thread does
         # the file I/O, so no disk stall can ever reach the capture callback.
         self._raw_path = self._audio_dir / f".side-{album_id}-{side}-{os.getpid()}.pcm"
-        # noqa SIM115: the handle outlives this scope by design. It is owned by
-        # the recorder for the length of the side and closed in _close_raw().
+        # The handle deliberately outlives this scope: it is owned by the
+        # recorder for the length of the side and closed in _close_raw(), so
+        # there is no context manager to put it in.
         self._raw_file = open(self._raw_path, "wb", buffering=RAW_WRITE_BUFFER)  # noqa: SIM115
         self._queue: queue.Queue = queue.Queue(maxsize=RAW_QUEUE_BLOCKS)
         self._bytes_written = 0
