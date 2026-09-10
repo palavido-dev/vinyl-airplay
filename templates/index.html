@@ -320,7 +320,10 @@
      collapse the 4px content area to 0 and the track would vanish */
   .np-progress-bar { flex: 1; box-sizing: content-box; height: 4px; padding: 8px 0; background: rgba(255,255,255,0.1); background-clip: content-box; border-radius: 2px; cursor: pointer; }
   .np-progress-fill { height: 100%; background: linear-gradient(90deg, var(--amber-dk), var(--amber)); border-radius: 2px; transition: width 0.3s linear; }
-  .eq-row { display: flex; align-items: center; gap: 0.6rem; padding-top: 0.5rem; border-top: 1px solid rgba(255,255,255,0.06); position: relative; }
+  /* The seek bar carries 8px of invisible padding as its touch target, so a
+     slider sitting right under it is easy to miss and grab by accident (#44).
+     Keep a real dead zone between the two rows. */
+  .eq-row { display: flex; align-items: center; gap: 0.6rem; margin-top: 0.5rem; padding-top: 0.6rem; border-top: 1px solid rgba(255,255,255,0.06); position: relative; }
   .eq-group { display: flex; align-items: center; gap: 0.3rem; flex: 1; }
   .eq-label { font-size: 0.6rem; color: rgba(245,235,216,0.4); letter-spacing: 0.06em; min-width: 32px; }
   .eq-slider { flex: 1; height: 4px; -webkit-appearance: none; appearance: none; background: rgba(255,255,255,0.1); border-radius: 2px; outline: none; }
@@ -2047,6 +2050,15 @@
     .header-btn { min-height: 34px; min-width: 34px; }
     .np-art, .np-art-placeholder { width: 38px; height: 38px; }
   }
+
+  /* ── Installed to the home screen ──
+     No browser chrome here, so there is room to spend on separating the seek
+     bar from the sliders below it (issue #44). */
+  @media (display-mode: standalone) {
+    .np-bar { gap: 0.7rem; }
+    .np-progress-row { margin-bottom: 0.7rem; }
+    .eq-row { margin-top: 0.7rem; padding-top: 0.8rem; }
+  }
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"></script>
 </head>
@@ -2321,6 +2333,15 @@
               <div style="display:flex;align-items:center;gap:0.4rem;margin-bottom:0.25rem"><span style="font-size:0.68rem;color:var(--muted);min-width:2.6rem">Vol</span><input type="range" id="rec-mon-volume" min="0" max="100" step="1" value="80" oninput="recMonVolume()" style="flex:1"></div>
               <div style="display:flex;align-items:center;gap:0.4rem;margin-bottom:0.25rem"><span style="font-size:0.68rem;color:var(--muted);min-width:2.6rem">Bass</span><input type="range" id="rec-mon-bass" min="-12" max="12" step="1" value="0" oninput="recMonEQ()" style="flex:1"></div>
               <div style="display:flex;align-items:center;gap:0.4rem"><span style="font-size:0.68rem;color:var(--muted);min-width:2.6rem">Treble</span><input type="range" id="rec-mon-treble" min="-12" max="12" step="1" value="0" oninput="recMonEQ()" style="flex:1"></div>
+            </div>
+            <!-- Playing something else takes the output away from the live
+                 vinyl, which used to leave the recording panel with no way back
+                 and no monitor controls at all (issue #77). -->
+            <div id="rec-monitor-resume" style="display:none;margin-bottom:0.5rem;padding:0.4rem 0.5rem;background:rgba(0,0,0,0.04);border-radius:6px">
+              <div style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap">
+                <span style="font-size:0.68rem;color:var(--muted);flex:1;min-width:9rem">Not listening. The recording is still running.</span>
+                <button class="btn" id="btn-rec-listen" onclick="resumeRecordingMonitor()" style="padding:0.3rem 0.6rem;font-size:0.75rem"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px;margin-right:3px"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>Listen</button>
+              </div>
             </div>
             <div id="album-rec-status-text" style="font-size:0.82rem;font-weight:600;margin-bottom:0.4rem">Waiting for audio…</div>
             <div id="album-rec-track-log" style="font-size:0.78rem;max-height:120px;overflow-y:auto;margin-bottom:0.5rem"></div>
@@ -3814,6 +3835,10 @@ function startBrowserAudioStream(streamId){
   }
   tryPlay();
   startBrowserStallWatch();
+  // Register the lock-screen transport now rather than waiting for the first
+  // now-playing update: the screen may be locked before that arrives (#55).
+  setupMediaSessionHandlers();
+  markMediaSessionLive();
 }
 
 // ── Output Picker ──
@@ -4028,6 +4053,18 @@ function updateMediaSession(title,artist,album,artUrl){
     artwork:artUrl?[{src:artUrl,sizes:'300x300',type:'image/jpeg'},{src:artUrl,sizes:'512x512',type:'image/jpeg'}]:[]
   });
   navigator.mediaSession.playbackState='playing';
+  markMediaSessionLive();
+}
+// This Device is one continuous, non-seekable stream. Left undeclared, iOS
+// assumes the element is a normal seekable track and turns the lock-screen
+// skip buttons into seek, so they never reach the next track (issue #55).
+// Declaring an infinite duration marks it as live, which is the signal for a
+// skip-button transport rather than a scrubber.
+function markMediaSessionLive(){
+  if(!('mediaSession' in navigator)||!navigator.mediaSession.setPositionState)return;
+  if(!_browserStreamActive)return;
+  try{navigator.mediaSession.setPositionState({duration:Infinity})}
+  catch(e){try{navigator.mediaSession.setPositionState(null)}catch(e2){}}
 }
 function startKeepAlive(){
   // When This Device is the output, the real <audio> element already holds the
@@ -5038,6 +5075,50 @@ function syncRecMonitorControls(){
   var show=!!_isStreaming;
   el.style.display=show?'block':'none';
   if(show){document.getElementById('rec-mon-volume').value=document.getElementById('eq-volume').value;document.getElementById('rec-mon-bass').value=document.getElementById('eq-bass').value;document.getElementById('rec-mon-treble').value=document.getElementById('eq-treble').value}
+  // While a side is recording but nothing is being monitored, offer a way back
+  // instead of an empty panel (issue #77).
+  var resume=document.getElementById('rec-monitor-resume');
+  if(resume)resume.style.display=(!show&&_recAlbumId!==null)?'block':'none';
+}
+// Start listening to the live vinyl again without disturbing the recording.
+// Playback and the live stream contend for the same output, so anything the
+// player is doing has to stop first.
+async function resumeRecordingMonitor(){
+  var btn=document.getElementById('btn-rec-listen');
+  if(btn){btn.disabled=true;btn.textContent='Starting…'}
+  try{
+    if(_playerActive){
+      await fetch('/api/player/stop',{method:'POST'});
+      await new Promise(function(r){setTimeout(r,400)});
+    }
+    var target=_recOutputDevice;
+    if(!target){
+      // Recording was started without audio: fall back to the saved output,
+      // which is whatever was last streamed to.
+      var d=await fetch('/api/status').then(function(r){return r.json()});
+      var saved=(d.settings&&d.settings.saved_devices)||[];
+      target=saved.length?saved[0]:null;
+    }
+    if(!target){showError('Pick an output device first');return}
+    if(target.id&&String(target.id).indexOf('browser')===0){
+      // "This Device" needs a fresh browser stream for the server to attach.
+      stopBrowserAudioStream();
+      var sr=await createBrowserStream();
+      if(!sr.ok){showError(sr.error||'Failed to create browser stream');return}
+      target={id:'browser:'+sr.stream_id,name:target.name||'This Device'};
+    }
+    _recOutputDevice=target;
+    var r=await fetch('/api/start',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({devices:[target],volume:parseInt(document.getElementById('eq-volume').value||80)})}).then(function(r){return r.json()});
+    if(!r.ok){showError(r.error||'Could not start listening');return}
+    if(String(target.id).indexOf('browser:')===0){
+      await new Promise(function(res){setTimeout(res,500)});
+      startBrowserAudioStream(String(target.id).replace('browser:',''));
+    }
+  }finally{
+    if(btn){btn.disabled=false;btn.innerHTML='Listen'}
+    syncRecMonitorControls();
+  }
 }
 function showEQPanel(){document.getElementById('eq-modal').classList.add('open');syncAdvEQ()}
 function hideEQPanel(){document.getElementById('eq-modal').classList.remove('open')}

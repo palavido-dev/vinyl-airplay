@@ -55,6 +55,12 @@ DURATION_SPLIT_TOLERANCE = 10.0     # seconds past expected track duration befor
                                     # fallback for albums with seamless transitions (no silence gaps)
 STREAM_STALL_SECS = 10.0            # if no audio chunks arrive for this long during recording,
                                     # the audio stream has likely died (USB overflow, ALSA glitch)
+RAW_WRITE_BUFFER  = 1 << 20         # 1MB stdio buffer on the side's raw PCM file
+RAW_QUEUE_BLOCKS  = 512             # capture blocks the writer thread may fall behind by
+                                    # (~16MB, ~95s of audio: a drop means the disk died,
+                                    # not that the writer was momentarily busy)
+LEAD_SCAN_SECS    = 3.0             # how much of the start _find_music_start needs
+
 TRIM_BLOCK     = SAMPLE_RATE * CHANNELS * 2  # 1 second of PCM (used for trailing silence trim)
 TRIM_THRESHOLD = 0.002                       # RMS below this = silence (trailing trim)
 FADE_TAIL      = SAMPLE_RATE * CHANNELS * 2  # keep 1s after last audio block (natural fade)
@@ -672,6 +678,112 @@ def encode_flac(pcm: bytes, output_path: Path, metadata: dict | None = None) -> 
         os.unlink(tmp_wav)
 
 
+def _flac_metadata_args(metadata: dict | None) -> list[str]:
+    """ffmpeg -metadata arguments for a FLAC encode."""
+    metadata = metadata or {}
+    args = []
+    for tag, key in (("TITLE", "title"), ("ARTIST", "artist"), ("ALBUM", "album"),
+                     ("DATE", "year"), ("GENRE", "genre"), ("DISC", "disc")):
+        if metadata.get(key):
+            args += ["-metadata", f"{tag}={metadata[key]}"]
+    return args
+
+
+def encode_flac_from_raw(raw_path: Path, output_path: Path,
+                         metadata: dict | None = None,
+                         start_byte: int = 0,
+                         length_bytes: int | None = None,
+                         fade_in_secs: float = 0.0,
+                         timeout: int = 900) -> bool:
+    """Encode a byte range of a raw s16le PCM file to FLAC, streaming it.
+
+    Feeds ffmpeg through a pipe in small chunks so a full album side is never
+    held in memory (issue #57). The byte range is applied by us rather than by
+    ffmpeg's -ss so the cut is exact to the frame.
+    """
+    frame = CHANNELS * 2
+    start_byte -= start_byte % frame
+    try:
+        total = raw_path.stat().st_size
+    except OSError as e:
+        print(f"[recorder] raw PCM missing: {e}")
+        return False
+    if length_bytes is None:
+        length_bytes = total - start_byte
+    length_bytes = max(0, min(length_bytes, total - start_byte))
+    length_bytes -= length_bytes % frame
+    if length_bytes <= 0:
+        print("[recorder] encode_flac_from_raw: empty range")
+        return False
+
+    cmd = ["ffmpeg", "-y", "-f", "s16le", "-ar", str(SAMPLE_RATE),
+           "-ac", str(CHANNELS), "-i", "pipe:0"]
+    if fade_in_secs > 0:
+        cmd += ["-af", f"afade=t=in:st=0:d={fade_in_secs}"]
+    cmd += ["-c:a", "flac", "-compression_level", "5"]
+    cmd += _flac_metadata_args(metadata)
+    cmd.append(str(output_path))
+
+    # ffmpeg's log goes to a file rather than a pipe: we are busy feeding stdin
+    # and a full stderr pipe would deadlock the pair of us.
+    proc = None
+    with tempfile.TemporaryFile() as errf:
+        try:
+            proc = subprocess.Popen(cmd, stdin=subprocess.PIPE,
+                                    stdout=subprocess.DEVNULL, stderr=errf)
+            remaining = length_bytes
+            try:
+                with open(raw_path, "rb") as f:
+                    f.seek(start_byte)
+                    while remaining > 0:
+                        chunk = f.read(min(1 << 20, remaining))
+                        if not chunk:
+                            break
+                        proc.stdin.write(chunk)
+                        remaining -= len(chunk)
+            except BrokenPipeError:
+                pass  # ffmpeg gave up early; the return code below explains why
+            finally:
+                with contextlib.suppress(Exception):
+                    proc.stdin.close()
+            proc.wait(timeout=timeout)
+            if proc.returncode != 0:
+                errf.seek(0)
+                print(f"[recorder] ffmpeg FLAC error: {errf.read().decode(errors='replace')[-300:]}")
+                return False
+            return True
+        except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as e:
+            print(f"[recorder] encode_flac_from_raw failed: {e}")
+            if proc is not None:
+                with contextlib.suppress(Exception):
+                    proc.kill()
+                    proc.wait(timeout=10)
+            return False
+
+
+def sweep_orphaned_raw_sides(audio_dir: Path, keep_pid: int | None = None) -> int:
+    """Delete raw side buffers left behind by a killed process (issue #57).
+
+    A recording in progress spills to `.side-<album>-<side>-<pid>.pcm`. If the
+    service is killed mid-side that file survives with nothing to finish it, so
+    it is swept at startup. Files belonging to the current process are left
+    alone: a live recording is using them.
+    """
+    removed = 0
+    with contextlib.suppress(OSError):
+        for path in Path(audio_dir).glob(".side-*.pcm"):
+            if keep_pid is not None and path.stem.endswith(f"-{keep_pid}"):
+                continue
+            try:
+                size_mb = path.stat().st_size / (1024 * 1024)
+                path.unlink()
+                removed += 1
+                print(f"[album-rec] Removed orphaned raw side {path.name} ({size_mb:.0f} MB)")
+            except OSError as e:
+                print(f"[album-rec] Could not remove {path.name}: {e}")
+    return removed
+
+
 def make_album_audio_filename(artist: str, album: str, side: str) -> str:
     """Build filename for a full-side album recording."""
     def san(s: str) -> str:
@@ -711,7 +823,6 @@ class AlbumRecorder:
         self._audio_dir = (audio_dir or DEFAULT_AUDIO_DIR).resolve()
         self._gate_threshold = gate_threshold
 
-        self._chunks: list[bytes] = []
         self._total_bytes = 0
         self._active = True
 
@@ -724,8 +835,28 @@ class AlbumRecorder:
         self.on_audio_detected = None  # callback when first audio arrives
 
         self._audio_dir.mkdir(parents=True, exist_ok=True)
+
+        # Spill the side to disk as it arrives instead of holding it in RAM
+        # (issue #57). A long side is ~250MB of PCM, and joining plus encoding
+        # it needed roughly double that at the worst moment, which pushed a 4GB
+        # Pi into reclaiming page cache and produced audible drop-outs.
+        # The audio callback only hands blocks to a queue; a writer thread does
+        # the file I/O, so no disk stall can ever reach the capture callback.
+        self._raw_path = self._audio_dir / f".side-{album_id}-{side}-{os.getpid()}.pcm"
+        # noqa SIM115: the handle outlives this scope by design. It is owned by
+        # the recorder for the length of the side and closed in _close_raw().
+        self._raw_file = open(self._raw_path, "wb", buffering=RAW_WRITE_BUFFER)  # noqa: SIM115
+        self._queue: queue.Queue = queue.Queue(maxsize=RAW_QUEUE_BLOCKS)
+        self._bytes_written = 0
+        self._dropped_blocks = 0
+        self._write_error = None
+        self._writer = threading.Thread(target=self._writer_loop, daemon=True,
+                                        name=f"album-rec-writer-{side}")
+        self._writer.start()
+
         print(f"[album-rec] Started: {album_info.get('artist')} - "
-              f"{album_info.get('title')} Side {side}")
+              f"{album_info.get('title')} Side {side} "
+              f"(buffering to {self._raw_path.name})")
 
     @property
     def is_active(self) -> bool:
@@ -763,9 +894,36 @@ class AlbumRecorder:
             else:
                 return  # skip pre-needle silence
 
+        # Hand off to the writer thread. Never block the audio callback: a full
+        # queue means the disk has stopped keeping up with 172KB/s, which is a
+        # dead disk rather than a hiccup worth waiting on.
+        try:
+            self._queue.put_nowait(pcm_chunk)
+        except queue.Full:
+            with self._lock:
+                self._dropped_blocks += 1
+                dropped = self._dropped_blocks
+            if dropped == 1 or dropped % 100 == 0:
+                print(f"[album-rec] WARNING: writer thread behind, dropped "
+                      f"{dropped} block(s): recording will have gaps")
+            return
+
         with self._lock:
-            self._chunks.append(pcm_chunk)
             self._total_bytes += len(pcm_chunk)
+
+    def _writer_loop(self):
+        """Drain the capture queue to the raw PCM file. Runs off the audio thread."""
+        while True:
+            chunk = self._queue.get()
+            if chunk is None:
+                break
+            try:
+                self._raw_file.write(chunk)
+                self._bytes_written += len(chunk)
+            except Exception as e:
+                if self._write_error is None:
+                    self._write_error = e
+                    print(f"[album-rec] ERROR writing side to disk: {e}")
 
     def mark_track_boundary(self, track_id: int | None = None):
         """
@@ -809,28 +967,66 @@ class AlbumRecorder:
                 })
                 print(f"[album-rec] First track started (id={track_id})")
 
+    def _close_raw(self) -> int:
+        """Stop the writer thread and flush the raw file. Returns bytes on disk."""
+        with contextlib.suppress(Exception):
+            self._queue.put(None, timeout=5.0)
+        if self._writer.is_alive():
+            self._writer.join(timeout=30.0)
+            if self._writer.is_alive():
+                print("[album-rec] WARNING: writer thread did not finish in 30s")
+        with contextlib.suppress(Exception):
+            self._raw_file.flush()
+            os.fsync(self._raw_file.fileno())
+        with contextlib.suppress(Exception):
+            self._raw_file.close()
+        frame = CHANNELS * 2
+        return self._bytes_written - (self._bytes_written % frame)
+
+    def _discard_raw(self):
+        with contextlib.suppress(Exception):
+            self._raw_path.unlink()
+
+    def _read_range(self, start: int, length: int) -> bytes:
+        """Read a bounded slice of the raw PCM file."""
+        if length <= 0:
+            return b""
+        with open(self._raw_path, "rb") as f:
+            f.seek(start)
+            return f.read(length)
+
     def finish(self) -> tuple[Path | None, float, list[dict]]:
         """
         Finalize the recording: encode to FLAC, return path + duration + boundaries.
         Returns (file_path, duration_secs, track_boundaries) or (None, 0, []).
+
+        Works entirely in byte offsets against the spilled raw file, reading only
+        the windows it has to inspect, so peak memory does not grow with the
+        length of the side (issue #57).
         """
         with self._lock:
             self._active = False
-            if not self._chunks:
-                print("[album-rec] Nothing recorded: no audio received")
-                return None, 0.0, []
 
-            pcm = b"".join(self._chunks)
-            self._chunks = []
+        end_byte = self._close_raw()
+        if self._dropped_blocks:
+            print(f"[album-rec] WARNING: {self._dropped_blocks} block(s) never reached "
+                  f"disk; saving what was captured")
+        if self._write_error is not None:
+            print(f"[album-rec] Write error during recording: {self._write_error}")
+        if end_byte <= 0:
+            print("[album-rec] Nothing recorded: no audio received")
+            self._discard_raw()
+            return None, 0.0, []
 
+        bytes_per_sec = SAMPLE_RATE * CHANNELS * 2
+
+        with self._lock:
             # Close out the last track boundary
-            total_secs = len(pcm) / (SAMPLE_RATE * CHANNELS * 2)
             if self._track_boundaries:
                 last = self._track_boundaries[-1]
                 if last["end_secs"] is None:
-                    last["end_byte"] = len(pcm)
-                    last["end_secs"] = total_secs
-
+                    last["end_byte"] = end_byte
+                    last["end_secs"] = end_byte / bytes_per_sec
             boundaries = list(self._track_boundaries)
 
         # ── Trim leading noise + needle drop ─────────────────────────
@@ -840,14 +1036,18 @@ class AlbumRecorder:
         # Strategy: scan in 100ms windows, find the first point where
         # audio is *sustained* (3+ consecutive windows above threshold),
         # then trim everything before that point with a short fade-in.
-        len(pcm)
-        lead_pos = _find_music_start(pcm)
+        # Only the first few seconds are needed, so only they are read.
+        lead_scan = min(end_byte, int(LEAD_SCAN_SECS * bytes_per_sec))
+        lead_pos = _find_music_start(self._read_range(0, lead_scan))
+        fade_in_secs = 0.0
 
         if lead_pos > 0:
-            lead_trimmed_secs = lead_pos / (SAMPLE_RATE * CHANNELS * 2)
-            pcm = pcm[lead_pos:]
+            lead_trimmed_secs = lead_pos / bytes_per_sec
             print(f"[album-rec] Trimmed {lead_trimmed_secs:.2f}s "
                   f"(needle drop + lead-in)")
+            # 50ms fade-in at the new start to avoid any residual click. Applied
+            # by the encoder rather than by rewriting the buffer.
+            fade_in_secs = 0.05
 
             # Shift all track boundaries back by the trimmed amount
             for b in boundaries:
@@ -858,52 +1058,42 @@ class AlbumRecorder:
                 if b["end_secs"] is not None:
                     b["end_secs"] = max(0.0, b["end_secs"] - lead_trimmed_secs)
 
-            # Apply a 50ms fade-in at the new start to avoid any residual click
-            fade_samples = int(SAMPLE_RATE * 0.05)
-            fade_bytes = fade_samples * CHANNELS * 2
-            if len(pcm) > fade_bytes:
-                arr = np.frombuffer(pcm[:fade_bytes], dtype=np.int16).copy()
-                ramp = np.repeat(
-                    np.linspace(0.0, 1.0, fade_samples, dtype=np.float32),
-                    CHANNELS,
-                )
-                arr = (arr.astype(np.float32) * ramp).astype(np.int16)
-                pcm = arr.tobytes() + pcm[fade_bytes:]
-
         # ── Trim trailing silence ──────────────────────────────────────
-
-        original_len = len(pcm)
-        trim_pos = original_len
-        # Walk backwards in 1-second blocks
-        while trim_pos > TRIM_BLOCK:
+        # Absolute offsets into the raw file; one 1-second block is read at a
+        # time, walking backwards from the end.
+        data_start = lead_pos
+        original_len = end_byte - data_start
+        trim_pos = end_byte
+        while trim_pos - data_start > TRIM_BLOCK:
             block_start = trim_pos - TRIM_BLOCK
-            block = np.frombuffer(pcm[block_start:trim_pos], dtype=np.int16)
+            block = np.frombuffer(self._read_range(block_start, TRIM_BLOCK), dtype=np.int16)
             rms = float(np.sqrt(np.mean((block.astype(np.float32) / 32768.0) ** 2)))
             if rms >= TRIM_THRESHOLD:
                 # This block has audio: keep everything up to here + fade tail
-                trim_pos = min(trim_pos + FADE_TAIL, original_len)
+                trim_pos = min(trim_pos + FADE_TAIL, end_byte)
                 # Align to frame boundary (2 channels x 2 bytes = 4 bytes per frame)
-                trim_pos = trim_pos - (trim_pos % 4)
+                trim_pos = trim_pos - ((trim_pos - data_start) % 4)
                 break
             trim_pos = block_start
         else:
-            trim_pos = original_len  # don't trim if everything is quiet (shouldn't happen)
+            trim_pos = end_byte  # don't trim if everything is quiet (shouldn't happen)
 
-        if trim_pos < original_len:
-            trimmed_secs = (original_len - trim_pos) / (SAMPLE_RATE * CHANNELS * 2)
-            pcm = pcm[:trim_pos]
+        keep_bytes = trim_pos - data_start
+        if keep_bytes < original_len:
+            trimmed_secs = (original_len - keep_bytes) / bytes_per_sec
             print(f"[album-rec] Trimmed {trimmed_secs:.1f}s trailing silence")
 
             # Update last track boundary to match trimmed length
-            new_total = len(pcm) / (SAMPLE_RATE * CHANNELS * 2)
+            new_total = keep_bytes / bytes_per_sec
             if boundaries and boundaries[-1]["end_secs"] is not None:
                 boundaries[-1]["end_secs"] = new_total
-                boundaries[-1]["end_byte"] = len(pcm)
+                boundaries[-1]["end_byte"] = keep_bytes
         # ──────────────────────────────────────────────────────────────
 
-        duration = _pcm_duration(pcm)
+        duration = keep_bytes / bytes_per_sec
         if duration < 30:  # less than 30 seconds: probably not a real side
             print(f"[album-rec] Recording too short ({duration:.1f}s): discarding")
+            self._discard_raw()
             return None, 0.0, []
 
         # Build filename and encode
@@ -932,16 +1122,24 @@ class AlbumRecorder:
 
         print(f"[album-rec] Encoding FLAC: {output_path.name} ({duration:.0f}s)")
 
-        if not encode_flac(pcm, output_path, metadata):
+        ok = encode_flac_from_raw(self._raw_path, output_path, metadata,
+                                  start_byte=data_start, length_bytes=keep_bytes,
+                                  fade_in_secs=fade_in_secs)
+        if not ok:
             print("[album-rec] FLAC encoding failed!")
+            # Keep the raw PCM: it is the only copy of the side, and a failed
+            # encode is recoverable by hand while a deleted recording is not.
+            print(f"[album-rec] Raw audio kept at {self._raw_path}")
             return None, 0.0, []
 
         if not output_path.exists():
             print("[album-rec] Output file missing after encode")
+            print(f"[album-rec] Raw audio kept at {self._raw_path}")
             return None, 0.0, []
 
         size_mb = output_path.stat().st_size / (1024 * 1024)
         print(f"[album-rec] ✓ Saved {output_path.name} ({duration:.0f}s, {size_mb:.1f} MB)")
+        self._discard_raw()
 
         return output_path, duration, boundaries
 
@@ -949,7 +1147,8 @@ class AlbumRecorder:
         """Discard the recording without saving."""
         with self._lock:
             self._active = False
-            self._chunks = []
             self._total_bytes = 0
+        self._close_raw()
+        self._discard_raw()
         print("[album-rec] Recording cancelled")
 

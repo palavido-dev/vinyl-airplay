@@ -68,6 +68,11 @@ jobs:
         # plugged into the Pi must not disable the built-in keyboard.
         run: node tests/osk-gate.test.js
 
+      - name: Recording monitor controls
+        # Guards issue #77: a recording whose output was taken by playback must
+        # still offer a way back to listening.
+        run: node tests/rec-monitor.test.js
+
       - name: Live audio stall handling
         # Guards the looping reported on #49: a spent buffer must reconnect,
         # never replay itself.
@@ -116,6 +121,11 @@ jobs:
         # reaping of abandoned browser encoders. Needs the real deps, so it
         # runs here rather than in the lint job.
         run: python tests/test_multi_listener.py
+
+      - name: Album recorder disk spill
+        # Guards issue #57: a side is written to disk as it arrives, and the
+        # saved FLAC still matches the audio that was captured.
+        run: python tests/test_album_recorder_spill.py
 
       - name: Capture rate negotiation
         # Guards issue #76: a capture card that refuses 44100 is opened at a

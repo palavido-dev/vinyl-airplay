@@ -119,6 +119,11 @@ async def lifespan(app: FastAPI):
                 print(f"[adc-gain] {_msg}" if _ok else f"[adc-gain] Failed: {_msg}")
     except Exception as e:
         print(f"[adc-gain] Error: {e}")
+    # A recording spills the side to disk as it goes (#57). If the service was
+    # killed mid-side, that buffer is orphaned: clear it before it accumulates.
+    with suppress(Exception):
+        rec.sweep_orphaned_raw_sides(cat.get_audio_storage_dir(state.settings),
+                                     keep_pid=os.getpid())
     if state.settings.get("auto_stream_enabled"):
         state.auto_stream_task = asyncio.create_task(_auto_stream_watcher())
         print("[auto-stream] Watcher started on boot")
