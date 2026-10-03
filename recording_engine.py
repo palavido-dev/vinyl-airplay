@@ -243,7 +243,7 @@ async def _stream_stall_watchdog():
             # Serialize finalize through the recorder worker (avoids racing _process).
             done = rb.request_stall_finalize()
             await asyncio.get_event_loop().run_in_executor(
-                None, lambda: done.wait(timeout=10)
+                None, lambda ev=done: ev.wait(timeout=10)
             )
 
             # Notify UI about the error

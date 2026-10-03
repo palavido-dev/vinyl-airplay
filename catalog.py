@@ -910,9 +910,9 @@ _ARTWORK_MAX_BYTES = 8 * 1024 * 1024
 
 def _artwork_url_allowed(url: str) -> bool:
     """Allow only https artwork hosts; block SSRF to private/link-local addresses."""
-    from urllib.parse import urlparse
     import ipaddress
     import socket
+    from urllib.parse import urlparse
 
     try:
         parsed = urlparse(url)
@@ -924,8 +924,7 @@ def _artwork_url_allowed(url: str) -> bool:
     if not host:
         return False
     # Explicit allowlist OR known CDN suffix; still resolve and reject private IPs.
-    allowed = host in _ARTWORK_URL_HOSTS or host.endswith(".discogs.com") \
-        or host.endswith(".mzstatic.com") or host.endswith(".coverartarchive.org")
+    allowed = host in _ARTWORK_URL_HOSTS or host.endswith((".discogs.com", ".mzstatic.com", ".coverartarchive.org"))
     if not allowed:
         return False
     try:

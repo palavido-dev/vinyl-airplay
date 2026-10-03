@@ -18,9 +18,11 @@ import pyatv
 import uvicorn
 from fastapi import Body, FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from pyatv.storage.file_storage import FileStorage
 
 import audio_gain
+import auth as authmod
 import catalog as cat
 import player as plr
 import recorder as rec
@@ -30,7 +32,6 @@ from audio_streams import (
     BrowserMP3Stream,
     _browser_streams,
 )
-import auth as authmod
 from auth import AuthMiddleware, public_settings
 from config import TEMPLATES, save_settings
 from device_helpers import (
@@ -57,7 +58,6 @@ from routes_eq import router as eq_router
 from routes_export import router as export_router
 from routes_settings import router as settings_router
 from routes_system import router as system_router
-from fastapi.staticfiles import StaticFiles
 from streaming import (
     _auto_stream_watcher,
     _ensure_audio_active,

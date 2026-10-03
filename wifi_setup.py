@@ -5,6 +5,7 @@ Captive portal for headless first-time WiFi configuration
 """
 
 import asyncio
+import contextlib
 import json
 import os
 import re
@@ -44,10 +45,8 @@ def save_wifi_config(config: dict):
     tmp = CONFIG_FILE.with_suffix(".json.tmp")
     tmp.write_text(json.dumps(safe, indent=2) + "\n")
     os.replace(tmp, CONFIG_FILE)
-    try:
+    with contextlib.suppress(OSError):
         os.chmod(CONFIG_FILE, 0o600)
-    except OSError:
-        pass
 
 def check_wifi_connection() -> bool:
     try:
@@ -201,10 +200,8 @@ def connect_to_network(ssid: str, password: str = "") -> bool:
         tmp = conf_path.with_suffix(".conf.tmp")
         tmp.write_text(content)
         os.replace(tmp, conf_path)
-        try:
+        with contextlib.suppress(OSError):
             os.chmod(conf_path, 0o600)
-        except OSError:
-            pass
 
         subprocess.run(
             ["wpa_cli", "reconfigure"],

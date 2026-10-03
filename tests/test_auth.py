@@ -1,6 +1,5 @@
 """Auth: password setup, sessions, CSRF, loopback bypass, settings redaction."""
 
-from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient

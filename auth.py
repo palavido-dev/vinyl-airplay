@@ -9,6 +9,7 @@ Trust model:
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import hmac
 import json
@@ -16,8 +17,8 @@ import os
 import secrets
 import threading
 import time
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
 
 from fastapi import Request
 from fastapi.responses import JSONResponse
@@ -55,10 +56,8 @@ def _load_secret() -> bytes:
             return raw.encode("utf-8")
     secret = secrets.token_hex(32)
     SECRET_FILE.write_text(secret + "\n")
-    try:
+    with contextlib.suppress(OSError):
         os.chmod(SECRET_FILE, 0o600)
-    except OSError:
-        pass
     return secret.encode("utf-8")
 
 
@@ -69,10 +68,8 @@ def _atomic_write_json(path: Path, data: dict) -> None:
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(json.dumps(data, indent=2) + "\n")
     os.replace(tmp, path)
-    try:
+    with contextlib.suppress(OSError):
         os.chmod(path, 0o600)
-    except OSError:
-        pass
 
 
 def load_auth() -> dict:
@@ -180,9 +177,7 @@ def is_loopback(request: Request) -> bool:
     if host in ("127.0.0.1", "::1", "localhost"):
         return True
     # Some proxies present IPv4-mapped IPv6
-    if host.startswith("::ffff:") and host.endswith("127.0.0.1"):
-        return True
-    return False
+    return bool(host.startswith("::ffff:") and host.endswith("127.0.0.1"))
 
 
 def is_public_path(path: str) -> bool:

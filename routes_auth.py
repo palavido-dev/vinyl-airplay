@@ -97,12 +97,11 @@ async def auth_change_password(request: Request, body: dict):
     # Middleware already authenticated non-loopback; loopback still needs current pw
     current = str(body.get("current_password") or "")
     stored = authmod.load_auth().get("password_hash", "")
-    if not authmod.is_loopback(request) or current:
-        if not authmod.verify_password(current, stored):
-            return JSONResponse(
-                {"ok": False, "error": "bad_password"},
-                status_code=403,
-            )
+    if (not authmod.is_loopback(request) or current) and not authmod.verify_password(current, stored):
+        return JSONResponse(
+            {"ok": False, "error": "bad_password"},
+            status_code=403,
+        )
     try:
         authmod.set_password(str(body.get("password") or ""))
     except ValueError as e:
