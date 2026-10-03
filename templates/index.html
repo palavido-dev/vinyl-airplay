@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Vinyl Streamer">
@@ -24,6 +25,8 @@
   <div class="auth-card">
     <h1 id="auth-title">Vinyl Streamer</h1>
     <p id="auth-blurb">Enter the setup password to unlock this listening room from the network.</p>
+    <!-- Helps password managers associate the room password with this host -->
+    <input type="text" name="username" id="auth-username" value="vinyl-streamer" autocomplete="username" style="position:absolute;left:-9999px;opacity:0" tabindex="-1" aria-hidden="true">
     <div class="form-row" id="auth-current-row" style="display:none">
       <label for="auth-current">Current password</label>
       <input type="password" class="form-input" id="auth-current" autocomplete="current-password">
@@ -678,6 +681,12 @@
             </select>
           </div>
           <div style="font-size:0.68rem;color:var(--muted);margin-top:0.3rem">The built-in keyboard is for the dedicated touchscreen. On a tablet or phone choose Never to use your device's own keyboard.</div>
+          <div class="form-row" style="margin-top:1rem"><label>Room password</label>
+            <input type="password" id="setting-pw-current" class="form-input" placeholder="Current password" autocomplete="current-password" style="font-size:0.78rem;margin-bottom:0.35rem">
+            <input type="password" id="setting-pw-new" class="form-input" placeholder="New password (min 8 chars)" autocomplete="new-password" style="font-size:0.78rem;margin-bottom:0.35rem">
+            <button type="button" class="btn btn-accent" onclick="changeRoomPassword()" style="font-size:0.75rem;padding:0.3rem 0.6rem">Change password</button>
+            <div id="setting-pw-status" style="font-size:0.68rem;color:var(--muted);margin-top:0.3rem"></div>
+          </div>
         </div>
       </div>
     </details>
