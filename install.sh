@@ -218,6 +218,9 @@ Wants=network-online.target
 Type=simple
 User=listen
 WorkingDirectory=/opt/vinyl-streamer
+# Put the venv first so child processes (e.g. self-update pip) never hit
+# Bookworm's externally-managed system pip3.
+Environment=PATH=/opt/vinyl-streamer/venv/bin:/usr/local/bin:/usr/bin:/bin
 ExecStart=/opt/vinyl-streamer/venv/bin/python /opt/vinyl-streamer/main.py
 Restart=on-failure
 RestartSec=5
