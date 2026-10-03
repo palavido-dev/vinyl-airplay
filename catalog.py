@@ -154,6 +154,8 @@ def get_db() -> sqlite3.Connection:
     db = sqlite3.connect(DB_PATH, check_same_thread=False, timeout=30)
     db.row_factory = sqlite3.Row
     db.execute("PRAGMA busy_timeout=5000")
+    # foreign_keys is per-connection; SCHEMA's PRAGMA only applies at init.
+    db.execute("PRAGMA foreign_keys=ON")
     return db
 
 
@@ -890,14 +892,75 @@ def save_release_to_catalog(release_data: dict,
 
 # ── Album Art ─────────────────────────────────────────────────────────────────
 
+_ARTWORK_URL_HOSTS = (
+    "i.discogs.com",
+    "img.discogs.com",
+    "coverartarchive.org",
+    "archive.org",
+    "lastfm.freetls.fastly.net",
+    "resources.tidal.com",
+    "is1-ssl.mzstatic.com",
+    "is2-ssl.mzstatic.com",
+    "is3-ssl.mzstatic.com",
+    "is4-ssl.mzstatic.com",
+    "is5-ssl.mzstatic.com",
+)
+_ARTWORK_MAX_BYTES = 8 * 1024 * 1024
+
+
+def _artwork_url_allowed(url: str) -> bool:
+    """Allow only https artwork hosts; block SSRF to private/link-local addresses."""
+    from urllib.parse import urlparse
+    import ipaddress
+    import socket
+
+    try:
+        parsed = urlparse(url)
+    except Exception:
+        return False
+    if parsed.scheme != "https":
+        return False
+    host = (parsed.hostname or "").lower()
+    if not host:
+        return False
+    # Explicit allowlist OR known CDN suffix; still resolve and reject private IPs.
+    allowed = host in _ARTWORK_URL_HOSTS or host.endswith(".discogs.com") \
+        or host.endswith(".mzstatic.com") or host.endswith(".coverartarchive.org")
+    if not allowed:
+        return False
+    try:
+        infos = socket.getaddrinfo(host, 443, type=socket.SOCK_STREAM)
+    except Exception:
+        return False
+    for info in infos:
+        ip_str = info[4][0]
+        try:
+            ip = ipaddress.ip_address(ip_str)
+        except ValueError:
+            return False
+        if (
+            ip.is_private or ip.is_loopback or ip.is_link_local
+            or ip.is_reserved or ip.is_multicast or ip.is_unspecified
+        ):
+            return False
+    return True
+
+
 def fetch_artwork_from_url(url: str, album_id: int) -> str | None:
-    """Download artwork from any URL (e.g. Discogs). Returns relative path or None."""
+    """Download artwork from an allowlisted HTTPS URL. Returns relative path or None."""
     if not url:
+        return None
+    if not _artwork_url_allowed(url):
+        print(f"[catalog] Artwork URL rejected (SSRF policy): {url[:80]}")
         return None
     try:
         req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
         with urllib.request.urlopen(req, timeout=15) as resp:
-            data = resp.read()
+            # Bound read to avoid memory DoS from huge responses.
+            data = resp.read(_ARTWORK_MAX_BYTES + 1)
+        if len(data) > _ARTWORK_MAX_BYTES:
+            print("[catalog] Artwork URL fetch failed: response too large")
+            return None
         path = _save_artwork(data, album_id, user=False)
         print(f"[catalog] Artwork downloaded from {url[:60]}...")
         return path
@@ -2477,6 +2540,9 @@ class Recogniser:
 
     def stop(self):
         self._stop.set()
+        thread = getattr(self, "_thread", None)
+        if thread and thread.is_alive() and thread is not threading.current_thread():
+            thread.join(timeout=5)
 
     def reset_match(self):
         """Call when a new track starts: re-enables recognition attempts."""

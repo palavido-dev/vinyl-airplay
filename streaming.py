@@ -295,7 +295,8 @@ class CaptureManager:
             # Learn sessions consume the captured track; otherwise a track
             # boundary just resets the recogniser for the next track.
             if state.learn_session and state.learn_session.active:
-                state.learn_executor.submit(state.learn_session.on_track_captured, pcm)
+                from learn_engine import submit_learn_pcm
+                submit_learn_pcm(pcm, state.learn_session)
             elif state.recogniser:
                 state.recogniser.reset_match()
 

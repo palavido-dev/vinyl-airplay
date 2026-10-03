@@ -44,20 +44,37 @@ def wav_header() -> bytes:
 # ── Async Audio Stream ────────────────────────────────────────────────────────
 
 class AsyncAudioStream:
+    """Thread-safe PCM buffer that looks like an async file to pyatv."""
+
+    # Soft cap on the assembled read buffer so a stalled AirPlay reader cannot
+    # grow unbounded while the capture callback keeps feeding the deque.
+    _MAX_BUF_BYTES = MAX_CHUNKS * 8192
+
     def __init__(self):
+        self._lock = threading.Lock()
         self._deque = collections.deque()
         self._event = threading.Event()
         self._buf = wav_header()
         self._stop = threading.Event()
 
     def put(self, chunk):
-        if not self._stop.is_set():
+        if self._stop.is_set():
+            return
+        with self._lock:
             if len(self._deque) < MAX_CHUNKS:
                 self._deque.append(chunk)
-            self._event.set()
+        self._event.set()
 
     def stop(self):
         self._stop.set()
+        self._event.set()
+
+    def reset_for_retry(self):
+        """Rewind to a fresh WAV header so pyatv can reconnect on the same sink."""
+        with self._lock:
+            self._deque.clear()
+            self._buf = wav_header()
+        self._stop.clear()
         self._event.set()
 
     def readable(self):
@@ -68,18 +85,31 @@ class AsyncAudioStream:
 
     async def read(self, size=READ_SIZE):
         loop = asyncio.get_event_loop()
-        while len(self._buf) < size:
-            if self._stop.is_set() and not self._deque:
-                break
-            if not self._deque:
+        while True:
+            with self._lock:
+                if len(self._buf) >= size:
+                    out = self._buf[:size]
+                    self._buf = self._buf[size:]
+                    return out
+                if self._stop.is_set() and not self._deque:
+                    out = self._buf
+                    self._buf = b""
+                    return out
+                while self._deque and len(self._buf) < self._MAX_BUF_BYTES:
+                    self._buf += self._deque.popleft()
+                if len(self._buf) >= size:
+                    out = self._buf[:size]
+                    self._buf = self._buf[size:]
+                    return out
+                if self._stop.is_set():
+                    out = self._buf
+                    self._buf = b""
+                    return out
                 self._event.clear()
-                if not self._deque and not self._stop.is_set():
-                    await loop.run_in_executor(None, lambda: self._event.wait(timeout=0.5))
-            while self._deque:
-                self._buf += self._deque.popleft()
-        out = self._buf[:size]
-        self._buf = self._buf[size:]
-        return out
+                # Re-check under the lock after clear to avoid a lost wakeup.
+                if self._deque or self._stop.is_set():
+                    continue
+            await loop.run_in_executor(None, lambda: self._event.wait(timeout=0.5))
 
 
 # ── Per-Device Stream Thread ──────────────────────────────────────────────────
@@ -94,6 +124,8 @@ def run_device_stream(conf, audio_stream, volume, done_callback):
 
         while retry_count <= max_retries:
             try:
+                if retry_count > 0 and hasattr(audio_stream, "reset_for_retry"):
+                    audio_stream.reset_for_retry()
                 print(f"[airplay] Connecting to {conf.name} ({conf.address})…")
                 atv = await pyatv.connect(conf, loop)
                 try:
@@ -154,6 +186,8 @@ class LocalOutputStream:
         self._proc = None
         self._retry_count = 0
         self._max_retries = 1
+        self._restarting = False
+        self._io_lock = threading.Lock()
 
     def start(self):
         # -B 500000: a 500ms ALSA buffer. The default is small enough that CPU
@@ -175,22 +209,37 @@ class LocalOutputStream:
             pass
         print(f"[local-out] Opened aplay pipe to {self._alsa_device}")
 
+    def _restart_async(self):
+        """Reopen aplay off the capture callback thread (never sleep in put())."""
+        try:
+            time.sleep(0.5)
+            with self._io_lock:
+                self.stop()
+                self.start()
+        except Exception as restart_err:
+            print(f"[local-out] Restart failed: {restart_err}")
+        finally:
+            self._restarting = False
+
     def put(self, pcm_bytes):
-        if self._proc and self._proc.stdin:
+        # Hot path: never block/sleep here — that stalls PortAudio capture.
+        if self._restarting:
+            return
+        with self._io_lock:
+            if not (self._proc and self._proc.stdin):
+                return
             try:
                 self._proc.stdin.write(pcm_bytes)
             except (BrokenPipeError, OSError) as e:
                 print(f"[local-out] Write error: {e}")
-                if self._retry_count<self._max_retries:
-                    self._retry_count+=1
-                    print(f"[local-out] Attempting restart ({self._retry_count}/{self._max_retries})")
-                    time.sleep(2)
-                    try:
-                        self.stop()
-                        self.start()
-                        self._proc.stdin.write(pcm_bytes)
-                    except Exception as restart_err:
-                        print(f"[local-out] Restart failed: {restart_err}")
+                if self._retry_count < self._max_retries and not self._restarting:
+                    self._retry_count += 1
+                    self._restarting = True
+                    print(f"[local-out] Scheduling restart "
+                          f"({self._retry_count}/{self._max_retries})")
+                    threading.Thread(
+                        target=self._restart_async, daemon=True, name="aplay-restart"
+                    ).start()
 
     def stop(self):
         if self._proc:
@@ -198,7 +247,8 @@ class LocalOutputStream:
                 self._proc.stdin.close()
                 self._proc.wait(timeout=2)
             except Exception:
-                self._proc.kill()
+                with suppress(Exception):
+                    self._proc.kill()
             self._proc = None
             print("[local-out] Closed")
 
@@ -327,12 +377,13 @@ class BrowserMP3Stream:
             pass
 
     def put(self, pcm_bytes):
-        proc = self._proc
-        if self._stop.is_set() or not proc or not proc.stdin:
-            return
-        self._fed = True
-        with suppress(BrokenPipeError, OSError):
-            proc.stdin.write(pcm_bytes)
+        with self._clients_lock:
+            proc = self._proc
+            if self._stop.is_set() or not proc or not proc.stdin:
+                return
+            self._fed = True
+            with suppress(BrokenPipeError, OSError):
+                proc.stdin.write(pcm_bytes)
 
     def register_client(self) -> int:
         """Register an HTTP consumer; returns a client id with its own buffer."""

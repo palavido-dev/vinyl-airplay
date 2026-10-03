@@ -240,15 +240,11 @@ async def _stream_stall_watchdog():
             print("[watchdog] Audio stream stall detected: no data for "
                   f"{rec.STREAM_STALL_SECS:.0f}s. Flushing recording.")
 
-            # Force-flush any accumulated audio as the final track
-            if rb._total_bytes > 0:
-                rb._silence_start_byte = rb._total_bytes
-                rb._silence_secs = 0.0
-                rb._split_track()
-
-            # Fire end-of-side to finalize album recording
-            if rb._on_end_of_side:
-                rb._on_end_of_side()
+            # Serialize finalize through the recorder worker (avoids racing _process).
+            done = rb.request_stall_finalize()
+            await asyncio.get_event_loop().run_in_executor(
+                None, lambda: done.wait(timeout=10)
+            )
 
             # Notify UI about the error
             album_id = state.album_recorder.album_id if state.album_recorder else None
@@ -261,6 +257,7 @@ async def _stream_stall_watchdog():
                 "message": "Audio stream lost (USB/hardware glitch). "
                            "Recording saved with what was captured. "
                            "Try recording this side again.",
+                "dropped_blocks": getattr(rb, "dropped_blocks", 0),
             })
             break  # watchdog's job is done for this recording session
     except asyncio.CancelledError:

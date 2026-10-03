@@ -445,13 +445,41 @@ _jobs = {}
 _jobs_lock = threading.Lock()
 
 
+_JOB_TTL_SECS = 3600
+_JOB_MAX_COMPLETED = 40
+
+
+def _prune_jobs_locked():
+    """Drop old completed jobs so a long-lived kiosk cannot grow forever."""
+    now = time.time()
+    finished = []
+    for jid, data in list(_jobs.items()):
+        status = data.get("status")
+        if status in ("done", "error", "cancelled"):
+            finished_at = data.get("finished_at") or data.get("updated_at") or 0
+            if finished_at and (now - finished_at) > _JOB_TTL_SECS:
+                _jobs.pop(jid, None)
+            else:
+                finished.append((finished_at or 0, jid))
+    if len(finished) > _JOB_MAX_COMPLETED:
+        finished.sort()
+        for _, jid in finished[: len(finished) - _JOB_MAX_COMPLETED]:
+            _jobs.pop(jid, None)
+
+
 def _job_set(job_id: str, data: dict):
     with _jobs_lock:
+        data = dict(data)
+        data.setdefault("updated_at", time.time())
+        if data.get("status") in ("done", "error", "cancelled"):
+            data.setdefault("finished_at", time.time())
         _jobs[job_id] = data
+        _prune_jobs_locked()
 
 
 def _job_get(job_id: str) -> dict | None:
     with _jobs_lock:
+        _prune_jobs_locked()
         return _jobs.get(job_id, {}).copy()
 
 

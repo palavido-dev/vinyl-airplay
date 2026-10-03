@@ -6,6 +6,7 @@ modules can import it without any circular dependency back into main.
 """
 
 import json
+import os
 from pathlib import Path
 
 from fastapi.templating import Jinja2Templates
@@ -35,14 +36,22 @@ def load_settings() -> dict:
         # its own MP3 encoder, so the ceiling is really the Pi's CPU: 3 is
         # comfortable on a 4GB Pi 4 that is also recording. Tunable in Settings.
         "max_browser_listeners": 3,
+        "app_name": "Vinyl Streamer",
     }
     if SETTINGS_FILE.exists():
         s = json.loads(SETTINGS_FILE.read_text())
         for k, v in defaults.items():
             s.setdefault(k, v)
+        # Themes removed — drop stale key so UI never re-applies them.
+        s.pop("theme", None)
         return s
     return defaults
 
 
 def save_settings(s: dict):
-    SETTINGS_FILE.write_text(json.dumps(s, indent=2))
+    """Atomically persist settings (temp file + os.replace)."""
+    s = dict(s)
+    s.pop("theme", None)
+    tmp = SETTINGS_FILE.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(s, indent=2) + "\n")
+    os.replace(tmp, SETTINGS_FILE)

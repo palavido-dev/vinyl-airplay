@@ -6,6 +6,7 @@ transports_bluetooth. Shares the global AppState via app_state.
 """
 
 import asyncio
+import re
 
 from fastapi import APIRouter
 
@@ -14,6 +15,15 @@ from config import save_settings
 from transports_bluetooth import BluetoothManager
 
 router = APIRouter()
+
+_BT_ADDR_RE = re.compile(r"^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$")
+
+
+def _bt_address(device_id: str) -> str | None:
+    address = device_id.replace("bt:", "", 1).strip()
+    if not _BT_ADDR_RE.match(address):
+        return None
+    return address
 
 
 @router.get("/api/bluetooth/scan")
@@ -26,7 +36,9 @@ async def bluetooth_scan():
 @router.post("/api/bluetooth/{device_id}/pair")
 async def bluetooth_pair(device_id: str):
     """Pair and trust a Bluetooth device."""
-    address = device_id.replace("bt:", "", 1)
+    address = _bt_address(device_id)
+    if not address:
+        return {"ok": False, "error": "Invalid Bluetooth address"}
     result = await state.bluetooth_manager.pair(address)
     if result.get("ok"):
         # Refresh paired devices list
@@ -37,7 +49,9 @@ async def bluetooth_pair(device_id: str):
 @router.post("/api/bluetooth/{device_id}/connect")
 async def bluetooth_connect(device_id: str):
     """Connect to a paired Bluetooth device."""
-    address = device_id.replace("bt:", "", 1)
+    address = _bt_address(device_id)
+    if not address:
+        return {"ok": False, "error": "Invalid Bluetooth address"}
     result = await state.bluetooth_manager.connect(address)
     if result.get("ok"):
         state.available_bt_devices = await state.bluetooth_manager.get_paired_devices()
@@ -47,7 +61,9 @@ async def bluetooth_connect(device_id: str):
 @router.post("/api/bluetooth/{device_id}/disconnect")
 async def bluetooth_disconnect(device_id: str):
     """Disconnect from a Bluetooth device."""
-    address = device_id.replace("bt:", "", 1)
+    address = _bt_address(device_id)
+    if not address:
+        return {"ok": False, "error": "Invalid Bluetooth address"}
     result = await state.bluetooth_manager.disconnect(address)
     state.available_bt_devices = await state.bluetooth_manager.get_paired_devices()
     return result
@@ -56,7 +72,9 @@ async def bluetooth_disconnect(device_id: str):
 @router.post("/api/bluetooth/{device_id}/remove")
 async def bluetooth_remove(device_id: str):
     """Unpair and remove a Bluetooth device."""
-    address = device_id.replace("bt:", "", 1)
+    address = _bt_address(device_id)
+    if not address:
+        return {"ok": False, "error": "Invalid Bluetooth address"}
     result = await state.bluetooth_manager.remove(address)
     # Remove from cached list
     state.available_bt_devices = [d for d in state.available_bt_devices

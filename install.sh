@@ -293,7 +293,8 @@ if ! grep -q "\[vinyl-exports\]" /etc/samba/smb.conf 2>/dev/null; then
     path = ${EXPORT_DIR}
     browsable = yes
     read only = yes
-    guest ok = yes
+    guest ok = no
+    valid users = listen
     force user = listen
     create mask = 0644
     directory mask = 0755
