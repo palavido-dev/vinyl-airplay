@@ -1,8 +1,28 @@
 """Update check must fetch before comparing to origin/main."""
 
+import os
 from types import SimpleNamespace
 
 import routes_system as sysroutes
+
+
+def test_pip_cmd_prefers_repo_venv(tmp_path, monkeypatch):
+    repo = tmp_path / "app"
+    venv_pip = repo / "venv" / "bin" / "pip"
+    venv_pip.parent.mkdir(parents=True)
+    venv_pip.write_text("#!/bin/sh\n")
+    venv_pip.chmod(0o755)
+    monkeypatch.setattr(sysroutes, "_repo_dir", lambda: str(repo))
+    assert sysroutes._pip_cmd() == [str(venv_pip)]
+
+
+def test_pip_cmd_falls_back_to_running_interpreter(tmp_path, monkeypatch):
+    repo = tmp_path / "app"
+    repo.mkdir()
+    monkeypatch.setattr(sysroutes, "_repo_dir", lambda: str(repo))
+    cmd = sysroutes._pip_cmd()
+    assert cmd[-2:] == ["-m", "pip"]
+    assert os.path.basename(cmd[0]).startswith("python")
 
 
 def test_check_update_fetches_before_comparing(monkeypatch):
