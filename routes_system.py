@@ -10,6 +10,7 @@ import os
 import shutil
 import socket
 import subprocess
+import sys
 
 from fastapi import APIRouter
 from fastapi.responses import FileResponse, JSONResponse
@@ -21,6 +22,33 @@ router = APIRouter()
 
 def _repo_dir() -> str:
     return os.path.dirname(os.path.abspath(__file__))
+
+
+def _pip_cmd() -> list[str]:
+    """Return a pip argv that targets this app's venv, never system pip.
+
+    Raspberry Pi OS Bookworm marks the system Python as externally managed
+    (PEP 668). Bare `pip3` then fails during self-update. Prefer the venv
+    next to the repo (install.sh uses ``venv/``; some checkouts use ``.venv/``),
+    then fall back to ``python -m pip`` for the interpreter that is already
+    running the service.
+    """
+    base = _repo_dir()
+    for rel in ("venv/bin/pip", ".venv/bin/pip", "venv/bin/pip3", ".venv/bin/pip3"):
+        candidate = os.path.join(base, rel)
+        if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+            return [candidate]
+    return [sys.executable, "-m", "pip"]
+
+
+def _install_requirements() -> subprocess.CompletedProcess:
+    return subprocess.run(
+        [*_pip_cmd(), "install", "-r", "requirements.txt"],
+        capture_output=True,
+        text=True,
+        cwd=_repo_dir(),
+        timeout=180,
+    )
 
 
 def _git(*args: str, timeout: int = 15) -> subprocess.CompletedProcess:
@@ -220,8 +248,8 @@ async def perform_update():
             ["git", "pull", "origin", "main"],
             capture_output=True,
             text=True,
-            cwd=os.path.dirname(os.path.abspath(__file__)),
-            timeout=30
+            cwd=_repo_dir(),
+            timeout=60,
         )
         if result.returncode != 0:
             raise Exception(f"git pull failed: {result.stderr}")
@@ -231,15 +259,28 @@ async def perform_update():
             "message": "Installing dependencies..."
         })
 
+        # Prefer on-disk helper after pull so a future change to install logic
+        # is picked up even before the process restarts. Fall back to in-process
+        # helper if import fails for any reason.
         result = subprocess.run(
-            ["pip3", "install", "-r", "requirements.txt"],
+            [sys.executable, "-c",
+             "from routes_system import _install_requirements; "
+             "r=_install_requirements(); "
+             "import sys; "
+             "sys.stderr.write(r.stderr or ''); "
+             "sys.stdout.write(r.stdout or ''); "
+             "sys.exit(r.returncode)"],
             capture_output=True,
             text=True,
-            cwd=os.path.dirname(os.path.abspath(__file__)),
-            timeout=60
+            cwd=_repo_dir(),
+            timeout=180,
         )
         if result.returncode != 0:
-            raise Exception(f"pip install failed: {result.stderr}")
+            # In-process fallback (same interpreter the service is running).
+            result = _install_requirements()
+        if result.returncode != 0:
+            err = (result.stderr or result.stdout or "pip install failed").strip()
+            raise Exception(f"pip install failed: {err}")
 
         await broadcast("update_status", {
             "status": "restarting",
