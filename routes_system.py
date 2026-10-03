@@ -275,24 +275,42 @@ async def perform_update():
             cwd=_repo_dir(),
             timeout=180,
         )
+        pip_warning = None
         if result.returncode != 0:
             # In-process fallback (same interpreter the service is running).
             result = _install_requirements()
         if result.returncode != 0:
             err = (result.stderr or result.stdout or "pip install failed").strip()
-            raise Exception(f"pip install failed: {err}")
+            # Code is already pulled. Do NOT roll back for a deps hiccup — especially
+            # the Bookworm "externally-managed-environment" failure from bare pip3 —
+            # or the updater can never heal itself. Restart with the new code; the
+            # next update uses venv pip.
+            pip_warning = err
+            await broadcast("update_status", {
+                "status": "installing",
+                "message": "Dependency install had issues; restarting with new code anyway..."
+            })
 
         await broadcast("update_status", {
             "status": "restarting",
             "message": "Restarting application..."
         })
 
+        # Clear rollback marker so an exception during restart does not undo the pull.
+        _update_rollback_hash = None
+
         subprocess.run(
             ["systemctl", "restart", "vinyl-airplay"],
             timeout=5
         )
 
-        return {"status": "success", "message": "Update complete. Application restarting..."}
+        msg = "Update complete. Application restarting..."
+        if pip_warning:
+            msg = (
+                "Code updated and restarting. Dependency install reported: "
+                + pip_warning.splitlines()[0][:200]
+            )
+        return {"status": "success", "message": msg, "pip_warning": pip_warning}
 
     except Exception as e:
         error_msg = str(e)
@@ -301,11 +319,18 @@ async def perform_update():
             "message": f"Update failed: {error_msg}"
         })
 
-        if _update_rollback_hash and _update_rollback_hash != _get_git_commit():
+        # Only roll back when the pull itself failed partway — never after a
+        # successful pull with a later pip/restart glitch (that traps kiosks on
+        # Bookworm where system pip3 is blocked).
+        if (
+            _update_rollback_hash
+            and _update_rollback_hash != _get_git_commit()
+            and "git pull failed" in error_msg
+        ):
             try:
                 subprocess.run(
                     ["git", "reset", "--hard", _update_rollback_hash],
-                    cwd=os.path.dirname(os.path.abspath(__file__)),
+                    cwd=_repo_dir(),
                     timeout=10
                 )
                 await broadcast("update_status", {
@@ -314,6 +339,13 @@ async def perform_update():
                 })
             except Exception:
                 pass
+
+        recovery = (
+            " On the Pi run: cd ~/vinyl-airplay && git pull origin main "
+            "&& sudo systemctl restart vinyl-airplay"
+        )
+        if "externally-managed" in error_msg or "pip install failed" in error_msg:
+            error_msg = error_msg + recovery
 
         return {"status": "error", "message": error_msg}
 
