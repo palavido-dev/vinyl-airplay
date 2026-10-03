@@ -2809,6 +2809,22 @@ async function regenerateCerts(){
   if(r.ok){showToast(r.message);loadCertInfo()}else{showToast(r.error||'Failed')}}catch(e){showToast('Failed to regenerate')}
 }
 function saveAppName(){var n=document.getElementById('setting-app-name').value.trim()||'Vinyl Streamer';document.getElementById('app-name').textContent=n;document.title=n;apiFetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({app_name:n})});showToast('Name updated')}
+async function changeRoomPassword(){
+  var st=document.getElementById('setting-pw-status');
+  var cur=(document.getElementById('setting-pw-current')||{}).value||'';
+  var neu=(document.getElementById('setting-pw-new')||{}).value||'';
+  if(st){st.style.color='var(--muted)';st.textContent='';}
+  if(neu.length<8){if(st){st.style.color='var(--rust)';st.textContent='Use at least 8 characters.';}return;}
+  try{
+    var r=await apiFetch('/api/auth/change-password',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({current_password:cur,password:neu})});
+    var d=await r.json().catch(function(){return {};});
+    if(!r.ok||d.ok===false){if(st){st.style.color='var(--rust)';st.textContent=(d&& (d.message||d.error))||'Could not change password';}return;}
+    if(document.getElementById('setting-pw-current'))document.getElementById('setting-pw-current').value='';
+    if(document.getElementById('setting-pw-new'))document.getElementById('setting-pw-new').value='';
+    if(st){st.style.color='var(--sage)';st.textContent='Password updated.';}
+    showToast('Password updated');
+  }catch(e){if(st){st.style.color='var(--rust)';st.textContent='Network error';}}
+}
 function hideSettings(){document.getElementById('settings-modal').classList.remove('open');document.body.classList.remove('settings-open')}
 function switchSettingsGroup(group){
   document.querySelectorAll('#settings-modal .settings-group').forEach(function(g){g.classList.remove('active-group');g.removeAttribute('open')});

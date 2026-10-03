@@ -20,3 +20,4 @@ certs/
 # Local runtime artifacts and local-machine service backups
 .config/
 *.BAK
+screenshots
