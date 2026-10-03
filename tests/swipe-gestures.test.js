@@ -7,7 +7,8 @@ const path = require('path');
 const { JSDOM } = require('jsdom');
 
 const TEMPLATE = process.argv[2] || path.join(__dirname, '..', 'templates', 'index.html');
-const html = fs.readFileSync(TEMPLATE, 'utf8');
+const APP_JS = process.argv[3] || path.join(__dirname, '..', 'static', 'js', 'app.js');
+const html = fs.readFileSync(TEMPLATE, 'utf8') + '\n' + fs.readFileSync(APP_JS, 'utf8');
 
 // Pull the actual footer markup out of the template
 const footerStart = html.indexOf('<div class="np-bar hidden" id="np-footer">');
