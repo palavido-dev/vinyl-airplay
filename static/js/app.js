@@ -4462,15 +4462,23 @@ async function checkForUpdates() {
   try {
     const response = await apiFetch('/api/system/check-update');
     const data = await response.json();
+    const short = function(h){ return (h && h !== 'unknown') ? h.slice(0, 7) : 'unknown'; };
 
-    if (data.available) {
+    if (data.fetch_error || data.ok === false) {
+      status.style.color = 'var(--rust)';
+      status.textContent = 'Could not reach GitHub: ' + (data.fetch_error || 'fetch failed');
+      // Still offer Update Now — pull may work even if the check path lied before.
+      updateBtn.style.display = 'block';
+      showError('Update check failed — you can still try Update Now');
+    } else if (data.available) {
       status.style.color = 'var(--amber-dk)';
-      status.textContent = 'Update available (' + data.commits_behind + ' commits behind)';
+      status.textContent = 'Update available (' + (data.commits_behind || '?') +
+        ' commits): ' + short(data.current_commit) + ' → ' + short(data.latest_commit);
       updateBtn.style.display = 'block';
       showToast('Update available!');
     } else {
       status.style.color = 'var(--sage)';
-      status.textContent = 'You are up to date';
+      status.textContent = 'You are up to date (' + short(data.current_commit) + ')';
       updateBtn.style.display = 'none';
       showToast('Already up to date');
     }
@@ -4478,6 +4486,7 @@ async function checkForUpdates() {
     console.error('Check failed:', err);
     status.style.color = 'var(--rust)';
     status.textContent = 'Failed to check for updates';
+    updateBtn.style.display = 'block';
     showError('Could not reach update server');
   } finally {
     btn.disabled = false;

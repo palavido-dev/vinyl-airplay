@@ -19,37 +19,49 @@ from app_state import broadcast
 router = APIRouter()
 
 
+def _repo_dir() -> str:
+    return os.path.dirname(os.path.abspath(__file__))
+
+
+def _git(*args: str, timeout: int = 15) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        ["git", *args],
+        capture_output=True,
+        text=True,
+        cwd=_repo_dir(),
+        timeout=timeout,
+    )
+
+
 def _get_git_commit() -> str:
     try:
-        result = subprocess.run(
-            ["git", "rev-parse", "HEAD"],
-            capture_output=True,
-            text=True,
-            cwd=os.path.dirname(os.path.abspath(__file__)),
-            timeout=5
-        )
+        result = _git("rev-parse", "HEAD", timeout=5)
         return result.stdout.strip() if result.returncode == 0 else "unknown"
     except Exception:
         return "unknown"
 
 
+def _fetch_origin() -> tuple[bool, str]:
+    """Fetch origin so origin/main is fresh. Returns (ok, error_message)."""
+    try:
+        # Prune stale remote refs; fail loudly so the UI does not claim
+        # "up to date" when we never reached GitHub.
+        result = _git("fetch", "--prune", "origin", timeout=30)
+        if result.returncode != 0:
+            err = (result.stderr or result.stdout or "git fetch failed").strip()
+            return False, err
+        return True, ""
+    except subprocess.TimeoutExpired:
+        return False, "git fetch timed out"
+    except Exception as e:
+        return False, str(e)
+
+
 def _count_commits_behind() -> int:
     try:
-        subprocess.run(
-            ["git", "fetch", "origin"],
-            capture_output=True,
-            timeout=15,
-            cwd=os.path.dirname(os.path.abspath(__file__))
-        )
-        result = subprocess.run(
-            ["git", "rev-list", "--count", "HEAD..origin/main"],
-            capture_output=True,
-            text=True,
-            cwd=os.path.dirname(os.path.abspath(__file__)),
-            timeout=5
-        )
+        result = _git("rev-list", "--count", "HEAD..origin/main", timeout=5)
         if result.returncode == 0:
-            return int(result.stdout.strip())
+            return int(result.stdout.strip() or "0")
         return 0
     except Exception:
         return 0
@@ -150,25 +162,39 @@ async def generate_certs():
 
 
 def _check_update_sync() -> dict:
-    current = _get_git_commit()
-    try:
-        result = subprocess.run(
-            ["git", "rev-parse", "origin/main"],
-            capture_output=True,
-            text=True,
-            cwd=os.path.dirname(os.path.abspath(__file__)),
-            timeout=5
-        )
-        latest = result.stdout.strip() if result.returncode == 0 else current
-    except Exception:
-        latest = current
+    """Always fetch first, then compare HEAD to origin/main.
 
-    behind = _count_commits_behind() if latest != current else 0
+    The old path compared against a possibly-stale local origin/main and only
+    fetched when they already differed — so a Pi that had never fetched after
+    a merge always reported "up to date".
+    """
+    current = _get_git_commit()
+    fetched, fetch_error = _fetch_origin()
+
+    latest = current
+    try:
+        result = _git("rev-parse", "origin/main", timeout=5)
+        if result.returncode == 0 and result.stdout.strip():
+            latest = result.stdout.strip()
+    except Exception:
+        pass
+
+    behind = _count_commits_behind() if fetched else 0
+    available = fetched and latest != current and behind > 0
+    # Treat any divergence after a successful fetch as an update, even if
+    # rev-list count is weird (e.g. rewritten history).
+    if fetched and latest != current:
+        available = True
+        if behind == 0:
+            behind = 1
+
     return {
-        "available": latest != current,
+        "ok": fetched,
+        "available": available,
         "current_commit": current,
         "latest_commit": latest,
         "commits_behind": behind,
+        "fetch_error": fetch_error or None,
     }
 
 
