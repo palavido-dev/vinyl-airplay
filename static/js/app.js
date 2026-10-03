@@ -3360,6 +3360,44 @@ function _ssActivity(reason){
   if(_ssActive) wakeSS();
 }
 
+function _ssArtFilename(url){
+  if(!url) return '';
+  try{
+    var path = String(url).split('?')[0];
+    var parts = path.split('/');
+    return decodeURIComponent(parts[parts.length - 1] || '');
+  }catch(e){
+    return String(url);
+  }
+}
+
+/** Keep screensaver cover in sync with now-playing. Replaces stale art when
+ *  the track changes while the screensaver is already up (previously skipped
+ *  updates whenever <img src> was already set — leaving the prior album cover). */
+function _ssSetArt(artworkUrl){
+  var art = document.getElementById('ss-art');
+  if(!art) return;
+  var nextFile = _ssArtFilename(artworkUrl);
+  var curFile = '';
+  if(art.tagName === 'IMG'){
+    curFile = _ssArtFilename(art.getAttribute('src') || art.src || '');
+  }
+  if(nextFile){
+    if(curFile === nextFile) return;
+    art.outerHTML = '<img class="ss-art" id="ss-art" src="' + artworkUrl + '?t=' + Date.now() + '" alt="" style="border-radius:50%;animation:ss-spin 8s linear infinite">';
+  } else if(art.tagName === 'IMG'){
+    art.outerHTML = '<div class="ss-art-placeholder" id="ss-art"></div>';
+  }
+}
+
+function _ssRenderNP(np){
+  if(!np) return;
+  document.getElementById('ss-track').textContent = np.track_title || '';
+  document.getElementById('ss-artist-album').textContent = [np.track_artist||np.album_artist||'', np.album_title||''].filter(Boolean).join(' - ');
+  document.getElementById('ss-side').textContent = np.side ? 'Side ' + np.side : '';
+  _ssSetArt(np.artwork_url || null);
+}
+
 function ssGoIdle(){
   if(_ssActive) return;
   // During an album recording, the screensaver shows the album being recorded,
@@ -3384,15 +3422,7 @@ function ssGoIdle(){
 
   if(playing && np){
     ss.classList.remove('off');
-    var art = document.getElementById('ss-art');
-    if(np.artwork_url){
-      art.outerHTML = '<img class="ss-art" id="ss-art" src="' + np.artwork_url + '?t=' + Date.now() + '" alt="" style="border-radius:50%;animation:ss-spin 8s linear infinite">';
-    } else {
-      art.outerHTML = '<div class="ss-art-placeholder" id="ss-art"></div>';
-    }
-    document.getElementById('ss-track').textContent = np.track_title || '';
-    document.getElementById('ss-artist-album').textContent = [np.track_artist||np.album_artist||'', np.album_title||''].filter(Boolean).join(' - ');
-    document.getElementById('ss-side').textContent = np.side ? 'Side ' + np.side : '';
+    _ssRenderNP(np);
     var viz = document.getElementById('ss-eq-viz');
     viz.innerHTML = '';
     for(var i = 0; i < 16; i++){
@@ -3426,13 +3456,10 @@ function ssOnNowPlaying(d){
   if(d && d.track_title) _ssLastNP = d;
   else if(!_playerActive) _ssLastNP = null;
   if(_ssActive && _ssLastNP){
-    document.getElementById('ss-track').textContent = _ssLastNP.track_title || '';
-    document.getElementById('ss-artist-album').textContent = [_ssLastNP.track_artist||_ssLastNP.album_artist||'', _ssLastNP.album_title||''].filter(Boolean).join(' - ');
-    document.getElementById('ss-side').textContent = _ssLastNP.side ? 'Side ' + _ssLastNP.side : '';
-    var art = document.getElementById('ss-art');
-    if(_ssLastNP.artwork_url && art && !art.src){
-      art.outerHTML = '<img class="ss-art" id="ss-art" src="' + _ssLastNP.artwork_url + '?t=' + Date.now() + '" alt="" style="border-radius:50%;animation:ss-spin 8s linear infinite">';
-    }
+    _ssRenderNP(_ssLastNP);
+  } else if(_ssActive && !(_ssLastNP && _ssLastNP.track_title)){
+    // Cleared now-playing while idle: drop cover so we don't keep a stale sleeve.
+    _ssSetArt(null);
   }
 }
 
