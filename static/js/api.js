@@ -157,6 +157,12 @@
         cache: 'no-store',
       });
       var status = await resp.json();
+      // First boot: require password setup even on the kiosk (loopback).
+      // After a password exists, loopback stays unlocked without a login form.
+      if (!status.password_set) {
+        showAuthGate(status);
+        return status;
+      }
       if (status.authenticated || status.loopback) {
         hideAuthGate();
         _authReady = true;
