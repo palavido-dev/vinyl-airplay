@@ -9,6 +9,7 @@ catalog.db-shm
 settings.json
 auth.json
 .auth_secret
+.auth_sessions
 secret_token.txt
 *.wav
 *.tmp

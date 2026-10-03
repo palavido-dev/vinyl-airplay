@@ -3,8 +3,11 @@
 
 Trust model:
 - Loopback clients (kiosk Chromium on 127.0.0.1 / ::1) are always allowed.
-- LAN / remote clients need a setup password (first boot) and a session cookie.
-- Mutating HTTP methods also require an X-CSRF-Token header matching the session.
+- Private / link-local LAN clients on the same home network are trusted the
+  same way — no login prompt. Vinyl Streamer is a living-room appliance.
+- Public / non-private clients need a setup password and a session cookie.
+- Mutating HTTP methods from untrusted clients also require an X-CSRF-Token
+  header matching the session.
 """
 
 from __future__ import annotations
@@ -12,6 +15,7 @@ from __future__ import annotations
 import contextlib
 import hashlib
 import hmac
+import ipaddress
 import json
 import os
 import secrets
@@ -24,9 +28,11 @@ from fastapi import Request
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
+from starlette.websockets import WebSocket
 
 AUTH_FILE = Path("auth.json")
 SECRET_FILE = Path(".auth_secret")
+SESSIONS_FILE = Path(".auth_sessions")
 
 SESSION_COOKIE = "vs_session"
 CSRF_COOKIE = "vs_csrf"
@@ -64,7 +70,7 @@ def _load_secret() -> bytes:
 _SECRET = _load_secret()
 
 
-def _atomic_write_json(path: Path, data: dict) -> None:
+def _atomic_write_json(path: Path, data: dict | list) -> None:
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(json.dumps(data, indent=2) + "\n")
     os.replace(tmp, path)
@@ -125,6 +131,41 @@ def set_password(password: str) -> None:
     # Rotate all sessions when the password changes.
     with _lock:
         _sessions.clear()
+        _persist_sessions_unlocked()
+
+
+def _persist_sessions_unlocked() -> None:
+    """Write sessions to disk so a process restart does not log everyone out."""
+    payload = {
+        token: {"expires": sess["expires"], "csrf": sess["csrf"]}
+        for token, sess in _sessions.items()
+        if sess.get("expires", 0) > time.time()
+    }
+    with contextlib.suppress(OSError):
+        _atomic_write_json(SESSIONS_FILE, payload)
+
+
+def _load_sessions() -> None:
+    if not SESSIONS_FILE.exists():
+        return
+    try:
+        raw = json.loads(SESSIONS_FILE.read_text())
+    except Exception:
+        return
+    if not isinstance(raw, dict):
+        return
+    now = time.time()
+    with _lock:
+        for token, sess in raw.items():
+            if not isinstance(sess, dict):
+                continue
+            expires = float(sess.get("expires") or 0)
+            csrf = sess.get("csrf")
+            if expires > now and isinstance(csrf, str) and csrf:
+                _sessions[str(token)] = {"expires": expires, "csrf": csrf}
+
+
+_load_sessions()
 
 
 def create_session() -> tuple[str, str]:
@@ -136,6 +177,7 @@ def create_session() -> tuple[str, str]:
             "expires": time.time() + SESSION_TTL_SECS,
             "csrf": csrf,
         }
+        _persist_sessions_unlocked()
     return token, csrf
 
 
@@ -144,6 +186,7 @@ def destroy_session(token: str | None) -> None:
         return
     with _lock:
         _sessions.pop(token, None)
+        _persist_sessions_unlocked()
 
 
 def _purge_expired() -> None:
@@ -151,6 +194,8 @@ def _purge_expired() -> None:
     dead = [k for k, v in _sessions.items() if v["expires"] < now]
     for k in dead:
         _sessions.pop(k, None)
+    if dead:
+        _persist_sessions_unlocked()
 
 
 def get_session(token: str | None) -> dict | None:
@@ -163,21 +208,70 @@ def get_session(token: str | None) -> dict | None:
             return None
         if sess["expires"] < time.time():
             _sessions.pop(token, None)
+            _persist_sessions_unlocked()
             return None
         # Sliding expiry
         sess["expires"] = time.time() + SESSION_TTL_SECS
         return dict(sess)
 
 
-def is_loopback(request: Request) -> bool:
+def normalize_client_host(host: str | None) -> str:
+    """Normalize a peer host string (strip IPv4-mapped IPv6 prefix)."""
+    host = (host or "").strip().lower()
+    if host.startswith("::ffff:"):
+        host = host[7:]
+    return host
+
+
+def host_is_trusted(host: str | None) -> bool:
+    """True for loopback, RFC1918 private, and link-local addresses.
+
+    These are the devices on the same home / studio network as the Pi.
+    Non-IP hostnames (e.g. TestClient's \"testclient\") are not trusted.
+    """
+    host = normalize_client_host(host)
+    if not host:
+        return False
+    if host in ("localhost",):
+        return True
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    return bool(ip.is_loopback or ip.is_private or ip.is_link_local)
+
+
+def host_is_loopback(host: str | None) -> bool:
+    host = normalize_client_host(host)
+    if host in ("localhost",):
+        return True
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    return bool(ip.is_loopback)
+
+
+def client_host_from_request(request: Request) -> str:
     client = request.client
     if not client:
-        return False
-    host = (client.host or "").lower()
-    if host in ("127.0.0.1", "::1", "localhost"):
-        return True
-    # Some proxies present IPv4-mapped IPv6
-    return bool(host.startswith("::ffff:") and host.endswith("127.0.0.1"))
+        return ""
+    return normalize_client_host(client.host)
+
+
+def is_loopback(request: Request) -> bool:
+    return host_is_loopback(client_host_from_request(request))
+
+
+def is_trusted_client(request: Request) -> bool:
+    """Loopback kiosk OR same-LAN private / link-local peer."""
+    return host_is_trusted(client_host_from_request(request))
+
+
+def is_trusted_websocket(ws: WebSocket) -> bool:
+    client = ws.client
+    host = normalize_client_host(client.host if client else "")
+    return host_is_trusted(host)
 
 
 def is_public_path(path: str) -> bool:
@@ -250,14 +344,16 @@ def filter_settings_update(incoming: dict) -> dict:
 class AuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next: Callable):
         path = request.url.path or "/"
+        trusted = is_trusted_client(request)
 
-        if is_public_path(path) or is_loopback(request):
+        if is_public_path(path) or trusted:
             request.state.auth_ok = True
             request.state.auth_loopback = is_loopback(request)
+            request.state.auth_trusted = trusted
             return await call_next(request)
 
-        # Until a password is configured, only public + loopback are allowed.
-        # Remote clients may only hit setup/login.
+        # Until a password is configured, only public + trusted LAN/loopback
+        # are allowed. Remote clients may only hit setup/login.
         if not password_is_set():
             return JSONResponse(
                 {"ok": False, "error": "setup_required",
@@ -286,5 +382,6 @@ class AuthMiddleware(BaseHTTPMiddleware):
 
         request.state.auth_ok = True
         request.state.auth_loopback = False
+        request.state.auth_trusted = False
         request.state.session_token = token
         return await call_next(request)

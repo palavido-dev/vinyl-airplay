@@ -2640,11 +2640,8 @@ async def learn_status():
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket):
     # WebSockets bypass BaseHTTPMiddleware — enforce the same trust model here.
-    client_host = (ws.client.host if ws.client else "") or ""
-    loopback = client_host in ("127.0.0.1", "::1", "localhost") or (
-        client_host.startswith("::ffff:") and client_host.endswith("127.0.0.1")
-    )
-    if not loopback:
+    # Trusted = loopback kiosk or same-LAN private/link-local peer.
+    if not authmod.is_trusted_websocket(ws):
         if not authmod.password_is_set():
             await ws.close(code=4401)
             return

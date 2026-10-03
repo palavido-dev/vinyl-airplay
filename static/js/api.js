@@ -5,6 +5,9 @@
   var CSRF_COOKIE = 'vs_csrf';
   var _authMode = null; // 'login' | 'setup' | null
   var _authReady = false;
+  var _authGateOpen = false;
+  var _authPromptAt = 0;
+  var AUTH_PROMPT_COOLDOWN_MS = 8000;
 
   function readCookie(name) {
     var parts = (';' + document.cookie).split('; ' + name + '=');
@@ -14,6 +17,13 @@
 
   function getCsrfToken() {
     return readCookie(CSRF_COOKIE) || '';
+  }
+
+  function shouldPromptAuth() {
+    if (_authGateOpen) return false;
+    var now = Date.now();
+    if (now - _authPromptAt < AUTH_PROMPT_COOLDOWN_MS) return false;
+    return true;
   }
 
   function apiFetch(url, options) {
@@ -33,8 +43,15 @@
       if (resp.status === 401 || resp.status === 403) {
         return resp.clone().json().then(function (body) {
           if (body && (body.error === 'auth_required' || body.error === 'csrf' || body.error === 'unauthorized' || body.error === 'setup_required')) {
-            _authReady = false;
-            showAuthGate({ password_set: body.error !== 'setup_required', authenticated: false, loopback: false });
+            // Trusted LAN clients never need the gate; re-check status before
+            // interrupting the UI (avoids the every-few-seconds login thrash).
+            if (_authReady && body.error === 'csrf') {
+              return resp;
+            }
+            if (shouldPromptAuth()) {
+              _authReady = false;
+              ensureAuth();
+            }
           }
           return resp;
         }).catch(function () { return resp; });
@@ -58,6 +75,8 @@
   function showAuthGate(status) {
     var gate = document.getElementById('auth-gate');
     if (!gate) return;
+    _authGateOpen = true;
+    _authPromptAt = Date.now();
     document.body.classList.add('auth-blocked');
     gate.classList.add('open');
     gate.setAttribute('aria-hidden', 'false');
@@ -74,13 +93,13 @@
 
     if (title) title.textContent = 'Vinyl Streamer';
     if (setup) {
-      if (blurb) blurb.textContent = 'Create a password to protect access from other devices on your network. The kiosk on this machine stays unlocked.';
+      if (blurb) blurb.textContent = 'Create a password for access from outside your home network. Devices on this Wi‑Fi stay unlocked.';
       if (pwLabel) pwLabel.textContent = 'New password';
       if (confirmRow) confirmRow.style.display = '';
       if (currentRow) currentRow.style.display = 'none';
       if (pw) pw.autocomplete = 'new-password';
     } else {
-      if (blurb) blurb.textContent = 'Sign in to control Vinyl Streamer from this device.';
+      if (blurb) blurb.textContent = 'Sign in to control Vinyl Streamer from outside your home network.';
       if (pwLabel) pwLabel.textContent = 'Password';
       if (confirmRow) confirmRow.style.display = 'none';
       if (currentRow) currentRow.style.display = 'none';
@@ -100,6 +119,7 @@
     }
     document.body.classList.remove('auth-blocked');
     _authMode = null;
+    _authGateOpen = false;
     showAuthError('');
   }
 
@@ -157,18 +177,14 @@
         cache: 'no-store',
       });
       var status = await resp.json();
-      // First boot: require password setup even on the kiosk (loopback).
-      // After a password exists, loopback stays unlocked without a login form.
-      if (!status.password_set) {
-        showAuthGate(status);
-        return status;
-      }
-      if (status.authenticated || status.loopback) {
+      // Same-LAN / loopback: never show a login gate.
+      if (status.authenticated || status.trusted || status.loopback) {
         hideAuthGate();
         _authReady = true;
         if (typeof window.startApp === 'function') window.startApp();
         return status;
       }
+      // First boot on a remote client: ask for a password so WAN access is locked.
       showAuthGate(status);
       return status;
     } catch (e) {
@@ -176,7 +192,7 @@
       hideAuthGate();
       _authReady = true;
       if (typeof window.startApp === 'function') window.startApp();
-      return { ok: false, authenticated: true, loopback: true };
+      return { ok: false, authenticated: true, trusted: true, loopback: true };
     }
   }
 
