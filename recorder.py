@@ -246,11 +246,40 @@ class RecordingBuffer:
             if item[0] == '__flush__':
                 item[1].set()
                 continue
+            if item[0] == '__stall__':
+                # Finalize from the worker thread only — never from the asyncio
+                # stall watchdog, which would race _process / _split_track.
+                done_ev = item[1] if len(item) > 1 else None
+                try:
+                    if self._total_bytes > 0:
+                        self._silence_start_byte = self._total_bytes
+                        self._silence_secs = 0.0
+                        self._split_track()
+                    if self._on_end_of_side and not self._end_of_side_fired:
+                        self._end_of_side_fired = True
+                        self._on_end_of_side()
+                except Exception as e:
+                    print(f"[recorder] stall finalize error: {type(e).__name__}: {e}")
+                finally:
+                    if done_ev is not None:
+                        done_ev.set()
+                continue
             pcm_chunk, rms, was_active = item
             try:
                 self._process(pcm_chunk, rms, was_active)
             except Exception as e:
                 print(f"[recorder] worker error: {type(e).__name__}: {e}")
+
+    def request_stall_finalize(self) -> threading.Event:
+        """Ask the worker to flush + end-of-side. Returns an Event that is set when done."""
+        ev = threading.Event()
+        with contextlib.suppress(queue.Full):
+            self._queue.put(('__stall__', ev), timeout=1)
+        return ev
+
+    @property
+    def dropped_blocks(self) -> int:
+        return self._dropped
 
     def _process(self, pcm_chunk: bytes, rms: float | None, was_active: bool):
         """Runs on the worker thread (not the audio callback).

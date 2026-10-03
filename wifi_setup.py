@@ -5,7 +5,10 @@ Captive portal for headless first-time WiFi configuration
 """
 
 import asyncio
+import contextlib
 import json
+import os
+import re
 import subprocess
 import sys
 import time
@@ -35,7 +38,15 @@ def load_wifi_config() -> dict:
     return {"ssid": None, "psk": None}
 
 def save_wifi_config(config: dict):
-    CONFIG_FILE.write_text(json.dumps(config, indent=2))
+    """Persist Wi-Fi reminder config (PSK optional). Mode 600 when possible."""
+    CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
+    # Do not duplicate the PSK on disk when wpa_supplicant already holds it.
+    safe = {"ssid": config.get("ssid"), "configured_at": time.time()}
+    tmp = CONFIG_FILE.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(safe, indent=2) + "\n")
+    os.replace(tmp, CONFIG_FILE)
+    with contextlib.suppress(OSError):
+        os.chmod(CONFIG_FILE, 0o600)
 
 def check_wifi_connection() -> bool:
     try:
@@ -110,16 +121,87 @@ def scan_networks() -> list:
     except Exception:
         return []
 
+def _escape_wpa_string(value: str) -> str:
+    """Escape a value for a wpa_supplicant quoted string (no raw newlines)."""
+    return (
+        value.replace("\\", "\\\\")
+        .replace('"', '\\"')
+        .replace("\n", "")
+        .replace("\r", "")
+        .replace("\x00", "")
+    )
+
+
+def _valid_ssid(ssid: str) -> bool:
+    if not ssid or len(ssid) > 32:
+        return False
+    # Reject control characters that could break config parsing.
+    return not re.search(r"[\x00-\x1f\x7f]", ssid)
+
+
 def connect_to_network(ssid: str, password: str = "") -> bool:
     try:
-        config_content = f'''network={{
-    ssid="{ssid}"
-    psk="{password}"
-    key_mgmt=WPA-PSK
-}}'''
+        if not _valid_ssid(ssid):
+            wifi_state["error"] = "Invalid SSID"
+            return False
+        if len(password) > 63:
+            wifi_state["error"] = "Password too long"
+            return False
+        if re.search(r"[\x00-\x1f\x7f]", password or ""):
+            wifi_state["error"] = "Invalid password characters"
+            return False
 
-        with open("/etc/wpa_supplicant/wpa_supplicant.conf", "w") as f:
-            f.write(config_content)
+        safe_ssid = _escape_wpa_string(ssid)
+        safe_psk = _escape_wpa_string(password or "")
+
+        # Preserve global wpa_supplicant options; only replace network blocks.
+        conf_path = Path("/etc/wpa_supplicant/wpa_supplicant.conf")
+        global_lines = [
+            "ctrl_interface=DIR=/var/run/wpa_supplicant GROUP=netdev",
+            "update_config=1",
+            "country=US",
+        ]
+        if conf_path.exists():
+            raw = conf_path.read_text()
+            # Keep non-network preamble lines when present.
+            preamble = []
+            in_network = False
+            for line in raw.splitlines():
+                stripped = line.strip()
+                if stripped.startswith("network={"):
+                    in_network = True
+                    continue
+                if in_network:
+                    if stripped == "}":
+                        in_network = False
+                    continue
+                if stripped and not stripped.startswith("#"):
+                    preamble.append(line.rstrip())
+            if preamble:
+                global_lines = preamble
+
+        if password:
+            network_block = (
+                "network={\n"
+                f'    ssid="{safe_ssid}"\n'
+                f'    psk="{safe_psk}"\n'
+                "    key_mgmt=WPA-PSK\n"
+                "}\n"
+            )
+        else:
+            network_block = (
+                "network={\n"
+                f'    ssid="{safe_ssid}"\n'
+                "    key_mgmt=NONE\n"
+                "}\n"
+            )
+
+        content = "\n".join(global_lines) + "\n\n" + network_block
+        tmp = conf_path.with_suffix(".conf.tmp")
+        tmp.write_text(content)
+        os.replace(tmp, conf_path)
+        with contextlib.suppress(OSError):
+            os.chmod(conf_path, 0o600)
 
         subprocess.run(
             ["wpa_cli", "reconfigure"],
@@ -135,7 +217,7 @@ def connect_to_network(ssid: str, password: str = "") -> bool:
         # blocking sleep here does not block the event loop.
         for _attempt in range(30):
             if check_wifi_connection():
-                save_wifi_config({"ssid": ssid, "psk": password})
+                save_wifi_config({"ssid": ssid})
                 wifi_state["connected"] = True
                 wifi_state["error"] = None
                 return True

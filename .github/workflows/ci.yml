@@ -79,7 +79,10 @@ jobs:
         run: node tests/browser-stall.test.js
 
   import-smoke:
-    name: Import smoke test
+    # Matrix expands the check name to "Import smoke (3.11)" etc. Branch
+    # protection requires the exact name "Import smoke test", so the gate
+    # job below reports that name after both matrix legs succeed.
+    name: Import smoke (${{ matrix.python-version }})
     runs-on: ubuntu-latest
     timeout-minutes: 10
     strategy:
@@ -131,3 +134,13 @@ jobs:
         # Guards issue #76: a capture card that refuses 44100 is opened at a
         # rate it accepts and resampled, instead of failing every stream start.
         run: python tests/test_capture_rate.py
+
+  import-smoke-gate:
+    name: Import smoke test
+    needs: import-smoke
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Require matrix import smoke success
+        run: |
+          test "${{ needs.import-smoke.result }}" = "success"

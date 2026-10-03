@@ -8,7 +8,8 @@ const path = require('path');
 const { JSDOM } = require('jsdom');
 
 const TEMPLATE = process.argv[2] || path.join(__dirname, '..', 'templates', 'index.html');
-const html = fs.readFileSync(TEMPLATE, 'utf8');
+const APP_JS = process.argv[3] || path.join(__dirname, '..', 'static', 'js', 'app.js');
+const html = fs.readFileSync(TEMPLATE, 'utf8') + '\n' + fs.readFileSync(APP_JS, 'utf8');
 
 function grab(re, label) {
   const m = html.match(re);

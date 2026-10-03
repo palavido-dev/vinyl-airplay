@@ -237,8 +237,8 @@ async def api_export_browse(path: str = ""):
     export_dir = exp.DEFAULT_EXPORT_DIR.resolve()
     target = (export_dir / path).resolve()
 
-    # Prevent directory traversal
-    if not str(target).startswith(str(export_dir)):
+    # Prevent directory traversal (is_relative_to avoids exports vs exports_evil).
+    if not target.is_relative_to(export_dir):
         return {"ok": False, "error": "Invalid path"}
     if not target.exists():
         return {"ok": False, "error": "Path not found"}
@@ -269,7 +269,7 @@ async def api_export_download(path: str):
     export_dir = exp.DEFAULT_EXPORT_DIR.resolve()
     target = (export_dir / path).resolve()
 
-    if not str(target).startswith(str(export_dir)):
+    if not target.is_relative_to(export_dir):
         return JSONResponse({"ok": False, "error": "Invalid path"}, status_code=400)
     if not target.is_file():
         return JSONResponse({"ok": False, "error": "File not found"}, status_code=404)
@@ -287,7 +287,7 @@ async def api_export_download_album(path: str):
     export_dir = exp.DEFAULT_EXPORT_DIR.resolve()
     target = (export_dir / path).resolve()
 
-    if not str(target).startswith(str(export_dir)):
+    if not target.is_relative_to(export_dir):
         return JSONResponse({"ok": False, "error": "Invalid path"}, status_code=400)
     if not target.is_dir():
         return JSONResponse({"ok": False, "error": "Folder not found"}, status_code=404)

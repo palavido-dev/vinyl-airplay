@@ -125,14 +125,16 @@ async def broadcast(event: str, data: dict | None = None):
     if data is None:
         data = {}
     msg  = json.dumps({"event": event, **data})
+    # Snapshot so connect/disconnect during await cannot raise or skip clients.
+    clients = list(state.ws_clients)
     dead = []
-    for ws in state.ws_clients:
+    for ws in clients:
         try:
             await ws.send_text(msg)
         except Exception:
             dead.append(ws)
-    for ws in dead:
-        state.ws_clients.remove(ws)
+    if dead:
+        state.ws_clients = [ws for ws in state.ws_clients if ws not in dead]
 
 
 async def ws_heartbeat(interval: float = 20.0):

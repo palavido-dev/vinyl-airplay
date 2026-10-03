@@ -1,6 +1,7 @@
-const CACHE_NAME = 'vinyl-streamer-v2';
+const CACHE_NAME = 'vinyl-streamer-v3';
 const STATIC_ASSETS = [
   '/manifest.json',
+  '/static/css/app.css',
 ];
 
 self.addEventListener('install', event => {
@@ -31,29 +32,32 @@ self.addEventListener('activate', event => {
 self.addEventListener('fetch', event => {
   const url = new URL(event.request.url);
 
-  // Always go network-first for the main page and API calls
-  if (url.pathname === '/' || url.pathname.startsWith('/api/')) {
-    event.respondWith(
-      fetch(event.request)
-        .then(response => {
-          if (response.ok && url.pathname.startsWith('/api/')) {
-            const cache = caches.open(CACHE_NAME);
-            cache.then(c => c.put(event.request, response.clone()));
-          }
-          return response;
-        })
-        .catch(() => {
-          return caches.match(event.request).then(cached => {
-            return cached || new Response('Offline', { status: 503 });
-          });
-        })
-    );
-  } else {
-    // Static assets: cache-first with network fallback
-    event.respondWith(
-      caches.match(event.request).then(response => {
-        return response || fetch(event.request);
-      })
-    );
+  // Never cache API / auth / websocket upgrades — sessions and CSRF must stay live.
+  if (
+    url.pathname.startsWith('/api/') ||
+    url.pathname.startsWith('/ws') ||
+    url.pathname.startsWith('/live.mp3')
+  ) {
+    event.respondWith(fetch(event.request));
+    return;
   }
+
+  // Network-first for the shell
+  if (url.pathname === '/') {
+    event.respondWith(
+      fetch(event.request).catch(() =>
+        caches.match(event.request).then(cached =>
+          cached || new Response('Offline', { status: 503 })
+        )
+      )
+    );
+    return;
+  }
+
+  // Static assets: cache-first with network fallback
+  event.respondWith(
+    caches.match(event.request).then(response => {
+      return response || fetch(event.request);
+    })
+  );
 });

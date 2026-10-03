@@ -192,9 +192,15 @@ async def update_boundaries(track_id: int, body: Annotated[dict, Body()]):
     return {"ok": True}
 
 
+_ARTWORK_UPLOAD_MAX = 8 * 1024 * 1024
+
+
 @router.post("/api/catalog/{album_id}/artwork")
 async def upload_artwork(album_id: int, file: Annotated[UploadFile, File()]):
-    data = await file.read()
+    # Bound the read so a huge upload cannot OOM the Pi.
+    data = await file.read(_ARTWORK_UPLOAD_MAX + 1)
+    if len(data) > _ARTWORK_UPLOAD_MAX:
+        return {"ok": False, "error": "Image too large (max 8 MB)"}
     path = cat.save_user_artwork(data, album_id)
     if not path:
         return {"ok": False, "error": "Failed to save image"}

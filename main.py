@@ -18,9 +18,11 @@ import pyatv
 import uvicorn
 from fastapi import Body, FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from pyatv.storage.file_storage import FileStorage
 
 import audio_gain
+import auth as authmod
 import catalog as cat
 import player as plr
 import recorder as rec
@@ -30,6 +32,7 @@ from audio_streams import (
     BrowserMP3Stream,
     _browser_streams,
 )
+from auth import AuthMiddleware, public_settings
 from config import TEMPLATES, save_settings
 from device_helpers import (
     _capture_channels,
@@ -39,7 +42,7 @@ from device_helpers import (
     _get_local_outputs,
     _list_capture_devices,
 )
-from learn_engine import LearnSession
+from learn_engine import LearnSession, submit_learn_pcm
 from player_engine import _build_side_entry, _run_playback, _run_playback_queue, _stop_playback
 from recognition import _art_url
 from recording_engine import (
@@ -47,6 +50,7 @@ from recording_engine import (
     _start_stall_watchdog,
     _stop_stall_watchdog,
 )
+from routes_auth import router as auth_router
 from routes_bluetooth import router as bluetooth_router
 from routes_catalog import router as catalog_router
 from routes_catalog_stats import router as catalog_stats_router
@@ -181,6 +185,8 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan)
+app.add_middleware(AuthMiddleware)
+app.include_router(auth_router)
 app.include_router(bluetooth_router)
 app.include_router(catalog_router)
 app.include_router(catalog_stats_router)
@@ -189,13 +195,22 @@ app.include_router(export_router)
 app.include_router(settings_router)
 app.include_router(system_router)
 
+_static_dir = Path(__file__).resolve().parent / "static"
+if _static_dir.is_dir():
+    app.mount("/static", StaticFiles(directory=str(_static_dir)), name="static")
+
 
 # ── Artwork Serving ───────────────────────────────────────────────────────────
 
 @app.get("/artwork/{filename}")
 async def serve_artwork(filename: str):
-    path = cat.ARTWORK_DIR / filename
-    if path.exists():
+    # Defense in depth: only serve files that resolve under ARTWORK_DIR.
+    path = (cat.ARTWORK_DIR / filename).resolve()
+    try:
+        path.relative_to(cat.ARTWORK_DIR.resolve())
+    except ValueError:
+        return HTMLResponse("", 404)
+    if path.is_file() and path.suffix.lower() in {".jpg", ".jpeg", ".png", ".webp"}:
         return FileResponse(str(path))
     return HTMLResponse("", 404)
 
@@ -711,7 +726,7 @@ async def get_status():
     return {
         "streaming":        state.is_streaming,
         "active_devices":   state.active_devices,
-        "settings":         state.settings,
+        "settings":         public_settings(state.settings),
         "audio_devices":    state.audio_devices,
         "eq":               {"bass": bass, "treble": treble, "volume": volume,
                              "bands": state.eq.band_values,
@@ -730,6 +745,9 @@ async def get_status():
 async def start_stream(body: dict):
     if state.is_streaming:
         return {"ok": False, "error": "Already streaming"}
+    # Catalog playback and live vinyl share ALSA/bluealsa sinks — stop player first.
+    if state.player or state.player_task:
+        await _stop_playback()
     targets   = body.get("devices", [])
     volume    = body.get("volume",   state.settings.get("volume", 80))
     # The capture device is a global setting (Settings > Audio Input), not a
@@ -799,7 +817,8 @@ async def update_settings(body: dict):
     if "app_name" in body:
         state.settings["app_name"] = str(body["app_name"])[:40]
     if "theme" in body:
-        state.settings["theme"] = str(body["theme"])
+        # Themes removed; ignore stale clients.
+        state.settings.pop("theme", None)
     if "audio_device_card" in body:
         v = body["audio_device_card"]
         state.settings["audio_device_card"] = None if v in (None, "", "null") else str(v)
@@ -1360,12 +1379,12 @@ async def player_queue_insert_next(body: dict):
     if not entries:
         return {"ok": False, "error": "No playable sides found"}
 
-    # Insert after current position
-    current_idx = state.player.current_index if state.player else 0
+    # Insert after the currently playing playlist side.
+    current_idx = getattr(state.player, "_side_idx", 0) or 0
     insert_pos = current_idx + 1
-
+    playlist = state.player.playlist
     for i, entry in enumerate(entries):
-        state.player.queue.insert(insert_pos + i, entry)
+        playlist.insert(insert_pos + i, entry)
 
     return {"ok": True, "inserted": len(entries)}
 
@@ -1677,11 +1696,14 @@ async def album_recording_start(body: dict):
                 state.recogniser.set_learning_mode(True)
 
             def _on_learn_track_ready(pcm, dur):
+                # Claim + spill happens inside submit_learn_pcm; return value is
+                # the *next* pending track id for the new boundary.
+                next_id = None
                 if state.learn_session and state.learn_session.active:
-                    state.learn_executor.submit(state.learn_session.on_track_captured, pcm)
-                # Also mark track boundary in album recorder
+                    result = submit_learn_pcm(pcm, state.learn_session)
+                    if result is not False:
+                        next_id = result
                 if state.album_recorder and state.album_recorder.is_active:
-                    next_id = state.learn_session.next_track_id() if state.learn_session else None
                     state.album_recorder.mark_track_boundary(next_id)
                     # Notify UI of track boundary with completed track name
                     # tc includes the new boundary for the upcoming track, so
@@ -1824,10 +1846,12 @@ async def album_recording_flip(body: dict):
                 state.recogniser.set_learning_mode(True)
 
             def _on_learn_track_ready(pcm, dur):
+                next_id = None
                 if state.learn_session and state.learn_session.active:
-                    state.learn_executor.submit(state.learn_session.on_track_captured, pcm)
+                    result = submit_learn_pcm(pcm, state.learn_session)
+                    if result is not False:
+                        next_id = result
                 if state.album_recorder and state.album_recorder.is_active:
-                    next_id = state.learn_session.next_track_id() if state.learn_session else None
                     state.album_recorder.mark_track_boundary(next_id)
                     # tc includes the new boundary for the upcoming track, so
                     # the just-completed track is at tc-2 (tc-1 is the next one)
@@ -2534,9 +2558,9 @@ async def learn_start(body: dict):
     # Start capture buffer in auto-split mode
     # Override the on_track_ready callback to route to learn session
     def _on_learn_track_ready(pcm, dur):
-        """Run fpcalc in background thread so it never blocks the audio callback."""
+        """Spill PCM + fingerprint off the audio callback (bounded backlog)."""
         if state.learn_session and state.learn_session.active:
-            state.learn_executor.submit(state.learn_session.on_track_captured, pcm)
+            submit_learn_pcm(pcm, state.learn_session)
     state.rec_buffer._on_track_ready = _on_learn_track_ready
     state.rec_buffer.start(auto_split=True)
 
@@ -2615,6 +2639,19 @@ async def learn_status():
 
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket):
+    # WebSockets bypass BaseHTTPMiddleware — enforce the same trust model here.
+    client_host = (ws.client.host if ws.client else "") or ""
+    loopback = client_host in ("127.0.0.1", "::1", "localhost") or (
+        client_host.startswith("::ffff:") and client_host.endswith("127.0.0.1")
+    )
+    if not loopback:
+        if not authmod.password_is_set():
+            await ws.close(code=4401)
+            return
+        token = ws.cookies.get(authmod.SESSION_COOKIE)
+        if not authmod.get_session(token):
+            await ws.close(code=4401)
+            return
     await ws.accept()
     state.ws_clients.append(ws)
     bass, treble, volume = state.eq.values
