@@ -46,6 +46,12 @@
     height: 100vh; height: 100dvh;
     display: flex; flex-direction: column;
     overflow: hidden;
+    /* Notch / Dynamic Island / home indicator */
+    padding:
+      env(safe-area-inset-top, 0px)
+      env(safe-area-inset-right, 0px)
+      0
+      env(safe-area-inset-left, 0px);
   }
   .frame {
     flex: 1; display: flex; flex-direction: column; overflow: hidden;
@@ -537,6 +543,9 @@
 
   .main-content { flex: 1; overflow: hidden; padding: 0.75rem; -webkit-overflow-scrolling: touch; display: flex; gap: 0.75rem; position: relative; }
   .album-grid-wrap { flex-shrink: 0; overflow-y: auto; flex: 1; }
+  /* Last grid row clears the now-playing chrome when the footer is up */
+  .main-content.has-hero .album-grid-wrap { scroll-padding-bottom: 1rem; }
+  .main-content.has-hero .album-grid { padding-bottom: 1.25rem; }
   /* Hero takes the whole main area when playing; library is hidden */
   .main-content.has-hero .album-grid-wrap { display: none; }
   .main-content.has-hero .np-hero { flex: 1; }
@@ -1733,6 +1742,7 @@
     .main-content { padding: 0.6rem; }
     /* On mobile the hero is never shown, so keep the library visible even when has-hero is active */
     .main-content.has-hero .album-grid-wrap { display: block !important; flex: 1 !important; }
+    .main-content.has-hero .album-grid { padding-bottom: 1.5rem; }
     .np-return-btn { display: none !important; }
 
     #album-modal.open #modal-detail {
@@ -1781,39 +1791,55 @@
   /* ── Mobile Responsive (<480px) ── */
   @media (max-width: 480px) {
     .frame { margin: 2px; border: 2px solid var(--walnut-lt); border-radius: 6px; }
-    .app-header { flex-wrap: wrap; gap: 0.25rem; padding: 0.3rem 0.4rem; justify-content: center; }
-    .brand { display: none; }
+    .app-header { flex-wrap: wrap; gap: 0.25rem; padding: 0.35rem 0.45rem; justify-content: flex-start; }
+    .brand {
+      display: flex;
+      order: 0;
+      flex-basis: 100%;
+      font-size: 0.78rem;
+      letter-spacing: 0.06em;
+      justify-content: center;
+      padding: 0.1rem 0 0.15rem;
+    }
+    .brand .album-count { display: none; }
+    .brand-icon { width: 16px; height: 16px; margin-right: 0.3rem; }
     .view-toggle { order: 1; flex-basis: 100%; gap: 0; }
     .view-toggle-btn { flex: 1; padding: 0.45rem; font-size: 0.8rem; border-radius: 0; }
     .view-toggle-btn:first-child { border-radius: 4px 0 0 4px; }
     .view-toggle-btn:last-child { border-radius: 0 4px 4px 0; }
-    .app-header > .header-btn { order: 2; min-height: 40px; min-width: 40px; font-size: 0.9rem; }
+    .app-header > .header-btn,
+    .app-header > .header-overflow { order: 2; }
+    .app-header > .header-btn { min-height: 40px; min-width: 40px; font-size: 0.9rem; }
     .search-wrap { order: 3; flex-basis: 100%; min-width: 0; }
     .search-bar { padding: 0.45rem 0.6rem; font-size: 0.8rem; }
-    .album-grid { grid-template-columns: repeat(1, 1fr); gap: 0.4rem; }
+    .album-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.45rem; }
     .album-card { border-radius: 6px; }
-    .album-card .album-meta { padding: 0.25rem 0.3rem; }
-    .album-card .album-meta .title { font-size: 0.7rem; }
-    .album-card .album-meta .artist { font-size: 0.62rem; }
-    .album-info-btn, .album-favorite-btn { width: 20px; height: 20px; font-size: 0.6rem; }
-    .album-queue-btn { width: 20px; height: 20px; font-size: 0.6rem; }
+    .album-card .album-meta { padding: 0.3rem 0.35rem 0.4rem; }
+    .album-card .album-meta .title { font-size: 0.72rem; }
+    .album-card .album-meta .artist { font-size: 0.64rem; }
+    .album-info-btn, .album-favorite-btn { width: 22px; height: 22px; font-size: 0.62rem; }
+    .album-queue-btn { width: 22px; height: 22px; font-size: 0.62rem; }
     .main-content { padding: 0.4rem; flex-direction: column; }
+    .main-content.has-hero .album-grid { padding-bottom: 1.75rem; }
     .status-bar { font-size: 0.6rem; padding: 0.1rem 0.5rem; }
-    .np-bar { padding: 0.35rem 0.5rem; padding-bottom: calc(0.35rem + env(safe-area-inset-bottom, 0px)); gap: 0.4rem; }
-    .np-row { gap: 0.4rem; flex-wrap: wrap; width: 100%; }
+    .np-bar { padding: 0.3rem 0.45rem; padding-bottom: calc(0.3rem + env(safe-area-inset-bottom, 0px)); gap: 0.3rem; }
+    .np-row { gap: 0.35rem; flex-wrap: wrap; width: 100%; margin-bottom: 0.15rem; }
     .np-art, .np-art-placeholder { width: 40px; height: 40px; }
     .np-title { font-size: 0.75rem; }
     .np-artist-album { font-size: 0.65rem; }
-    .np-progress-row { order: -1; width: 100%; margin-bottom: 0.4rem; }
+    .np-progress-row { order: -1; width: 100%; margin-bottom: 0.25rem; }
     .np-time { font-size: 0.55rem; min-width: 24px; }
     .np-progress-bar { height: 5px; }
-    .np-transport { order: 3; width: 100%; gap: 0.25rem; }
-    .np-btn { width: 40px; height: 40px; font-size: 0.95rem; }
-    .np-btn.primary { width: 48px; height: 48px; font-size: 1.1rem; }
+    .np-transport { order: 3; width: 100%; gap: 0.15rem; justify-content: space-between; }
+    .np-btn { width: 36px; height: 36px; font-size: 0.85rem; }
+    .np-btn.primary { width: 44px; height: 44px; font-size: 1.05rem; }
     .np-text { order: 2; flex: 1; min-width: 0; }
     .eq-tone, .eq-expand-btn { display: none; }
-    .eq-row { gap: 0.3rem; }
+    .eq-row { gap: 0.3rem; margin-top: 0.15rem; }
     .eq-vol { flex: 1; }
+    .auth-card { padding: 1.15rem 1.05rem 1rem; }
+    .auth-card h1 { font-size: 1.2rem; }
+    .auth-card p { margin-bottom: 0.75rem; }
     .modal { max-width: 95%; border-radius: 12px 12px 0 0; max-height: 85vh; overflow-y: auto; }
     .btn { min-height: 44px; font-size: 0.8rem; padding: 0.45rem 0.7rem; }
     .form-input { min-height: 44px; font-size: 0.8rem; padding: 0.45rem 0.6rem; }
@@ -1828,9 +1854,19 @@
     .app-header {
       flex-wrap: wrap; gap: 0.3rem;
       padding: 0.4rem 0.6rem;
-      justify-content: center;
+      justify-content: flex-start;
     }
-    .brand { display: none; }
+    .brand {
+      display: flex;
+      order: 0;
+      flex-basis: 100%;
+      font-size: 0.82rem;
+      letter-spacing: 0.05em;
+      justify-content: center;
+      padding: 0.05rem 0 0.1rem;
+    }
+    .brand .album-count { display: none; }
+    .brand-icon { width: 18px; height: 18px; margin-right: 0.35rem; }
 
     /* Row 1: View toggle spans full width */
     .view-toggle {
@@ -1848,9 +1884,12 @@
     .view-toggle-btn:first-child { border-radius: 4px 0 0 4px; }
     .view-toggle-btn:last-child { border-radius: 0 4px 4px 0; }
 
-    /* Row 2: Action buttons centered */
-    .app-header > .header-btn {
+    /* Row 2: Action buttons centered (include overflow menu) */
+    .app-header > .header-btn,
+    .app-header > .header-overflow {
       order: 2;
+    }
+    .app-header > .header-btn {
       min-height: 40px; min-width: 40px;
     }
 
@@ -1875,36 +1914,37 @@
     .main-content { padding: 0.5rem; flex-direction: column; }
     .album-grid-wrap { width: 100% !important; flex: 1 !important; display: block !important; }
     .main-content.has-hero .album-grid-wrap { display: block !important; }
+    .main-content.has-hero .album-grid { padding-bottom: 1.75rem; }
     .np-hero { display: none !important; }
     .np-return-btn { display: none !important; }
 
     /* Status Bar */
     .status-bar { font-size: 0.65rem; padding: 0.15rem 0.6rem; }
 
-    /* Now Playing Footer: Stack vertically, hide EQ, larger touch targets */
+    /* Now Playing Footer: Stack vertically, hide EQ, compact touch targets */
     .np-bar {
-      padding: 0.4rem 0.6rem; gap: 0.5rem;
-      padding-bottom: calc(0.4rem + env(safe-area-inset-bottom, 0px));
+      padding: 0.35rem 0.55rem; gap: 0.35rem;
+      padding-bottom: calc(0.35rem + env(safe-area-inset-bottom, 0px));
       flex-wrap: wrap;
     }
 
-    .np-row { gap: 0.5rem; flex-wrap: wrap; width: 100%; }
-    .np-art, .np-art-placeholder { width: 44px; height: 44px; }
+    .np-row { gap: 0.4rem; flex-wrap: wrap; width: 100%; margin-bottom: 0.15rem; }
+    .np-art, .np-art-placeholder { width: 42px; height: 42px; }
     .np-title { font-size: 0.8rem; }
     .np-artist-album { font-size: 0.7rem; }
 
     /* Progress bar on its own row */
     .np-progress-row {
       order: -1; width: 100%;
-      margin-bottom: 0.5rem;
+      margin-bottom: 0.3rem;
     }
     .np-time { font-size: 0.6rem; min-width: 28px; }
     .np-progress-bar { height: 6px; }
 
-    /* Transport buttons: larger for touch */
-    .np-transport { order: 3; width: 100%; }
-    .np-btn { width: 44px; height: 44px; font-size: 1rem; }
-    .np-btn.primary { width: 50px; height: 50px; font-size: 1.2rem; }
+    /* Transport buttons: touchable but not oversized */
+    .np-transport { order: 3; width: 100%; gap: 0.2rem; justify-content: space-between; }
+    .np-btn { width: 38px; height: 38px; font-size: 0.9rem; }
+    .np-btn.primary { width: 46px; height: 46px; font-size: 1.1rem; }
 
     /* Text and artwork column */
     .np-text { order: 2; flex: 1; min-width: 0; }
@@ -1995,7 +2035,14 @@
      so it overrides the search/toggle full-row rules by source order. */
   @media (max-height: 500px) and (min-width: 481px) {
     .app-header { flex-wrap: nowrap; gap: 0.3rem; padding: 0.3rem 0.5rem; }
-    .brand { display: none; }
+    .brand {
+      display: flex;
+      flex-basis: auto;
+      order: 0;
+      font-size: 0.72rem;
+      padding: 0;
+    }
+    .brand .album-count, .brand-icon { display: none; }
     .view-toggle { order: 0; flex-basis: auto; }
     .search-wrap { order: 0; flex: 1 1 auto; flex-basis: auto; min-width: 60px; }
     .header-btn { min-height: 34px; min-width: 34px; }
@@ -2122,24 +2169,29 @@
       linear-gradient(180deg, #1a100c 0%, var(--chassis) 55%, #1a100c 100%);
     align-items: center;
     justify-content: center;
-    padding: 1.25rem;
+    padding:
+      max(1.25rem, env(safe-area-inset-top, 0px))
+      max(1.25rem, env(safe-area-inset-right, 0px))
+      max(1.25rem, env(safe-area-inset-bottom, 0px))
+      max(1.25rem, env(safe-area-inset-left, 0px));
   }
   .auth-gate.open { display: flex; }
   .auth-card {
-    width: min(400px, 100%);
+    width: min(380px, 100%);
     background: var(--ivory);
     color: var(--ink);
     border-radius: 14px;
     border: 1px solid rgba(255,255,255,0.08);
     box-shadow: 0 16px 40px rgba(0,0,0,0.45);
-    padding: 1.4rem 1.35rem 1.25rem;
+    padding: 1.35rem 1.25rem 1.15rem;
   }
   .auth-card h1 {
-    font-family: var(--body-font);
-    font-size: 1.15rem;
+    font-family: var(--display-font);
+    font-size: 1.35rem;
     font-weight: 700;
-    letter-spacing: 0.03em;
-    margin-bottom: 0.35rem;
+    letter-spacing: 0.01em;
+    margin-bottom: 0.4rem;
+    color: var(--ink);
   }
   .auth-card p {
     font-size: 0.82rem;
@@ -2148,6 +2200,7 @@
     margin-bottom: 1rem;
   }
   .auth-card .form-row { margin-bottom: 0.7rem; }
+  .auth-card .form-row:last-of-type { margin-bottom: 0; }
   .auth-error {
     display: none;
     color: var(--rust);
@@ -2156,7 +2209,7 @@
     margin: 0.4rem 0 0.6rem;
   }
   .auth-error.open { display: block; }
-  .auth-actions { display: flex; gap: 0.5rem; margin-top: 0.9rem; }
+  .auth-actions { display: flex; gap: 0.5rem; margin-top: 0.85rem; }
   .auth-actions .btn { flex: 1; justify-content: center; min-height: 44px; }
   body.auth-blocked .frame,
   body.auth-blocked .modal-overlay,

@@ -11,35 +11,33 @@ router = APIRouter()
 
 @router.get("/api/auth/status")
 async def auth_status(request: Request):
+    trusted = authmod.is_trusted_client(request)
+    loopback = authmod.is_loopback(request)
+    sess = (
+        authmod.get_session(request.cookies.get(authmod.SESSION_COOKIE))
+        if authmod.password_is_set()
+        else None
+    )
     return {
         "ok": True,
         "password_set": authmod.password_is_set(),
-        "authenticated": bool(
-            authmod.is_loopback(request)
-            or (
-                authmod.password_is_set()
-                and authmod.get_session(request.cookies.get(authmod.SESSION_COOKIE))
-            )
-        ),
-        "loopback": authmod.is_loopback(request),
-        "csrf": (
-            (authmod.get_session(request.cookies.get(authmod.SESSION_COOKIE)) or {}).get("csrf")
-            if authmod.password_is_set()
-            else None
-        ),
+        "authenticated": bool(trusted or sess),
+        "loopback": loopback,
+        "trusted": trusted,
+        "csrf": (sess or {}).get("csrf") if authmod.password_is_set() else None,
     }
 
 
 @router.post("/api/auth/setup")
 async def auth_setup(request: Request, body: dict):
-    """First-boot password creation. Allowed from loopback always; from LAN only
-    when no password exists yet."""
-    if authmod.password_is_set() and not authmod.is_loopback(request):
+    """First-boot password creation. Allowed from trusted LAN/loopback always;
+    from the public internet only when no password exists yet."""
+    if authmod.password_is_set() and not authmod.is_trusted_client(request):
         return JSONResponse(
             {"ok": False, "error": "already_configured"},
             status_code=403,
         )
-    # If already configured, only loopback (kiosk) may reset via this endpoint
+    # If already configured, only trusted clients may reset via this endpoint
     # when also sending the current password.
     if authmod.password_is_set():
         current = str(body.get("current_password") or "")
@@ -94,10 +92,11 @@ async def auth_logout(request: Request):
 async def auth_change_password(request: Request, body: dict):
     if not authmod.password_is_set():
         return JSONResponse({"ok": False, "error": "setup_required"}, status_code=400)
-    # Middleware already authenticated non-loopback; loopback still needs current pw
+    # Middleware already authenticated non-trusted; trusted still needs current pw
+    # when one is supplied (and always for remote).
     current = str(body.get("current_password") or "")
     stored = authmod.load_auth().get("password_hash", "")
-    if (not authmod.is_loopback(request) or current) and not authmod.verify_password(current, stored):
+    if (not authmod.is_trusted_client(request) or current) and not authmod.verify_password(current, stored):
         return JSONResponse(
             {"ok": False, "error": "bad_password"},
             status_code=403,
