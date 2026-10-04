@@ -348,6 +348,7 @@ class CliAirPlayStream:
         use_ptp_shared: bool = True,
         binary: str | None = None,
         defer_start: bool = False,
+        timing: str | None = None,
     ):
         self.host = host
         self.port = int(port or 7000)
@@ -361,6 +362,9 @@ class CliAirPlayStream:
         self.use_ptp_shared = use_ptp_shared
         self.binary = binary or find_cliairplay()
         self.defer_start = defer_start
+        # Apple TVs often advertise SupportsPTP but never answer clock probes;
+        # force NTP so audio actually renders (cliairplay --timing ntp).
+        self.timing = timing
 
         self._proc: subprocess.Popen | None = None
         self._cmd_fd: int | None = None
@@ -403,12 +407,15 @@ class CliAirPlayStream:
         ]
         if self.txt:
             args += ["--txt", self.txt]
+        if self.timing in ("ptp", "ntp", "auto"):
+            args += ["--timing", self.timing]
         if self.auth and len(self.auth) == 192:
             args += ["--auth", self.auth]
         elif self.protocol in ("airplay2", "auto"):
             # Transient pairing when we have no stored HAP credentials.
             args += ["--ap2-native"]
-        if self._ptp_held:
+        # Shared PTP only when we are not forcing NTP (Apple TV escape hatch).
+        if self._ptp_held and self.timing != "ntp":
             args += ["--ptp-shared"]
         args.append(self.host)
 
@@ -868,7 +875,12 @@ def build_stream_for_conf(
     auth = creds.get("auth") if creds else None
     dacp = (creds.get("dacp_id") if creds else None) or stable_dacp_id(device_id)
     port = conf_airplay_port(conf)
-    protocol = "airplay2" if supports_airplay2(conf_features_value(conf)) or conf_is_apple_tv(conf) else "auto"
+    is_atv = conf_is_apple_tv(conf)
+    protocol = "airplay2" if supports_airplay2(conf_features_value(conf)) or is_atv else "auto"
+    # Video-class Apple TVs advertise PTP but often never slave to our clock;
+    # audio then plays as silence until the session dies. Force NTP for them.
+    timing = "ntp" if is_atv else None
+    use_shared = use_ptp_shared and timing != "ntp"
     return CliAirPlayStream(
         str(conf.address),
         port=port,
@@ -879,9 +891,10 @@ def build_stream_for_conf(
         dacp_id=dacp,
         txt=txt,
         protocol=protocol,
-        use_ptp_shared=use_ptp_shared,
+        use_ptp_shared=use_shared,
         binary=binary,
         defer_start=defer_start,
+        timing=timing,
     )
 
 
