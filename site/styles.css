@@ -402,6 +402,128 @@ a:hover {
   margin-bottom: 1.1rem;
 }
 
+.request-wrap {
+  width: min(720px, calc(100% - 2.5rem));
+  margin-inline: auto;
+  text-align: left;
+}
+
+.request-wrap h2,
+.request-wrap > .support {
+  text-align: center;
+}
+
+.request-wrap > .support {
+  margin-inline: auto;
+}
+
+.request-form {
+  margin-top: 1.75rem;
+  padding: 1.35rem 1.35rem 1.5rem;
+  border-radius: 16px;
+  background: rgba(250, 248, 244, 0.06);
+  border: 1px solid rgba(201, 162, 74, 0.28);
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.95rem 1rem;
+}
+
+.request-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-size: 0.92rem;
+  color: rgba(250, 248, 244, 0.88);
+}
+
+.request-form label.full {
+  grid-column: 1 / -1;
+}
+
+.request-form label span {
+  font-weight: 600;
+}
+
+.request-form input[type="text"],
+.request-form input[type="email"],
+.request-form select,
+.request-form textarea {
+  width: 100%;
+  min-height: 2.75rem;
+  padding: 0.65rem 0.8rem;
+  border-radius: 10px;
+  border: 1px solid rgba(250, 248, 244, 0.18);
+  background: rgba(20, 12, 8, 0.55);
+  color: var(--cream);
+  font: inherit;
+}
+
+.request-form textarea {
+  min-height: 7rem;
+  resize: vertical;
+}
+
+.request-form select {
+  appearance: none;
+  background-image: linear-gradient(45deg, transparent 50%, var(--amber) 50%),
+    linear-gradient(135deg, var(--amber) 50%, transparent 50%);
+  background-position: calc(100% - 18px) calc(50% + 3px), calc(100% - 12px) calc(50% + 3px);
+  background-size: 6px 6px, 6px 6px;
+  background-repeat: no-repeat;
+  padding-right: 2.2rem;
+}
+
+.request-form input:focus,
+.request-form select:focus,
+.request-form textarea:focus {
+  outline: none;
+  border-color: var(--amber);
+  box-shadow: 0 0 0 3px rgba(201, 162, 74, 0.28);
+}
+
+.request-form .check {
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 0.65rem;
+  margin-top: 0.9rem;
+  font-weight: 400;
+  color: rgba(250, 248, 244, 0.8);
+}
+
+.request-form .check input {
+  margin-top: 0.2rem;
+  width: 1.1rem;
+  height: 1.1rem;
+  accent-color: var(--amber);
+  flex-shrink: 0;
+}
+
+.form-actions {
+  margin-top: 1.25rem;
+}
+
+.request-form .honey {
+  position: absolute;
+  left: -9999px;
+  height: 0;
+  width: 0;
+  opacity: 0;
+}
+
+button.btn {
+  cursor: pointer;
+  font: inherit;
+}
+
+@media (max-width: 700px) {
+  .form-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 .split {
   display: grid;
   grid-template-columns: 1.05fr 0.95fr;
