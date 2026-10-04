@@ -77,7 +77,7 @@ The Pi mounts right on the back of the touchscreen with the NVMe HAT, keeping th
 
 ### Speaker Compatibility
 
-**AirPlay:** Vinyl Streamer uses AirPlay (RAOP), not AirPlay 2. Individual HomePods (ungrouped), AirPort Express units, and most third-party AirPlay receivers work well. Apple TVs are not supported, and HomePods in stereo pairs or multi-room groups won't work since grouped HomePods require AirPlay 2.
+**AirPlay:** Vinyl Streamer speaks both AirPlay (RAOP) and AirPlay 2. Individual HomePods, AirPort Express units, and most third-party AirPlay receivers use RAOP. Stereo-paired HomePods, multi-room groups, and Apple TVs use AirPlay 2 via the `cliairplay` sender installed by `install.sh`. See [AirPlay 2](docs/airplay2.md).
 
 **Bluetooth:** Supports A2DP Bluetooth speakers and headphones. One Bluetooth device can stream at a time, alongside any number of AirPlay devices.
 
@@ -269,7 +269,8 @@ If you've ever listened to a record through a receiver and adjusted the bass or 
 What reaches your speakers depends on the output path:
 
 - **Local speakers (ALSA):** Processed 16-bit PCM is sent directly to the DAC with no additional encoding. This is the most direct path and the closest to the source after EQ processing.
-- **AirPlay (RAOP):** The same processed PCM is wrapped in a WAV container and transmitted via Apple's RAOP protocol. No additional compression is applied during transport, so quality is equivalent to local output.
+- **AirPlay (RAOP):** The same processed PCM is wrapped in a WAV container and transmitted via Apple's RAOP protocol (pyatv). No additional compression is applied during transport, so quality is equivalent to local output.
+- **AirPlay 2:** The same PCM is fed as raw s16le into `cliairplay`, which encodes ALAC and streams over the native AirPlay 2 path (with PTP timing for groups). See [AirPlay 2](docs/airplay2.md).
 - **Bluetooth (A2DP/SBC):** On top of the playback processing, Bluetooth adds SBC encoding, which is lossy. Most consumer Bluetooth speakers negotiate SBC by default. This is a noticeable step down from local or AirPlay, but perfectly fine for casual listening.
 - **Browser ("This Device"):** Processed PCM is streamed over HTTP and decoded in real time by the Web Audio API. Quality is equivalent to local output, limited only by your device's audio hardware.
 
@@ -297,6 +298,7 @@ vinyl-airplay/
 ├── audio_eq.py              # Real-time EQ (bass/treble shelving filters)
 ├── audio_mp3.py             # MP3 encoder for the browser / HTTP stream
 ├── transports_bluetooth.py  # Bluetooth (BlueALSA / A2DP) output
+├── transports_airplay2.py   # AirPlay 2 via cliairplay + shared PTP daemon
 │
 ├── recording_engine.py      # Album-side auto-finalize, encode/save, stall watchdog
 ├── player_engine.py         # Playback and queue orchestration
@@ -316,6 +318,7 @@ vinyl-airplay/
 │   ├── getting-started.md
 │   ├── user-guide.md
 │   ├── reference.md
+│   ├── airplay2.md          # AirPlay 2 / cliairplay setup
 │   ├── prebuilt.md          # Made-to-order appliances
 │   ├── hardware-tiers.md    # Studio / Essential BOM plan
 │   └── images/              # UI screenshots
@@ -333,6 +336,7 @@ For a deeper look at each module and every HTTP API route, see the **[Reference]
 
 - [x] **Bluetooth speaker support** - Stream to Bluetooth A2DP speakers and headphones
 - [x] **Unified device management** - Single UI for AirPlay, Bluetooth, and local output devices
+- [x] **AirPlay 2** - Stereo pairs, multi-room groups, and Apple TV via cliairplay
 - [x] **Gapless playback** - Seamless side transitions with pre-buffered decoding
 - [x] **Queue and playlist** - Add albums to a playback queue with a slide-out panel
 - [x] **Track-level playback** - Tap any track to start playing from that point

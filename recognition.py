@@ -34,6 +34,7 @@ def _art_jpeg(track: dict) -> bytes | None:
 def _make_on_match(loop):
     def on_match(track):
         state.now_playing = track
+        artwork = _art_jpeg(track)
         # Update shared MediaMetadata in-place: RAOP sender picks up changes live
         if state.airplay_metadata is not None:
             state.airplay_metadata.title   = track.get("track_title")
@@ -41,7 +42,11 @@ def _make_on_match(loop):
                 track.get("track_artist") or track.get("album_artist")
             )
             state.airplay_metadata.album   = track.get("album_title")
-            state.airplay_metadata.artwork = _art_jpeg(track)
+            state.airplay_metadata.artwork = artwork
+        # AirPlay 2 (cliairplay) sinks take explicit metadata pushes
+        if state.ap2_streams:
+            from transports_airplay2 import push_metadata_to_streams
+            push_metadata_to_streams(state.ap2_streams, track, artwork)
         asyncio.run_coroutine_threadsafe(broadcast("now_playing", {
             "track_title":  track.get("track_title"),
             "track_artist": track.get("track_artist"),

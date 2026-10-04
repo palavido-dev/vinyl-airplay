@@ -91,6 +91,7 @@ apt-get install -y \
   "$WPASUPPLICANT_PKG" \
   git \
   samba \
+  libcap2-bin \
   || error "Failed to install system dependencies"
 success "System dependencies installed ($CHROMIUM_PKG, $WPASUPPLICANT_PKG)"
 
@@ -150,6 +151,58 @@ source venv/bin/activate
 pip install --upgrade pip setuptools wheel || error "Failed to upgrade pip"
 pip install -r requirements.txt || error "Failed to install Python dependencies"
 success "Python dependencies installed"
+
+# Install AirPlay 2 sender binary (cliairplay from Music Assistant).
+# GPL-3 binary downloaded at install time, not vendored in this repo.
+info "Installing AirPlay 2 support (cliairplay)..."
+BIN_DIR="/opt/vinyl-streamer/bin"
+mkdir -p "$BIN_DIR"
+ARCH=$(uname -m)
+if [[ "$ARCH" == "aarch64" || "$ARCH" == "arm64" ]]; then
+  CLIAIRPLAY_ASSET="cliairplay-linux-aarch64"
+elif [[ "$ARCH" == "x86_64" ]]; then
+  CLIAIRPLAY_ASSET="cliairplay-linux-x86_64"
+else
+  CLIAIRPLAY_ASSET=""
+fi
+CLIAIRPLAY_VERSION="v0.5.5"
+if [[ -n "$CLIAIRPLAY_ASSET" ]]; then
+  CLIAIRPLAY_URL="https://github.com/music-assistant/airplay-cli/releases/download/${CLIAIRPLAY_VERSION}/${CLIAIRPLAY_ASSET}"
+  if curl -fsSL -o "$BIN_DIR/cliairplay" "$CLIAIRPLAY_URL"; then
+    chmod 755 "$BIN_DIR/cliairplay"
+    chown listen:listen "$BIN_DIR/cliairplay" 2>/dev/null || true
+    # Also place a copy next to a home checkout so ~/vinyl-airplay finds a
+    # capability-bearing binary (otherwise AP2 prefers ./bin without setcap
+    # and Apple TV stays blank while the jukebox shows "playing").
+    for EXTRA in /home/listen/vinyl-airplay/bin; do
+      if [[ -d "$(dirname "$EXTRA")" ]]; then
+        mkdir -p "$EXTRA"
+        cp -f "$BIN_DIR/cliairplay" "$EXTRA/cliairplay"
+        chmod 755 "$EXTRA/cliairplay"
+        chown listen:listen "$EXTRA/cliairplay" 2>/dev/null || true
+      fi
+    done
+    # PTP multi-room needs UDP 319/320: grant the capability instead of root.
+    if command -v setcap >/dev/null 2>&1; then
+      for CAP_TARGET in "$BIN_DIR/cliairplay" /home/listen/vinyl-airplay/bin/cliairplay; do
+        if [[ -f "$CAP_TARGET" ]]; then
+          setcap 'cap_net_bind_service=+ep' "$CAP_TARGET" \
+            && success "setcap CAP_NET_BIND_SERVICE on $CAP_TARGET" \
+            || info "setcap failed for $CAP_TARGET — Apple TV may stay blank on AP2"
+        fi
+      done
+    else
+      success "cliairplay installed (setcap unavailable)"
+    fi
+    if ! "$BIN_DIR/cliairplay" --check >/dev/null 2>&1; then
+      info "cliairplay --check failed — AirPlay 2 may not work on this host"
+    fi
+  else
+    info "Could not download cliairplay — AirPlay 1 (RAOP) still works; see docs/airplay2.md"
+  fi
+else
+  info "No cliairplay binary for arch $ARCH — AirPlay 2 skipped"
+fi
 
 # Create data directory
 mkdir -p /opt/vinyl-streamer/data
@@ -220,7 +273,11 @@ User=listen
 WorkingDirectory=/opt/vinyl-streamer
 # Put the venv first so child processes (e.g. self-update pip) never hit
 # Bookworm's externally-managed system pip3.
-Environment=PATH=/opt/vinyl-streamer/venv/bin:/usr/local/bin:/usr/bin:/bin
+Environment=PATH=/opt/vinyl-streamer/venv/bin:/opt/vinyl-streamer/bin:/usr/local/bin:/usr/bin:/bin
+# Ambient capability so cliairplay (spawned as listen) can bind PTP UDP 319/320
+# when the binary also has cap_net_bind_service via setcap.
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
 ExecStart=/opt/vinyl-streamer/venv/bin/python /opt/vinyl-streamer/main.py
 Restart=on-failure
 RestartSec=5

@@ -846,11 +846,14 @@ async function showOutputPicker(albumId){
   overlay.classList.add('open');
   try{
     var d=await apiFetch('/api/devices').then(function(r){return r.json()});
-    var allDevices=(d.devices||[]).filter(function(dev){return dev.paired!==false});
+    // Include unpaired AirPlay 2 targets so Apple TV / HomePod can be
+    // chosen (or at least seen) before HAP pairing; pickOutput still works
+    // for transient pairing, and Settings Pair remains available.
+    var allDevices=d.devices||[];
     if(!allDevices.filter(function(dev){return !dev.hidden}).length){
       grid.innerHTML='<div style="color:var(--muted);font-size:0.82rem">Scanning\u2026</div>';
       d=await apiFetch('/api/scan').then(function(r){return r.json()});
-      allDevices=(d.devices||[]).filter(function(dev){return dev.paired!==false});
+      allDevices=d.devices||[];
     }
     renderOutputCards(allDevices);
   }catch(e){grid.innerHTML='<div style="color:var(--rust);font-size:0.82rem">Failed: '+e.message+'</div>'}
@@ -869,15 +872,20 @@ function renderOutputCards(allDevices){
     var isLocal=dev.type==='local';
     var isBT=dev.type==='bluetooth';
     var isBrowser=dev.type==='browser';
+    var needsPair=dev.needs_pairing&&dev.paired===false;
     var typeBadge=isBrowser?'<div class="device-type-badge browser">This Device</div>'
       :isLocal?'<div class="device-type-badge local">Local</div>'
       :isBT?'<div class="device-type-badge bt">Bluetooth</div>'
-      :'<div class="device-type-badge airplay">AirPlay</div>';
-    return '<div class="output-device-card'+(last?' last-used':'')+'" onclick="pickOutput('+idx+')" data-device-id="'+dev.id+'">'
+      :(dev.airplay2?'<div class="device-type-badge airplay2">AirPlay 2</div>'
+        :'<div class="device-type-badge airplay">AirPlay</div>');
+    return '<div class="output-device-card'+(last?' last-used':'')+(needsPair?'':'')+'" onclick="'
+      +(needsPair?'pairDevice(\''+dev.id+'\')':'pickOutput('+idx+')')
+      +'" data-device-id="'+dev.id+'" style="'+(needsPair?'opacity:0.7;':'')+'">'
       +'<div class="output-device-icon">'+icon+'</div>'
       +'<div class="output-device-name">'+esc(name)+'</div>'
       +(orig?'<div class="output-device-orig">'+esc(orig)+'</div>':'')
       +typeBadge
+      +(needsPair?'<div class="output-device-rename" style="color:var(--amber-dk)">tap to pair</div>':'')
       +'<div class="output-device-rename" onclick="event.stopPropagation();renameDevice(\''+dev.id+'\',\''+esc(name).replace(/'/g,"\\'")+'\')">rename</div>'
       +'<div class="output-device-rename" onclick="event.stopPropagation();hideOutputDevice(\''+dev.id+'\',\''+esc(name).replace(/'/g,"\\'")+'\')">hide</div>'
       +'</div>';
@@ -981,7 +989,7 @@ function closeOutputPicker(){document.getElementById('output-picker-overlay').cl
 async function rescanOutputDevices(){
   var grid=document.getElementById('output-device-grid');
   grid.innerHTML='<div style="color:var(--muted);font-size:0.82rem">Scanning\u2026</div>';
-  try{var d=await apiFetch('/api/scan').then(function(r){return r.json()});renderOutputCards((d.devices||[]).filter(function(dev){return !dev.hidden&&dev.paired!==false}))}
+  try{var d=await apiFetch('/api/scan').then(function(r){return r.json()});renderOutputCards(d.devices||[])}
   catch(e){grid.innerHTML='<div style="color:var(--rust);font-size:0.82rem">Scan failed</div>'}
 }
 async function hideOutputDevice(deviceId,name){
@@ -2671,6 +2679,7 @@ async function loadRecDevicePicker(){
       +'<div class="output-device-name" style="font-size:0.72rem">'+esc(name)+'</div>'
       +(isLocal?'<div class="device-type-badge local">Local</div>'
         :dev.type==='bluetooth'?'<div class="device-type-badge bt">Bluetooth</div>'
+        :dev.airplay2?'<div class="device-type-badge airplay2">AirPlay 2</div>'
         :'<div class="device-type-badge airplay">AirPlay</div>')
       +'</div>';
   });
@@ -2841,8 +2850,8 @@ async function loadStats(){try{const r=await apiFetch('/api/catalog/stats').then
 function renderTopAlbums(albums){const c=document.getElementById('top-albums-list');if(!albums.length){c.innerHTML='<div style="color:var(--muted);font-size:0.82rem">No plays yet</div>';return}c.innerHTML=albums.map(a=>{const art=a.user_artwork_path||a.artwork_path;const artHtml=art?`<img src="/artwork/${art.split('/').pop()}" class="stats-album-art" alt="">`:'<div class="stats-album-art" style="background:var(--paper-dk);display:flex;align-items:center;justify-content:center;font-size:1.2rem">💿</div>';return`<div class="stats-album-item" onclick="statsJumpToAlbum(${a.id})"><div class="stats-album-art" style="background:var(--paper-dk);width:50px;height:50px;border-radius:4px;display:flex;align-items:center;justify-content:center;overflow:hidden;border:1px solid rgba(0,0,0,0.1)">${artHtml}</div><div class="stats-album-info"><div class="stats-album-title">${esc(a.title)}</div><div class="stats-album-artist">${esc(a.artist)}</div></div><div class="stats-play-count">${a.play_count} plays</div></div>`}).join('')}
 function renderTopTracks(tracks){const c=document.getElementById('top-tracks-list');if(!tracks.length){c.innerHTML='<div style="color:var(--muted);font-size:0.82rem">No plays yet</div>';return}c.innerHTML=tracks.map(t=>`<div class="stats-track-item" onclick="statsJumpToAlbum(${t.album_id||0})"><div class="stats-track-info"><div class="stats-track-title">${esc(t.title)}</div><div class="stats-track-artist">${esc(t.artist||t.album_title)}</div></div><div class="stats-play-count">${t.play_count}</div></div>`).join('')}
 function renderRecentPlays(plays){const c=document.getElementById('recent-plays-list');if(!plays.length){c.innerHTML='<div style="color:var(--muted);font-size:0.82rem">No plays yet</div>';return}c.innerHTML=plays.map(p=>{const art=p.user_artwork_path||p.artwork_path;const artHtml=art?`<img src="/artwork/${art.split('/').pop()}" class="stats-recent-art" alt="">`:'<div style="background:var(--paper-dk);width:40px;height:40px;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:0.9rem;border:1px solid rgba(0,0,0,0.1)">💿</div>';const d=new Date(p.played_at);const h=d.getHours().toString().padStart(2,'0');const m=d.getMinutes().toString().padStart(2,'0');const timeStr=h+':'+m;return`<div class="stats-recent-item" onclick="statsJumpToAlbum(${p.album_id||0})"><div class="stats-recent-art" style="background:var(--paper-dk);width:40px;height:40px;border-radius:4px;display:flex;align-items:center;justify-content:center;overflow:hidden;border:1px solid rgba(0,0,0,0.1);font-size:0.9rem">${artHtml}</div><div class="stats-recent-info"><div class="stats-recent-track">${esc(p.track_title)}</div><div class="stats-recent-album">${esc(p.album_title)}</div></div><div class="stats-recent-time">${timeStr}</div></div>`}).join('')}
-async function scanDevices(){try{const d=await apiFetch('/api/scan').then(r=>r.json());renderSettingsDevices(d.devices);renderHiddenDevices(d.devices)}catch(e){showError('Scan failed')}}
-function renderSettingsDevices(devs){const l=document.getElementById('settings-device-list');const v=(devs||[]).filter(d=>!d.hidden);if(!v.length){l.innerHTML='<div style="color:var(--muted);font-size:0.82rem">No devices found</div>';return}l.innerHTML=v.map(d=>{const np=d.needs_pairing&&d.paired===false;return `<label class="device-item" style="opacity:${np?'0.6':'1'}"><input type="checkbox" class="dev-check" value='${JSON.stringify({id:d.id,name:d.name}).replace(/'/g,"&apos;")}'><span style="flex:1">${esc(d.name)}</span>${np?`<button class="btn btn-ghost" onclick="pairDevice('${d.id}')">Pair</button>`:''}</label>`}).join('')}
+async function scanDevices(){try{const d=await apiFetch('/api/scan').then(r=>r.json());window._lastScanDevices=d.devices||[];renderSettingsDevices(d.devices);renderHiddenDevices(d.devices)}catch(e){showError('Scan failed')}}
+function renderSettingsDevices(devs){const l=document.getElementById('settings-device-list');const v=(devs||[]).filter(d=>!d.hidden);if(!v.length){l.innerHTML='<div style="color:var(--muted);font-size:0.82rem">No devices found</div>';return}l.innerHTML=v.map(d=>{const np=d.needs_pairing&&d.paired===false;const badge=d.airplay2?'<span class="device-type-badge airplay2" title="AirPlay 2">AP2</span>':'';const grouped=d.grouped?' <span style="color:var(--muted);font-size:0.72rem">(group)</span>':'';return `<label class="device-item" style="opacity:${np?'0.6':'1'}"><input type="checkbox" class="dev-check" value='${JSON.stringify({id:d.id,name:d.name}).replace(/'/g,"&apos;")}'><span style="flex:1">${esc(d.name)}${grouped}</span>${badge}${np?`<button class="btn btn-ghost" onclick="pairDevice('${d.id}')">Pair</button>`:''}</label>`}).join('')}
 function getSelectedDevices(){return[...document.querySelectorAll('.dev-check:checked')].map(c=>JSON.parse(c.value))}
 var _streamActionPending=false;
 async function startStream(){
@@ -2903,9 +2912,11 @@ async function pairOneProtocol(did,proto){
   return f;
 }
 async function pairDevice(did){
-  // Some Apple TVs require pairing RAOP and AirPlay both. Server tells
-  // us via remaining_protocols which still need it.
-  let r=await pairOneProtocol(did,'raop');
+  // Prefer the protocol the server recommended on the last scan (AirPlay 2
+  // HAP for Apple TV / HomePod on the cliairplay path; otherwise RAOP).
+  const cached=(window._lastScanDevices||[]).find(d=>d.id===did);
+  const firstProto=(cached&&cached.pair_protocol)||'raop';
+  let r=await pairOneProtocol(did,firstProto);
   if(!r)return;
   const remaining=(r.remaining_protocols||[]);
   for(const proto of remaining){
@@ -2916,7 +2927,21 @@ async function pairDevice(did){
   scanDevices();
 }
 function renderHiddenDevices(devs){const l=document.getElementById('hidden-device-list');if(!devs||!devs.length){l.innerHTML='<div style="color:var(--muted);font-size:0.82rem">Scan to manage</div>';return}l.innerHTML=devs.map(d=>`<label class="device-item" style="gap:0.5rem"><input type="checkbox" ${d.hidden?'checked':''} onchange="toggleHidden('${d.id}',this.checked)" style="accent-color:var(--rust)"><span style="font-size:0.82rem">${esc(d.name)}${d.hidden?' (hidden)':''}</span></label>`).join('')}
-async function toggleHidden(did,hide){await apiFetch('/api/device/hide',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({device_id:did,hidden:hide})})}
+async function toggleHidden(did,hide){
+  try{
+    const enc=encodeURIComponent(did);
+    await apiFetch('/api/devices/'+enc+'/hide',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({hidden:!!hide})});
+    // Refresh both lists so unhidden devices move into AirPlay Devices
+    if(window._lastScanDevices){
+      const d=window._lastScanDevices.find(x=>x.id===did);
+      if(d)d.hidden=!!hide;
+      renderSettingsDevices(window._lastScanDevices);
+      renderHiddenDevices(window._lastScanDevices);
+    }else{
+      scanDevices();
+    }
+  }catch(e){showError('Failed to update hidden device')}
+}
 async function saveAutoStreamSettings(){const en=document.getElementById('auto-stream-enabled').checked,sel=document.getElementById('auto-stream-device-select'),opt=sel.options[sel.selectedIndex],dev=opt&&opt.value?{id:opt.value,name:opt.textContent}:null;const payload={auto_stream_enabled:en};if(dev){payload.auto_stream_device=dev;window._savedAutoStreamDevice=dev}const shown=dev||window._savedAutoStreamDevice;await apiFetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});document.getElementById('auto-stream-status').textContent=en&&shown?`Auto-streaming to: ${shown.name}`:''}
 async function scanAutoStreamDevices(){const sel=document.getElementById('auto-stream-device-select');sel.innerHTML='<option value="">Scanning\u2026</option>';try{const d=await apiFetch('/api/scan').then(r=>r.json());sel.innerHTML='<option value="">\u2014 Select \u2014</option>';(d.devices||[]).filter(d=>!d.hidden).forEach(d=>{const o=document.createElement('option');o.value=d.id;o.textContent=d.name;sel.appendChild(o)});if(window._savedAutoStreamDevice)sel.value=window._savedAutoStreamDevice.id}catch(e){sel.innerHTML='<option value="">Scan failed</option>'}}
 function updateHttpStreamUI(){
