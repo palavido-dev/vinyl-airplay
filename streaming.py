@@ -593,16 +593,24 @@ async def _run_stream_inner(targets, audio_device_index, volume):
             ap2_streams = []
             state.ap2_streams = []
             await broadcast("error", {"message": f"AirPlay 2 start failed: {e}"})
-            # Fall back to RAOP-only for devices that don't require AP2
-            from transports_airplay2 import should_use_airplay2
+            # Keep pyatv RAOP only for non-Apple / non-grouped targets.
+            # Apple TV with HomePod-as-audio cannot use RAOP.
+            from transports_airplay2 import (
+                conf_is_apple_tv, conf_is_homepod, conf_looks_grouped,
+            )
             id_to_conf = {d.identifier: d for d in found}
             confs = []
             for t in airplay_targets:
                 c = id_to_conf.get(t["id"])
-                if c and not (binary and should_use_airplay2(
-                    c, t["id"], binary_available=True
-                )):
-                    confs.append(c)
+                if not c:
+                    continue
+                if conf_is_apple_tv(c) or conf_is_homepod(c) or conf_looks_grouped(c):
+                    print(
+                        f"[airplay2] Not falling back to RAOP for {c.name} "
+                        "(ATV→HomePod / grouped needs native AP2 + PTP)"
+                    )
+                    continue
+                confs.append(c)
 
     # Set up local output streams. Resolve the ALSA device fresh from the
     # current card enumeration by the target's stable id, so a card reorder (or

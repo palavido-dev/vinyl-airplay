@@ -32,7 +32,23 @@ BITS = 16
 CLIAIRPLAY_VERSION = "v0.5.5"
 CLIAIRPLAY_REPO = "music-assistant/airplay-cli"
 # Absolute path so pairing survives cwd changes (/opt vs ~/vinyl-airplay).
-CREDENTIALS_FILE = Path(__file__).resolve().parent / "data" / "airplay2_credentials.json"
+_APP_ROOT = Path(__file__).resolve().parent
+CREDENTIALS_FILE = _APP_ROOT / "data" / "airplay2_credentials.json"
+# Older runs wrote credentials relative to cwd or into the other install tree.
+_CREDENTIAL_FALLBACKS = (
+    Path("data/airplay2_credentials.json"),
+    Path("/home/listen/vinyl-airplay/data/airplay2_credentials.json"),
+    Path("/opt/vinyl-streamer/data/airplay2_credentials.json"),
+)
+
+
+def _credential_paths() -> list[Path]:
+    paths = [CREDENTIALS_FILE]
+    for p in _CREDENTIAL_FALLBACKS:
+        if p.resolve() != CREDENTIALS_FILE.resolve():
+            paths.append(p)
+    return paths
+
 
 # AirPlay features bits (same as pyatv / MA): AP2 if either is set.
 _SUPPORTS_UNIFIED_MEDIA_CONTROL = 1 << 38
@@ -231,12 +247,24 @@ def ensure_cliairplay() -> str | None:
 # ── Credentials store ─────────────────────────────────────────────────────────
 
 def load_credentials() -> dict:
-    if not CREDENTIALS_FILE.exists():
-        return {}
-    try:
-        return json.loads(CREDENTIALS_FILE.read_text())
-    except Exception:
-        return {}
+    """Load HAP credentials, merging every known store location.
+
+    Pairing done under /opt must still be found when the service runs from
+    ~/vinyl-airplay (and vice versa).
+    """
+    merged: dict = {}
+    for path in _credential_paths():
+        if not path.exists():
+            continue
+        try:
+            data = json.loads(path.read_text())
+        except Exception:
+            continue
+        if isinstance(data, dict):
+            for device_id, entry in data.items():
+                if device_id not in merged and isinstance(entry, dict) and entry.get("auth"):
+                    merged[device_id] = entry
+    return merged
 
 
 def save_credentials(store: dict) -> None:
@@ -244,6 +272,15 @@ def save_credentials(store: dict) -> None:
     tmp = CREDENTIALS_FILE.with_suffix(".json.tmp")
     tmp.write_text(json.dumps(store, indent=2) + "\n")
     os.replace(tmp, CREDENTIALS_FILE)
+    # Mirror into the other install tree so a service-path switch keeps pairing.
+    for path in _CREDENTIAL_FALLBACKS:
+        if path.resolve() == CREDENTIALS_FILE.resolve():
+            continue
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps(store, indent=2) + "\n")
+        except OSError:
+            pass
 
 
 def get_credentials(device_id: str) -> dict | None:
@@ -564,8 +601,8 @@ class CliAirPlayStream:
             self.stop()
             raise RuntimeError(
                 f"{self.name}: cliairplay fell back to NTP (PTP ports blocked). "
-                "Apple TV shows nothing on NTP realtime — grant CAP_NET_BIND_SERVICE "
-                "or use RAOP."
+                "Apple TV with HomePod audio needs CAP_NET_BIND_SERVICE on cliairplay "
+                f"(sudo setcap 'cap_net_bind_service=+ep' {self.binary})."
             )
 
         if not self.defer_start:
@@ -1008,29 +1045,34 @@ def build_stream_for_conf(
     port = conf_airplay_port(conf)
     is_atv = conf_is_apple_tv(conf)
     is_apple = is_atv or conf_is_homepod(conf)
-    protocol = "airplay2" if supports_airplay2(features) or is_atv else "auto"
+    # Apple TV with a HomePod as its audio output is AP2-only — classic RAOP
+    # and airplay2-compat cannot drive that path.
+    needs_native = is_apple or conf_looks_grouped(conf)
 
-    # Apple TV/HomePod: native AP2 + PTP only when the PTP daemon can bind
-    # and we have HAP credentials. Otherwise the jukebox shows "playing"
-    # while the Apple TV stays blank (NTP realtime silence / no MediaRemote).
-    if is_apple:
-        if ptp_available is None:
-            # Best-effort: capability bit; acquire is done at start().
-            ptp_available = binary_has_ptp_cap(binary) or PtpDaemon.ready()
+    if ptp_available is None:
+        ptp_available = binary_has_ptp_cap(binary) or PtpDaemon.ready()
+
+    if needs_native:
         if not auth:
             raise RuntimeError(
-                f"{conf.name}: Apple TV/HomePod need HAP pairing before AirPlay 2 "
-                "(Settings → Pair). Falling back to RAOP is handled by the caller."
+                f"{conf.name}: pair from Settings first (HAP PIN). "
+                "Apple TV / HomePod audio needs AirPlay 2 credentials — "
+                "RAOP will not work when a HomePod is the TV's speaker."
             )
         if not ptp_available:
             raise RuntimeError(
-                f"{conf.name}: PTP ports unavailable (need CAP_NET_BIND_SERVICE on "
-                f"{binary}). Caller should fall back to RAOP."
+                f"{conf.name}: PTP clock unavailable (UDP 319/320). "
+                f"Run: sudo setcap 'cap_net_bind_service=+ep' {binary} "
+                "then restart the service. "
+                "RAOP cannot play to an Apple TV that uses a HomePod for audio."
             )
+        protocol = "airplay2"
         timing = "ptp"
         use_shared = True
         require_ptp = True
+        print(f"[airplay2] {conf.name}: native AP2 + PTP (required for ATV/HomePod)")
     else:
+        protocol = "airplay2" if supports_airplay2(features) else "auto"
         timing = None
         use_shared = use_ptp_shared
         require_ptp = False
@@ -1051,9 +1093,8 @@ def build_stream_for_conf(
         timing=timing,
     )
     stream.require_ptp = require_ptp
-    # Only force buffered when the receiver advertises it — otherwise let
-    # cliairplay auto-select (forced buffered without PTP = blank ATV).
-    if is_atv and supports_buffered_audio(features):
+    # Only force buffered on native PTP routes that advertise it.
+    if is_atv and require_ptp and supports_buffered_audio(features):
         stream.force_buffered = True
     return stream
 
@@ -1101,13 +1142,9 @@ def resolve_airplay_outputs(
 ) -> tuple[list, list]:
     """Split scanned devices into (pyatv_confs, CliAirPlayStream list).
 
-    AP2 streams are started (including synced multi-room START). Caller owns
-    teardown via ``stream.stop()``. Returns empty AP2 list when binary missing
-    or start fails (errors are printed; caller may surface them).
-
-    Apple TV / HomePod without a working PTP clock (or without HAP credentials)
-    fall back to pyatv RAOP so the jukebox does not report "playing" to a
-    blank Apple TV.
+    Apple TV / HomePod / grouped receivers always use cliairplay native AP2 +
+    PTP. They are never placed on the pyatv RAOP list — RAOP cannot drive an
+    Apple TV whose audio output is a paired HomePod.
     """
     id_to_conf = {d.identifier: d for d in found_confs}
     if airplay2_enabled:
@@ -1117,15 +1154,14 @@ def resolve_airplay_outputs(
 
     ptp_ok = False
     if binary:
-        # Probe once: acquire holds a ref if successful; release immediately so
-        # stream start re-acquires cleanly.
         ptp_ok = PtpDaemon.acquire(binary)
         if ptp_ok:
             PtpDaemon.release()
         else:
             print(
-                "[airplay2] PTP daemon unavailable — Apple TV/HomePod will use "
-                "RAOP when possible (fix CAP_NET_BIND_SERVICE on cliairplay)"
+                "[airplay2] PTP daemon unavailable — Apple TV/HomePod will fail "
+                "closed (RAOP cannot drive HomePod-as-ATV-audio). Fix with:\n"
+                f"  sudo setcap 'cap_net_bind_service=+ep' {binary}"
             )
 
     raop_confs = []
@@ -1133,34 +1169,29 @@ def resolve_airplay_outputs(
     for t in airplay_targets:
         conf = id_to_conf.get(t["id"])
         if not conf:
+            print(f"[airplay2] Target {t.get('name') or t.get('id')} not found in scan")
             continue
-        if not (binary and should_use_airplay2(conf, t["id"], binary_available=True)):
-            raop_confs.append(conf)
-            continue
-        is_apple = conf_is_apple_tv(conf) or conf_is_homepod(conf)
-        if is_apple:
-            creds = get_credentials(t["id"])
-            if not creds or not ptp_ok:
-                if conf_has_raop(conf):
-                    why = "not paired" if not creds else "PTP unavailable"
-                    print(
-                        f"[airplay2] {conf.name}: {why} — using RAOP so the "
-                        "Apple TV actually plays (jukebox would otherwise show "
-                        "playing with a blank TV)"
-                    )
-                    raop_confs.append(conf)
-                    continue
-                if not creds:
-                    raise RuntimeError(
-                        f"{conf.name} needs Pair from Settings before AirPlay 2 "
-                        "(no RAOP service to fall back to)"
-                    )
-                # Grouped HomePod with no RAOP and no PTP: fail loudly.
+        needs_native = (
+            conf_is_apple_tv(conf)
+            or conf_is_homepod(conf)
+            or conf_looks_grouped(conf)
+        )
+        if binary and (needs_native or should_use_airplay2(
+            conf, t["id"], binary_available=True
+        )):
+            if needs_native and not binary:
                 raise RuntimeError(
-                    f"{conf.name} needs PTP (CAP_NET_BIND_SERVICE on cliairplay) "
-                    "for AirPlay 2; no RAOP fallback available"
+                    f"{conf.name}: AirPlay 2 binary required "
+                    "(RAOP cannot play to ATV→HomePod audio)"
                 )
-        ap2_confs.append(conf)
+            ap2_confs.append(conf)
+        else:
+            if needs_native:
+                raise RuntimeError(
+                    f"{conf.name}: install cliairplay + CAP_NET_BIND_SERVICE; "
+                    "RAOP will not work when a HomePod is the Apple TV's audio"
+                )
+            raop_confs.append(conf)
 
     ap2_streams: list[CliAirPlayStream] = []
     if ap2_confs and binary:
@@ -1169,7 +1200,7 @@ def resolve_airplay_outputs(
                 build_stream_for_conf(
                     c, volume=volume, binary=binary,
                     use_ptp_shared=True,
-                    defer_start=len(ap2_confs) > 1,
+                    defer_start=True,
                     ptp_available=ptp_ok,
                 )
                 for c in ap2_confs
@@ -1181,6 +1212,11 @@ def resolve_airplay_outputs(
                 with suppress(Exception):
                     s.stop()
             raise
+    elif ap2_confs and not binary:
+        names = ", ".join(c.name for c in ap2_confs)
+        raise RuntimeError(
+            f"AirPlay 2 required for {names} but cliairplay is not installed"
+        )
     return raop_confs, ap2_streams
 
 

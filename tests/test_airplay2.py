@@ -126,54 +126,62 @@ def _fake_apple_tv(identifier="atv1", name="Living Room TV", has_raop=True):
     return conf
 
 
-def test_resolve_falls_back_to_raop_without_ptp(monkeypatch):
+def test_resolve_fails_closed_without_ptp_for_apple(monkeypatch):
+    """ATV→HomePod audio cannot use RAOP; missing PTP must raise, not RAOP-fallback."""
     conf = _fake_apple_tv()
     monkeypatch.setattr(ap2, "find_cliairplay", lambda: "/bin/fake-cliairplay")
     monkeypatch.setattr(ap2, "conf_is_apple_tv", lambda _c: True)
     monkeypatch.setattr(ap2, "conf_is_homepod", lambda _c: False)
-    monkeypatch.setattr(ap2, "conf_has_raop", lambda _c: True)
+    monkeypatch.setattr(ap2, "conf_looks_grouped", lambda _c: False)
     monkeypatch.setattr(ap2, "get_credentials", lambda _id: {"auth": "a" * 192})
     monkeypatch.setattr(
         ap2.PtpDaemon, "acquire", classmethod(lambda cls, _b: False)
     )
     monkeypatch.setattr(ap2.PtpDaemon, "release", classmethod(lambda cls: None))
 
-    raop, streams = ap2.resolve_airplay_outputs(
-        [{"id": "atv1", "name": "Living Room TV"}],
-        [conf],
-        volume=50,
-        binary="/bin/fake-cliairplay",
-    )
-    assert streams == []
-    assert raop == [conf]
+    try:
+        ap2.resolve_airplay_outputs(
+            [{"id": "atv1", "name": "Living Room TV"}],
+            [conf],
+            volume=50,
+            binary="/bin/fake-cliairplay",
+        )
+        assert False, "expected RuntimeError"
+    except RuntimeError as e:
+        msg = str(e).lower()
+        assert "ptp" in msg or "setcap" in msg
+        assert "homepod" in msg or "raop" in msg
 
 
-def test_resolve_falls_back_to_raop_when_unpaired(monkeypatch):
+def test_resolve_fails_closed_when_unpaired(monkeypatch):
     conf = _fake_apple_tv()
     monkeypatch.setattr(ap2, "find_cliairplay", lambda: "/bin/fake-cliairplay")
     monkeypatch.setattr(ap2, "conf_is_apple_tv", lambda _c: True)
     monkeypatch.setattr(ap2, "conf_is_homepod", lambda _c: False)
-    monkeypatch.setattr(ap2, "conf_has_raop", lambda _c: True)
+    monkeypatch.setattr(ap2, "conf_looks_grouped", lambda _c: False)
     monkeypatch.setattr(ap2, "get_credentials", lambda _id: None)
     monkeypatch.setattr(
         ap2.PtpDaemon, "acquire", classmethod(lambda cls, _b: True)
     )
     monkeypatch.setattr(ap2.PtpDaemon, "release", classmethod(lambda cls: None))
 
-    raop, streams = ap2.resolve_airplay_outputs(
-        [{"id": "atv1"}],
-        [conf],
-        volume=50,
-        binary="/bin/fake-cliairplay",
-    )
-    assert streams == []
-    assert raop == [conf]
+    try:
+        ap2.resolve_airplay_outputs(
+            [{"id": "atv1"}],
+            [conf],
+            volume=50,
+            binary="/bin/fake-cliairplay",
+        )
+        assert False, "expected RuntimeError"
+    except RuntimeError as e:
+        assert "pair" in str(e).lower()
 
 
 def test_build_stream_requires_auth_for_apple(monkeypatch):
     conf = _fake_apple_tv()
     monkeypatch.setattr(ap2, "conf_is_apple_tv", lambda _c: True)
     monkeypatch.setattr(ap2, "conf_is_homepod", lambda _c: False)
+    monkeypatch.setattr(ap2, "conf_looks_grouped", lambda _c: False)
     monkeypatch.setattr(ap2, "get_credentials", lambda _id: None)
     monkeypatch.setattr(ap2, "conf_airplay_properties", lambda _c: {})
     monkeypatch.setattr(ap2, "conf_features_value", lambda _c: "0x0,0x2040")
@@ -184,13 +192,37 @@ def test_build_stream_requires_auth_for_apple(monkeypatch):
         )
         assert False, "expected RuntimeError"
     except RuntimeError as e:
-        assert "pairing" in str(e).lower() or "HAP" in str(e)
+        assert "pair" in str(e).lower() or "HAP" in str(e)
 
 
-def test_build_stream_does_not_force_buffered_without_feature(monkeypatch):
+def test_build_stream_requires_ptp_for_apple(monkeypatch):
     conf = _fake_apple_tv()
     monkeypatch.setattr(ap2, "conf_is_apple_tv", lambda _c: True)
     monkeypatch.setattr(ap2, "conf_is_homepod", lambda _c: False)
+    monkeypatch.setattr(ap2, "conf_looks_grouped", lambda _c: False)
+    monkeypatch.setattr(
+        ap2, "get_credentials",
+        lambda _id: {"auth": "b" * 192, "dacp_id": "ABCDEF123456"},
+    )
+    monkeypatch.setattr(ap2, "conf_airplay_properties", lambda _c: {
+        "features": "0x0,0x2040",
+    })
+    monkeypatch.setattr(ap2, "conf_features_value", lambda _c: "0x0,0x2040")
+    monkeypatch.setattr(ap2, "conf_airplay_port", lambda _c: 7000)
+    try:
+        ap2.build_stream_for_conf(
+            conf, volume=50, binary="/bin/fake", ptp_available=False
+        )
+        assert False, "expected RuntimeError"
+    except RuntimeError as e:
+        assert "ptp" in str(e).lower() or "setcap" in str(e).lower()
+
+
+def test_build_stream_native_ptp_when_ready(monkeypatch):
+    conf = _fake_apple_tv()
+    monkeypatch.setattr(ap2, "conf_is_apple_tv", lambda _c: True)
+    monkeypatch.setattr(ap2, "conf_is_homepod", lambda _c: False)
+    monkeypatch.setattr(ap2, "conf_looks_grouped", lambda _c: False)
     monkeypatch.setattr(
         ap2, "get_credentials",
         lambda _id: {"auth": "b" * 192, "dacp_id": "ABCDEF123456"},
@@ -206,4 +238,5 @@ def test_build_stream_does_not_force_buffered_without_feature(monkeypatch):
     assert stream.force_buffered is False
     assert stream.timing == "ptp"
     assert stream.require_ptp is True
+    assert stream.protocol == "airplay2"
     assert stream.auth == "b" * 192

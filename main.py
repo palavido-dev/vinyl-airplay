@@ -171,12 +171,22 @@ async def lifespan(app: FastAPI):
 
     # Resolve cliairplay once at boot so AirPlay 2 routing is cheap later.
     try:
+        from transports_airplay2 import binary_has_ptp_cap
         state.cliairplay_path = find_cliairplay()
         if state.cliairplay_path:
             print(f"[airplay2] cliairplay ready: {state.cliairplay_path}")
+            if binary_has_ptp_cap(state.cliairplay_path):
+                print("[airplay2] CAP_NET_BIND_SERVICE present — PTP ok for ATV/HomePod")
+            else:
+                print(
+                    "[airplay2] WARNING: no CAP_NET_BIND_SERVICE on "
+                    f"{state.cliairplay_path} — Apple TV with HomePod audio will "
+                    "fail until you run:\n"
+                    f"  sudo setcap 'cap_net_bind_service=+ep' {state.cliairplay_path}"
+                )
         else:
-            print("[airplay2] cliairplay not installed — AP2 devices will "
-                  "fall back to RAOP where possible (see docs/airplay2.md)")
+            print("[airplay2] cliairplay not installed — AP2 devices unavailable "
+                  "(RAOP still works for classic speakers; not for ATV→HomePod)")
     except Exception as e:
         print(f"[airplay2] Binary probe failed: {e}")
         state.cliairplay_path = None

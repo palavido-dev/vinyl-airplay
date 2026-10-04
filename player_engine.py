@@ -127,7 +127,21 @@ async def _resolve_player_airplay(airplay_targets, volume, main_loop):
         print(f"[airplay2] Player AP2 start failed: {e}")
         state.ap2_streams = []
         await broadcast("error", {"message": f"AirPlay 2 start failed: {e}"})
-        confs, ap2_streams = [], []
+        # Never RAOP-fallback Apple TV / HomePod / groups — that path cannot
+        # drive ATV→HomePod audio and produces a fake "playing" state.
+        from transports_airplay2 import (
+            conf_is_apple_tv, conf_is_homepod, conf_looks_grouped,
+        )
+        id_to_conf = {d.identifier: d for d in found}
+        confs = []
+        for t in airplay_targets:
+            c = id_to_conf.get(t["id"])
+            if not c:
+                continue
+            if conf_is_apple_tv(c) or conf_is_homepod(c) or conf_looks_grouped(c):
+                continue
+            confs.append(c)
+        ap2_streams = []
     return confs, ap2_streams
 
 

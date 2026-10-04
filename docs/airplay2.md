@@ -44,32 +44,43 @@ Many third-party AirPlay 2 receivers need no pairing (transient HAP).
 
 ## Apple TV notes
 
-Jukebox “playing to Apple TV” with a **blank Apple TV** (no sound, no Now
-Playing) almost always means the AirPlay 2 session fell back to NTP realtime
-or never got HAP credentials. Apple TVs render nothing useful on that path.
+An Apple TV that uses a **paired HomePod as its audio output** is AirPlay 2
+only. Classic RAOP (and `airplay2-compat`) cannot drive that path — the jukebox
+will look like it is playing while the TV stays blank.
 
-Vinyl Streamer therefore:
+Vinyl Streamer therefore **requires** native AP2 + PTP for Apple TV / HomePod:
 
-1. Requires a working PTP clock (`cliairplay --ptp-daemon` binding UDP 319/320)
-2. Requires HAP pairing credentials (`data/airplay2_credentials.json` next to
-   the app, absolute path)
-3. Falls back to **RAOP (pyatv)** when PTP or pairing is missing, so audio
-   still reaches the TV instead of a fake “playing” state
-4. Does **not** force `--buffered` unless the TV advertises SupportsBufferedAudio
-
-Grant the capability on **every** `cliairplay` you might run (home checkout
-and `/opt`):
+1. Working PTP clock (`cliairplay` binding UDP 319/320 via `CAP_NET_BIND_SERVICE`)
+2. HAP pairing credentials (Settings → Pair — PIN on the TV)
+3. Fail closed with a visible error if either is missing (no silent RAOP fallback)
 
 ```bash
+# On the Pi — do both trees if you have them:
 sudo setcap 'cap_net_bind_service=+ep' /home/listen/vinyl-airplay/bin/cliairplay
 sudo setcap 'cap_net_bind_service=+ep' /opt/vinyl-streamer/bin/cliairplay
 getcap /home/listen/vinyl-airplay/bin/cliairplay
-getcap /opt/vinyl-streamer/bin/cliairplay
+# Must show: cap_net_bind_service=ep
+
+cd ~/vinyl-airplay && git pull origin cursor/airplay2-support-755b
+sudo systemctl restart vinyl-airplay   # or your unit for this tree
 ```
 
-Confirm the stream log shows `timing=ptp` and `ptp_shared=True` (not a
-“PTP daemon exited” / “using RAOP” warning) when playing AirPlay 2 to an
-Apple TV. A RAOP fallback line is expected and healthy until PTP is fixed.
+Confirm in the log when you hit Play:
+
+```text
+[airplay2] <name>: native AP2 + PTP (required for ATV/HomePod)
+[airplay2] Connecting ... timing=ptp ptp_shared=True auth=yes
+[airplay2] PTP daemon started
+```
+
+If you see `PTP clock unavailable` or `pair from Settings first`, fix that —
+do not expect RAOP to rescue ATV→HomePod audio.
+
+```bash
+journalctl -u vinyl-airplay -n 100 --no-pager | egrep -i 'airplay2|PTP|setcap|pair|error'
+ls -la ~/vinyl-airplay/data/airplay2_credentials.json /opt/vinyl-streamer/data/airplay2_credentials.json 2>/dev/null
+```
+
 
 ## License note
 
