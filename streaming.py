@@ -29,6 +29,7 @@ from audio_streams import AsyncAudioStream, LocalOutputStream, _browser_streams,
 from device_helpers import _capture_channels, _capture_device_index, _get_local_outputs
 from recognition import _art_jpeg, _make_on_match, _make_on_unknown
 from recording_engine import _auto_finalize_album_side
+from transports_airplay2 import find_cliairplay, resolve_airplay_outputs
 
 SAMPLE_RATE   = 44100
 BLOCK_SIZE    = 8192
@@ -526,16 +527,46 @@ async def _run_stream_inner(targets, audio_device_index, volume):
 
     # Set up AirPlay devices (if any). storage= attaches saved
     # credentials to the conf services so pyatv.connect doesn't have
-    # to re-pair every time.
+    # to re-pair every time. AP2-capable targets go through cliairplay;
+    # classic RAOP stays on pyatv.
     confs = []
+    ap2_streams = []
     if airplay_targets:
         if state.atv_storage is not None:
             await state.atv_storage.load()
         found = await pyatv.scan(
             main_loop, timeout=7, storage=state.atv_storage,
         )
-        id_to_conf = {d.identifier: d for d in found}
-        confs      = [id_to_conf[t["id"]] for t in airplay_targets if t["id"] in id_to_conf]
+        binary = None
+        if state.settings.get("airplay2_enabled", True):
+            binary = state.cliairplay_path or find_cliairplay()
+            state.cliairplay_path = binary
+        try:
+            confs, ap2_streams = await asyncio.to_thread(
+                resolve_airplay_outputs,
+                airplay_targets,
+                found,
+                volume=volume,
+                airplay2_enabled=state.settings.get("airplay2_enabled", True),
+                binary=binary,
+            )
+            state.ap2_streams = list(ap2_streams)
+        except Exception as e:
+            print(f"[airplay2] Failed to start AP2 streams: {e}")
+            traceback.print_exc()
+            ap2_streams = []
+            state.ap2_streams = []
+            await broadcast("error", {"message": f"AirPlay 2 start failed: {e}"})
+            # Fall back to RAOP-only for devices that don't require AP2
+            from transports_airplay2 import should_use_airplay2
+            id_to_conf = {d.identifier: d for d in found}
+            confs = []
+            for t in airplay_targets:
+                c = id_to_conf.get(t["id"])
+                if c and not (binary and should_use_airplay2(
+                    c, t["id"], binary_available=True
+                )):
+                    confs.append(c)
 
     # Set up local output streams. Resolve the ALSA device fresh from the
     # current card enumeration by the target's stable id, so a card reorder (or
@@ -591,7 +622,8 @@ async def _run_stream_inner(targets, audio_device_index, volume):
                   "frontend must call /api/stream/create first")
 
     http_only = False
-    if not confs and not local_streams and not bt_streams and not browser_streams:
+    n_airplay = len(confs) + len(ap2_streams)
+    if not n_airplay and not local_streams and not bt_streams and not browser_streams:
         if state.settings.get("http_stream_enabled"):
             http_only = True
             print("[http-stream] No playback targets selected; running capture for /live.mp3 only")
@@ -614,7 +646,7 @@ async def _run_stream_inner(targets, audio_device_index, volume):
     status_message = (
         "Streaming (HTTP MP3 live URL active)"
         if http_only
-        else f"Streaming to {len(confs) + len(local_streams) + len(bt_streams) + len(browser_streams)} device(s)"
+        else f"Streaming to {n_airplay + len(local_streams) + len(bt_streams) + len(browser_streams)} device(s)"
     )
     await broadcast("status", {
         "streaming": True, "devices": state.active_devices,
@@ -648,7 +680,10 @@ async def _run_stream_inner(targets, audio_device_index, volume):
     # RecordingBuffer and Recogniser) on first attach, otherwise just adds
     # this stream's output sinks to the existing capture.
     token = object()
-    sinks = list(audio_streams.values()) + local_streams + bt_streams + browser_streams
+    sinks = (
+        list(audio_streams.values()) + ap2_streams
+        + local_streams + bt_streams + browser_streams
+    )
     attached = False
     try:
         await capture.attach(token, sinks, audio_device_index)
@@ -660,7 +695,7 @@ async def _run_stream_inner(targets, audio_device_index, volume):
                 [stop_task, threads_task], return_when=asyncio.FIRST_COMPLETED
             )
         else:
-            # Local-only: just wait for stop
+            # Local-only / AP2-only: just wait for stop
             await stop_task
             pending = set()
         for t in pending:
@@ -672,6 +707,10 @@ async def _run_stream_inner(targets, audio_device_index, volume):
             full_stop = await capture.detach(token)
         for s in audio_streams.values():
             s.stop()
+        for s in ap2_streams:
+            with suppress(Exception):
+                s.stop()
+        state.ap2_streams = []
         for lo in local_streams:
             lo.stop()
         for bts in bt_streams:

@@ -23,5 +23,10 @@ certs/
 *.BAK
 screenshots
 
+# AirPlay 2 runtime binary (downloaded by install.sh) + HAP credentials
+bin/cliairplay
+bin/cliairplay-*
+data/airplay2_credentials.json
+
 # Product video build scratch
 site/assets/video/work/

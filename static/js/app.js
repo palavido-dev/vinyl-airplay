@@ -872,7 +872,8 @@ function renderOutputCards(allDevices){
     var typeBadge=isBrowser?'<div class="device-type-badge browser">This Device</div>'
       :isLocal?'<div class="device-type-badge local">Local</div>'
       :isBT?'<div class="device-type-badge bt">Bluetooth</div>'
-      :'<div class="device-type-badge airplay">AirPlay</div>';
+      :(d.airplay2?'<div class="device-type-badge airplay2">AirPlay 2</div>'
+        :'<div class="device-type-badge airplay">AirPlay</div>');
     return '<div class="output-device-card'+(last?' last-used':'')+'" onclick="pickOutput('+idx+')" data-device-id="'+dev.id+'">'
       +'<div class="output-device-icon">'+icon+'</div>'
       +'<div class="output-device-name">'+esc(name)+'</div>'
@@ -2671,6 +2672,7 @@ async function loadRecDevicePicker(){
       +'<div class="output-device-name" style="font-size:0.72rem">'+esc(name)+'</div>'
       +(isLocal?'<div class="device-type-badge local">Local</div>'
         :dev.type==='bluetooth'?'<div class="device-type-badge bt">Bluetooth</div>'
+        :dev.airplay2?'<div class="device-type-badge airplay2">AirPlay 2</div>'
         :'<div class="device-type-badge airplay">AirPlay</div>')
       +'</div>';
   });
@@ -2841,8 +2843,8 @@ async function loadStats(){try{const r=await apiFetch('/api/catalog/stats').then
 function renderTopAlbums(albums){const c=document.getElementById('top-albums-list');if(!albums.length){c.innerHTML='<div style="color:var(--muted);font-size:0.82rem">No plays yet</div>';return}c.innerHTML=albums.map(a=>{const art=a.user_artwork_path||a.artwork_path;const artHtml=art?`<img src="/artwork/${art.split('/').pop()}" class="stats-album-art" alt="">`:'<div class="stats-album-art" style="background:var(--paper-dk);display:flex;align-items:center;justify-content:center;font-size:1.2rem">💿</div>';return`<div class="stats-album-item" onclick="statsJumpToAlbum(${a.id})"><div class="stats-album-art" style="background:var(--paper-dk);width:50px;height:50px;border-radius:4px;display:flex;align-items:center;justify-content:center;overflow:hidden;border:1px solid rgba(0,0,0,0.1)">${artHtml}</div><div class="stats-album-info"><div class="stats-album-title">${esc(a.title)}</div><div class="stats-album-artist">${esc(a.artist)}</div></div><div class="stats-play-count">${a.play_count} plays</div></div>`}).join('')}
 function renderTopTracks(tracks){const c=document.getElementById('top-tracks-list');if(!tracks.length){c.innerHTML='<div style="color:var(--muted);font-size:0.82rem">No plays yet</div>';return}c.innerHTML=tracks.map(t=>`<div class="stats-track-item" onclick="statsJumpToAlbum(${t.album_id||0})"><div class="stats-track-info"><div class="stats-track-title">${esc(t.title)}</div><div class="stats-track-artist">${esc(t.artist||t.album_title)}</div></div><div class="stats-play-count">${t.play_count}</div></div>`).join('')}
 function renderRecentPlays(plays){const c=document.getElementById('recent-plays-list');if(!plays.length){c.innerHTML='<div style="color:var(--muted);font-size:0.82rem">No plays yet</div>';return}c.innerHTML=plays.map(p=>{const art=p.user_artwork_path||p.artwork_path;const artHtml=art?`<img src="/artwork/${art.split('/').pop()}" class="stats-recent-art" alt="">`:'<div style="background:var(--paper-dk);width:40px;height:40px;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:0.9rem;border:1px solid rgba(0,0,0,0.1)">💿</div>';const d=new Date(p.played_at);const h=d.getHours().toString().padStart(2,'0');const m=d.getMinutes().toString().padStart(2,'0');const timeStr=h+':'+m;return`<div class="stats-recent-item" onclick="statsJumpToAlbum(${p.album_id||0})"><div class="stats-recent-art" style="background:var(--paper-dk);width:40px;height:40px;border-radius:4px;display:flex;align-items:center;justify-content:center;overflow:hidden;border:1px solid rgba(0,0,0,0.1);font-size:0.9rem">${artHtml}</div><div class="stats-recent-info"><div class="stats-recent-track">${esc(p.track_title)}</div><div class="stats-recent-album">${esc(p.album_title)}</div></div><div class="stats-recent-time">${timeStr}</div></div>`}).join('')}
-async function scanDevices(){try{const d=await apiFetch('/api/scan').then(r=>r.json());renderSettingsDevices(d.devices);renderHiddenDevices(d.devices)}catch(e){showError('Scan failed')}}
-function renderSettingsDevices(devs){const l=document.getElementById('settings-device-list');const v=(devs||[]).filter(d=>!d.hidden);if(!v.length){l.innerHTML='<div style="color:var(--muted);font-size:0.82rem">No devices found</div>';return}l.innerHTML=v.map(d=>{const np=d.needs_pairing&&d.paired===false;return `<label class="device-item" style="opacity:${np?'0.6':'1'}"><input type="checkbox" class="dev-check" value='${JSON.stringify({id:d.id,name:d.name}).replace(/'/g,"&apos;")}'><span style="flex:1">${esc(d.name)}</span>${np?`<button class="btn btn-ghost" onclick="pairDevice('${d.id}')">Pair</button>`:''}</label>`}).join('')}
+async function scanDevices(){try{const d=await apiFetch('/api/scan').then(r=>r.json());window._lastScanDevices=d.devices||[];renderSettingsDevices(d.devices);renderHiddenDevices(d.devices)}catch(e){showError('Scan failed')}}
+function renderSettingsDevices(devs){const l=document.getElementById('settings-device-list');const v=(devs||[]).filter(d=>!d.hidden);if(!v.length){l.innerHTML='<div style="color:var(--muted);font-size:0.82rem">No devices found</div>';return}l.innerHTML=v.map(d=>{const np=d.needs_pairing&&d.paired===false;const badge=d.airplay2?'<span class="device-type-badge airplay2" title="AirPlay 2">AP2</span>':'';const grouped=d.grouped?' <span style="color:var(--muted);font-size:0.72rem">(group)</span>':'';return `<label class="device-item" style="opacity:${np?'0.6':'1'}"><input type="checkbox" class="dev-check" value='${JSON.stringify({id:d.id,name:d.name}).replace(/'/g,"&apos;")}'><span style="flex:1">${esc(d.name)}${grouped}</span>${badge}${np?`<button class="btn btn-ghost" onclick="pairDevice('${d.id}')">Pair</button>`:''}</label>`}).join('')}
 function getSelectedDevices(){return[...document.querySelectorAll('.dev-check:checked')].map(c=>JSON.parse(c.value))}
 var _streamActionPending=false;
 async function startStream(){
@@ -2903,9 +2905,11 @@ async function pairOneProtocol(did,proto){
   return f;
 }
 async function pairDevice(did){
-  // Some Apple TVs require pairing RAOP and AirPlay both. Server tells
-  // us via remaining_protocols which still need it.
-  let r=await pairOneProtocol(did,'raop');
+  // Prefer the protocol the server recommended on the last scan (AirPlay 2
+  // HAP for Apple TV / HomePod on the cliairplay path; otherwise RAOP).
+  const cached=(window._lastScanDevices||[]).find(d=>d.id===did);
+  const firstProto=(cached&&cached.pair_protocol)||'raop';
+  let r=await pairOneProtocol(did,firstProto);
   if(!r)return;
   const remaining=(r.remaining_protocols||[]);
   for(const proto of remaining){

@@ -1594,6 +1594,7 @@
   .device-type-badge.bt { background: #E3F2FD; color: #1565C0; }
   .device-type-badge.local { background: #FFF3E0; color: var(--amber-dk); }
   .device-type-badge.airplay { background: #F3E5F5; color: #7B1FA2; }
+  .device-type-badge.airplay2 { background: #E8F5E9; color: #2E7D32; }
   .bt-device-item { display: flex; align-items: center; justify-content: space-between; padding: 0.35rem 0; border-bottom: 1px solid rgba(0,0,0,0.06); gap: 0.4rem; }
   .bt-device-item:last-child { border-bottom: none; }
   .bt-status { font-size: 0.68rem; padding: 0.1rem 0.3rem; border-radius: 3px; }
