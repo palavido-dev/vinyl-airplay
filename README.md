@@ -17,6 +17,7 @@ Drop the needle once to teach it. After that, play the vinyl or play the recordi
 > - **[Reference](docs/reference.md)** - exhaustive button level and API level reference.
 > - **[Prebuilt units](docs/prebuilt.md)** - hand-built, tested appliances (low volume, made to order).
 > - **[Hardware tiers](docs/hardware-tiers.md)** - Studio vs Essential BOM validation plan.
+> - **[Pricing](docs/pricing.md)** - internal quoting math and per-unit profit.
 
 > **Want one ready to plug in?** Software stays free and open source. If you’d rather not assemble the Pi stack yourself, I build and test a small number of units to order — see **[Prebuilt](docs/prebuilt.md)** or use the [request form](https://palavido-dev.github.io/vinyl-airplay/#request). Product page: [palavido-dev.github.io/vinyl-airplay](https://palavido-dev.github.io/vinyl-airplay/).
 
@@ -318,6 +319,7 @@ vinyl-airplay/
 │   ├── reference.md
 │   ├── prebuilt.md          # Made-to-order appliances
 │   ├── hardware-tiers.md    # Studio / Essential BOM plan
+│   ├── pricing.md           # Internal quote + profit math
 │   └── images/              # UI screenshots
 ├── site/                    # Product landing page (GitHub Pages)
 ├── screenshots/             # Hardware photos
