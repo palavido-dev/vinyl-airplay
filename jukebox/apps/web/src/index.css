@@ -1,0 +1,6 @@
+/* Base reset lives in App.css — keep this file minimal for Vite template compat. */
+html,
+body,
+#root {
+  height: 100%;
+}

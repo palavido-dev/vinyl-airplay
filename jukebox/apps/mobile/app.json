@@ -1,0 +1,30 @@
+{
+  "expo": {
+    "name": "Vinyl Jukebox",
+    "slug": "vinyl-jukebox",
+    "version": "0.1.0",
+    "orientation": "default",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "scheme": "vinyljukebox",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.vinyljukebox.app",
+      "requireFullScreen": false
+    },
+    "android": {
+      "package": "com.vinyljukebox.app",
+      "adaptiveIcon": {
+        "backgroundColor": "#0c0c0e",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": []
+  }
+}

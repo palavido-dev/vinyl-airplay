@@ -1,0 +1,18 @@
+{
+  "name": "vinyl-jukebox",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Personal vinyl catalog & jukebox for tablets — one-time purchase, local-first",
+  "packageManager": "pnpm@9.15.0",
+  "scripts": {
+    "dev:api": "pnpm --filter @vinyl-jukebox/api dev",
+    "dev:web": "pnpm --filter @vinyl-jukebox/web dev",
+    "dev:mobile": "pnpm --filter @vinyl-jukebox/mobile start",
+    "build": "pnpm -r run build",
+    "test": "pnpm -r run test",
+    "typecheck": "pnpm -r run typecheck"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

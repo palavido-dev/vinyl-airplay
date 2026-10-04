@@ -1,0 +1,15 @@
+node_modules
+dist
+.expo
+.turbo
+*.local
+.env
+.env.*
+!.env.example
+coverage
+.DS_Store
+*.db
+*.db-journal
+apps/api/data
+apps/mobile/android
+apps/mobile/ios
