@@ -35,8 +35,7 @@ Quotes are given per request so parts prices and shipping can stay honest. Expec
 
 ## Support
 
-- Prefer GitHub issues for software bugs (helps everyone).
-- For prebuilt hardware problems, reference your request issue / order note in a new issue or email reply.
+- For prebuilt hardware problems, reference your order email thread in a reply.
 - This is a maker-scale product, not a big-box warranty desk. I’ll make it right when something I assembled is wrong.
 
 ## DIY stays first-class
