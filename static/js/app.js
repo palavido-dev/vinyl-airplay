@@ -846,11 +846,14 @@ async function showOutputPicker(albumId){
   overlay.classList.add('open');
   try{
     var d=await apiFetch('/api/devices').then(function(r){return r.json()});
-    var allDevices=(d.devices||[]).filter(function(dev){return dev.paired!==false});
+    // Include unpaired AirPlay 2 targets so Apple TV / HomePod can be
+    // chosen (or at least seen) before HAP pairing; pickOutput still works
+    // for transient pairing, and Settings Pair remains available.
+    var allDevices=d.devices||[];
     if(!allDevices.filter(function(dev){return !dev.hidden}).length){
       grid.innerHTML='<div style="color:var(--muted);font-size:0.82rem">Scanning\u2026</div>';
       d=await apiFetch('/api/scan').then(function(r){return r.json()});
-      allDevices=(d.devices||[]).filter(function(dev){return dev.paired!==false});
+      allDevices=d.devices||[];
     }
     renderOutputCards(allDevices);
   }catch(e){grid.innerHTML='<div style="color:var(--rust);font-size:0.82rem">Failed: '+e.message+'</div>'}
@@ -872,7 +875,7 @@ function renderOutputCards(allDevices){
     var typeBadge=isBrowser?'<div class="device-type-badge browser">This Device</div>'
       :isLocal?'<div class="device-type-badge local">Local</div>'
       :isBT?'<div class="device-type-badge bt">Bluetooth</div>'
-      :(d.airplay2?'<div class="device-type-badge airplay2">AirPlay 2</div>'
+      :(dev.airplay2?'<div class="device-type-badge airplay2">AirPlay 2</div>'
         :'<div class="device-type-badge airplay">AirPlay</div>');
     return '<div class="output-device-card'+(last?' last-used':'')+'" onclick="pickOutput('+idx+')" data-device-id="'+dev.id+'">'
       +'<div class="output-device-icon">'+icon+'</div>'
@@ -2920,7 +2923,21 @@ async function pairDevice(did){
   scanDevices();
 }
 function renderHiddenDevices(devs){const l=document.getElementById('hidden-device-list');if(!devs||!devs.length){l.innerHTML='<div style="color:var(--muted);font-size:0.82rem">Scan to manage</div>';return}l.innerHTML=devs.map(d=>`<label class="device-item" style="gap:0.5rem"><input type="checkbox" ${d.hidden?'checked':''} onchange="toggleHidden('${d.id}',this.checked)" style="accent-color:var(--rust)"><span style="font-size:0.82rem">${esc(d.name)}${d.hidden?' (hidden)':''}</span></label>`).join('')}
-async function toggleHidden(did,hide){await apiFetch('/api/device/hide',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({device_id:did,hidden:hide})})}
+async function toggleHidden(did,hide){
+  try{
+    const enc=encodeURIComponent(did);
+    await apiFetch('/api/devices/'+enc+'/hide',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({hidden:!!hide})});
+    // Refresh both lists so unhidden devices move into AirPlay Devices
+    if(window._lastScanDevices){
+      const d=window._lastScanDevices.find(x=>x.id===did);
+      if(d)d.hidden=!!hide;
+      renderSettingsDevices(window._lastScanDevices);
+      renderHiddenDevices(window._lastScanDevices);
+    }else{
+      scanDevices();
+    }
+  }catch(e){showError('Failed to update hidden device')}
+}
 async function saveAutoStreamSettings(){const en=document.getElementById('auto-stream-enabled').checked,sel=document.getElementById('auto-stream-device-select'),opt=sel.options[sel.selectedIndex],dev=opt&&opt.value?{id:opt.value,name:opt.textContent}:null;const payload={auto_stream_enabled:en};if(dev){payload.auto_stream_device=dev;window._savedAutoStreamDevice=dev}const shown=dev||window._savedAutoStreamDevice;await apiFetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});document.getElementById('auto-stream-status').textContent=en&&shown?`Auto-streaming to: ${shown.name}`:''}
 async function scanAutoStreamDevices(){const sel=document.getElementById('auto-stream-device-select');sel.innerHTML='<option value="">Scanning\u2026</option>';try{const d=await apiFetch('/api/scan').then(r=>r.json());sel.innerHTML='<option value="">\u2014 Select \u2014</option>';(d.devices||[]).filter(d=>!d.hidden).forEach(d=>{const o=document.createElement('option');o.value=d.id;o.textContent=d.name;sel.appendChild(o)});if(window._savedAutoStreamDevice)sel.value=window._savedAutoStreamDevice.id}catch(e){sel.innerHTML='<option value="">Scan failed</option>'}}
 function updateHttpStreamUI(){
