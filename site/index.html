@@ -89,6 +89,7 @@
           <article class="sku">
             <p class="sku-tag">Made to order</p>
             <h3>Studio</h3>
+            <p class="sku-price">Starts around <strong>$750</strong> before shipping</p>
             <p>The reference build: Pi 5, HiFiBerry DAC2 ADC Pro, NVMe storage, 10.1&quot; touchscreen. Assembled, imaged, and tested before it ships.</p>
             <ul>
               <li>Lossless vinyl capture + jukebox playback</li>
@@ -96,20 +97,21 @@
               <li>Local fingerprint recognition (no cloud)</li>
               <li>Discogs metadata + artwork</li>
             </ul>
-            <p class="sku-note">Turntable, phono preamp (if needed), and speakers not included.</p>
+            <p class="sku-note">Turntable, phono preamp (if needed), and speakers not included. Exact quote confirms current parts and destination.</p>
             <a class="btn btn-primary" href="#request">Request Studio</a>
           </article>
           <article class="sku sku-muted">
             <p class="sku-tag">Coming soon</p>
             <h3>Essential</h3>
-            <p>A leaner build with the same software — lower parts cost, optional headless phone-only UI. Join the waitlist if you want early access.</p>
+            <p class="sku-price">Aiming lower — price TBD</p>
+            <p>A leaner build with the same software — lower parts cost, optional headless phone-only UI. Drop your email if you want early access.</p>
             <ul>
               <li>Same recognition, recording, and streaming</li>
               <li>Optional no-touchscreen setup</li>
               <li>Built for a lower entry price</li>
             </ul>
-            <p class="sku-note">Tell me in your request if Essential is what you’re after.</p>
-            <a class="btn btn-ghost" href="#request">Join Essential waitlist</a>
+            <p class="sku-note">No long form required — just an email to get on the list.</p>
+            <a class="btn btn-ghost" href="#notify">Join Essential waitlist</a>
           </article>
         </div>
       </div>
@@ -156,7 +158,29 @@
     <section class="band band-dark" id="request">
       <div class="wrap request-wrap">
         <h2>Request a unit</h2>
-        <p class="support">Made to order in small batches. Fill this out and I’ll email you back with availability, lead time, and a quote — no GitHub account needed.</p>
+        <p class="support">Studio typically starts around <strong>$750</strong> before shipping. Made to order in small batches — you’ll get availability, lead time, and a firm quote before any payment.</p>
+
+        <div class="notify" id="notify">
+          <div class="notify-copy">
+            <h3>Just want a heads-up?</h3>
+            <p>Not ready for a quote? Leave your email for Essential waitlist updates and Studio availability — no other fields.</p>
+          </div>
+          <form class="notify-form" action="https://formsubmit.co/matthew.palavido@gmail.com" method="POST">
+            <input type="hidden" name="_subject" value="Vinyl Streamer notify me / waitlist">
+            <input type="hidden" name="_template" value="table">
+            <input type="hidden" name="_next" value="https://palavido-dev.github.io/vinyl-airplay/thanks.html">
+            <input type="hidden" name="_captcha" value="false">
+            <input type="hidden" name="interest" value="Email-only notify / Essential waitlist">
+            <input type="text" name="_honey" class="honey" tabindex="-1" autocomplete="off" aria-hidden="true">
+            <label class="notify-email">
+              <span class="visually-hidden">Email</span>
+              <input type="email" name="email" required autocomplete="email" placeholder="you@example.com" aria-label="Email">
+            </label>
+            <button type="submit" class="btn btn-primary">Notify me</button>
+          </form>
+        </div>
+
+        <p class="form-divider"><span>Or request a quote</span></p>
 
         <form class="request-form" action="https://formsubmit.co/matthew.palavido@gmail.com" method="POST">
           <input type="hidden" name="_subject" value="Vinyl Streamer prebuilt request">
