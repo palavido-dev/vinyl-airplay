@@ -2097,7 +2097,9 @@
     position: absolute;
     top: calc(100% + 6px);
     right: 0;
+    left: auto;
     min-width: 220px;
+    max-width: min(280px, calc(100vw - 24px));
     background: var(--chassis-mid);
     border: 1px solid rgba(201,162,74,0.28);
     border-radius: var(--radius-md);
@@ -2106,6 +2108,16 @@
     padding: 0.35rem;
   }
   .header-menu.open { display: block; }
+  /* On phone layouts the More button sits in a left-side action row.
+     Anchor the menu to the left so it opens into the viewport instead
+     of spilling off-screen when right-aligned. */
+  @media (max-width: 600px) {
+    .app-header { overflow: visible; }
+    .header-menu {
+      left: 0;
+      right: auto;
+    }
+  }
   .header-menu button {
     width: 100%;
     text-align: left;
