@@ -1,0 +1,65 @@
+name: Prebuilt request
+description: Request a hand-built Vinyl Streamer unit or join the Essential waitlist
+title: "Prebuilt request: "
+labels: ["prebuilt"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for your interest. This form starts a conversation — you’ll get availability, lead time, and a quote before any payment.
+        Details: [docs/prebuilt.md](https://github.com/palavido-dev/vinyl-airplay/blob/main/docs/prebuilt.md)
+  - type: dropdown
+    id: sku
+    attributes:
+      label: Which option?
+      options:
+        - Studio (reference build, made to order)
+        - Essential waitlist (cost-down candidate)
+        - Not sure — help me choose
+        - DIY questions only (not buying)
+    validations:
+      required: true
+  - type: input
+    id: country
+    attributes:
+      label: Country / region for shipping
+      placeholder: e.g. United States (CA), Canada, UK
+    validations:
+      required: true
+  - type: dropdown
+    id: turntable
+    attributes:
+      label: Turntable / line-level situation
+      options:
+        - Turntable with built-in preamp (line out)
+        - Turntable + separate phono preamp
+        - Need advice on preamp / cabling
+        - Playback-only for now (already have digital library plans)
+    validations:
+      required: true
+  - type: dropdown
+    id: speakers
+    attributes:
+      label: Primary speakers
+      options:
+        - AirPlay (HomePod / AirPlay speaker)
+        - Bluetooth
+        - Local amp / powered speakers from the Pi DAC
+        - Mix / not sure yet
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Anything else
+      description: Collection size, timeline, display preference (touchscreen vs headless), or questions.
+      placeholder: Optional
+  - type: checkboxes
+    id: understand
+    attributes:
+      label: Expectations
+      options:
+        - label: I understand software is open source / free, and payment (if any) is for hardware, assembly, and testing.
+          required: true
+        - label: I understand this is low-volume and made to order.
+          required: true

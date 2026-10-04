@@ -2,7 +2,7 @@
 
 A 5 minute tour of Vinyl Streamer: what it is, what you can do with it, and where to look next.
 
-> **New to the project?** Start here, then jump to the [User Guide](user-guide.md) once you want a proper feature tour. For exhaustive button by button detail, see the [Reference](reference.md).
+> **New to the project?** Start here, then jump to the [User Guide](user-guide.md) once you want a proper feature tour. For exhaustive button by button detail, see the [Reference](reference.md). Prefer a hand-built unit? See [Prebuilt](prebuilt.md).
 
 ---
 
