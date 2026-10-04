@@ -31,7 +31,7 @@ No silent carts. Every unit is a conversation first.
 
 ## Pricing posture
 
-Quotes are given per request so parts prices and shipping can stay honest. Expect a finished Studio appliance to land in enthusiast-audio territory (typically mid–high hundreds USD before shipping), not mass-market gadget pricing. Essential aims lower once validated.
+Quotes are given per request so parts prices and shipping can stay honest. **Studio typically starts around $750 USD before shipping** (enthusiast-audio territory, not mass-market gadget pricing). Essential aims lower once validated — use the email-only notify form on the product page if you only want waitlist updates.
 
 ## Support
 

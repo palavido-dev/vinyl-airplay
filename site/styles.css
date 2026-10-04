@@ -378,6 +378,19 @@ a:hover {
   font-weight: 400;
 }
 
+.sku-price {
+  margin: 0 0 0.85rem;
+  color: var(--cream) !important;
+  font-size: 1.05rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.sku-price strong {
+  color: var(--amber);
+  font-weight: 700;
+}
+
 .sku p,
 .sku li,
 .tiers p {
@@ -417,12 +430,112 @@ a:hover {
   margin-inline: auto;
 }
 
-.request-form {
+.notify {
   margin-top: 1.75rem;
+  padding: 1.2rem 1.25rem 1.3rem;
+  border-radius: 16px;
+  background: rgba(201, 162, 74, 0.1);
+  border: 1px solid rgba(201, 162, 74, 0.35);
+}
+
+.notify-copy h3 {
+  margin: 0 0 0.35rem;
+  font-family: var(--display);
+  font-size: 1.2rem;
+  font-weight: 400;
+  color: var(--cream);
+}
+
+.notify-copy p {
+  margin: 0 0 1rem;
+  color: rgba(250, 248, 244, 0.78);
+  font-size: 0.95rem;
+}
+
+.notify-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  align-items: stretch;
+  position: relative;
+}
+
+.notify-email {
+  flex: 1 1 14rem;
+  margin: 0;
+}
+
+.notify-form input[type="email"] {
+  width: 100%;
+  min-height: 2.75rem;
+  padding: 0.65rem 0.8rem;
+  border-radius: 10px;
+  border: 1px solid rgba(250, 248, 244, 0.18);
+  background: rgba(20, 12, 8, 0.55);
+  color: var(--cream);
+  font: inherit;
+}
+
+.notify-form input[type="email"]:focus {
+  outline: none;
+  border-color: var(--amber);
+  box-shadow: 0 0 0 3px rgba(201, 162, 74, 0.28);
+}
+
+.notify-form .btn {
+  flex: 0 0 auto;
+  align-self: stretch;
+  display: inline-flex;
+  align-items: center;
+}
+
+.notify-form .honey {
+  position: absolute;
+  left: -9999px;
+  height: 0;
+  width: 0;
+  opacity: 0;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.form-divider {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  margin: 1.6rem 0 0;
+  color: rgba(250, 248, 244, 0.55);
+  font-size: 0.85rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.form-divider::before,
+.form-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: rgba(250, 248, 244, 0.14);
+}
+
+.request-form {
+  margin-top: 1.25rem;
   padding: 1.35rem 1.35rem 1.5rem;
   border-radius: 16px;
   background: rgba(250, 248, 244, 0.06);
   border: 1px solid rgba(201, 162, 74, 0.28);
+  position: relative;
 }
 
 .form-grid {
@@ -522,6 +635,16 @@ button.btn {
   .form-grid {
     grid-template-columns: 1fr;
   }
+
+  .notify-form .btn {
+    width: 100%;
+    justify-content: center;
+  }
+}
+
+.band-dark .support strong {
+  color: var(--cream);
+  font-weight: 700;
 }
 
 .split {
