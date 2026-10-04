@@ -44,18 +44,32 @@ Many third-party AirPlay 2 receivers need no pairing (transient HAP).
 
 ## Apple TV notes
 
-Apple TVs and HomePods render **silence** on an NTP-timed AirPlay 2 realtime
-stream (Music Assistant hardware measurement). Vinyl Streamer therefore forces
-`--timing ptp` (and prefers `--buffered`) for those devices. The `cliairplay`
-binary needs `CAP_NET_BIND_SERVICE` so it can bind UDP 319/320 for PTP:
+Jukebox “playing to Apple TV” with a **blank Apple TV** (no sound, no Now
+Playing) almost always means the AirPlay 2 session fell back to NTP realtime
+or never got HAP credentials. Apple TVs render nothing useful on that path.
+
+Vinyl Streamer therefore:
+
+1. Requires a working PTP clock (`cliairplay --ptp-daemon` binding UDP 319/320)
+2. Requires HAP pairing credentials (`data/airplay2_credentials.json` next to
+   the app, absolute path)
+3. Falls back to **RAOP (pyatv)** when PTP or pairing is missing, so audio
+   still reaches the TV instead of a fake “playing” state
+4. Does **not** force `--buffered` unless the TV advertises SupportsBufferedAudio
+
+Grant the capability on **every** `cliairplay` you might run (home checkout
+and `/opt`):
 
 ```bash
 sudo setcap 'cap_net_bind_service=+ep' /home/listen/vinyl-airplay/bin/cliairplay
+sudo setcap 'cap_net_bind_service=+ep' /opt/vinyl-streamer/bin/cliairplay
 getcap /home/listen/vinyl-airplay/bin/cliairplay
+getcap /opt/vinyl-streamer/bin/cliairplay
 ```
 
-Confirm the stream log shows `timing=ptp` (not `mode=ntp`) when playing to an
-Apple TV.
+Confirm the stream log shows `timing=ptp` and `ptp_shared=True` (not a
+“PTP daemon exited” / “using RAOP” warning) when playing AirPlay 2 to an
+Apple TV. A RAOP fallback line is expected and healthy until PTP is fixed.
 
 ## License note
 

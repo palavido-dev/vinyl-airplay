@@ -31,18 +31,23 @@ BITS = 16
 
 CLIAIRPLAY_VERSION = "v0.5.5"
 CLIAIRPLAY_REPO = "music-assistant/airplay-cli"
-CREDENTIALS_FILE = Path("data/airplay2_credentials.json")
+# Absolute path so pairing survives cwd changes (/opt vs ~/vinyl-airplay).
+CREDENTIALS_FILE = Path(__file__).resolve().parent / "data" / "airplay2_credentials.json"
 
 # AirPlay features bits (same as pyatv / MA): AP2 if either is set.
 _SUPPORTS_UNIFIED_MEDIA_CONTROL = 1 << 38
 _SUPPORTS_COREUTILS_PAIRING = 1 << 48
 _SUPPORTS_PTP = 1 << 45
+_SUPPORTS_BUFFERED_AUDIO = 1 << 40
 
 _CREDENTIALS_RE = re.compile(r"^CREDENTIALS:\s*([0-9A-Fa-f]{192})\s*$")
 _STATUS_CONNECTED_RE = re.compile(r"\[STATUS\]\s+connected")
 _STATUS_STARTED_RE = re.compile(r"\[STATUS\]\s+started")
 _STATUS_CLOCK_READY_RE = re.compile(
-    r"\[STATUS\]\s+clock_ready\b.*\bstate=(ready|probing|cold|stalled)"
+    r"\[STATUS\]\s+clock_ready\b.*\bmode=(ptp|ntp)\b.*\bstate=(ready|probing|cold|stalled)"
+)
+_STATUS_NTP_FALLBACK_RE = re.compile(
+    r"Falling back to NTP|cannot bind UDP 319", re.I
 )
 
 
@@ -71,6 +76,33 @@ def supports_airplay2(features_value: str | None) -> bool:
 
 def supports_ptp(features_value: str | None) -> bool:
     return bool(parse_airplay_features(features_value) & _SUPPORTS_PTP)
+
+
+def supports_buffered_audio(features_value: str | None) -> bool:
+    return bool(parse_airplay_features(features_value) & _SUPPORTS_BUFFERED_AUDIO)
+
+
+def binary_has_ptp_cap(binary: str | None) -> bool:
+    """True when ``getcap`` reports CAP_NET_BIND_SERVICE on the binary."""
+    if not binary:
+        return False
+    try:
+        result = subprocess.run(
+            ["getcap", str(binary)],
+            capture_output=True, text=True, timeout=5,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    out = (result.stdout or "") + (result.stderr or "")
+    return "cap_net_bind_service" in out.lower()
+
+
+def conf_has_raop(conf) -> bool:
+    try:
+        from pyatv.const import Protocol
+        return conf.get_service(Protocol.RAOP) is not None
+    except Exception:
+        return False
 
 
 def serialize_txt(properties: dict | None) -> str:
@@ -120,7 +152,12 @@ def candidate_binary_paths() -> list[Path]:
 
 
 def find_cliairplay() -> str | None:
-    """Return path to a working cliairplay binary, or None."""
+    """Return path to a working cliairplay binary, or None.
+
+    Prefer a binary that already has CAP_NET_BIND_SERVICE so Apple TV PTP
+    works without a silent NTP fallback.
+    """
+    checked: list[str] = []
     for path in candidate_binary_paths():
         if not path.is_file():
             continue
@@ -133,8 +170,13 @@ def find_cliairplay() -> str | None:
             continue
         out = (result.stdout or "") + (result.stderr or "")
         if result.returncode == 0 and "cliairplay" in out.lower():
-            return str(path)
-    return None
+            checked.append(str(path))
+    if not checked:
+        return None
+    for path in checked:
+        if binary_has_ptp_cap(path):
+            return path
+    return checked[0]
 
 
 def download_cliairplay(dest_dir: Path | None = None) -> str:
@@ -257,6 +299,11 @@ class PtpDaemon:
     _proc: subprocess.Popen | None = None
     _refs = 0
     _binary: str | None = None
+    _last_error: str = ""
+
+    @classmethod
+    def last_error(cls) -> str:
+        return cls._last_error
 
     @classmethod
     def acquire(cls, binary: str) -> bool:
@@ -266,28 +313,51 @@ class PtpDaemon:
                 return True
             # Restart if a previous daemon died
             cls._stop_unlocked()
+            cls._last_error = ""
             try:
                 cls._proc = subprocess.Popen(
                     [binary, "--ptp-daemon"],
                     stdin=subprocess.DEVNULL,
-                    stdout=subprocess.DEVNULL,
+                    stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
                 )
             except OSError as e:
+                cls._last_error = str(e)
                 print(f"[airplay2] Failed to start PTP daemon: {e}")
                 cls._proc = None
                 return False
             # Brief settle — bind of 319/320 fails fast with exit 2 when
-            # unprivileged / already bound.
-            time.sleep(0.3)
+            # unprivileged / already bound. Also drain early stderr for the
+            # "Falling back to NTP" line some builds emit before exiting.
+            time.sleep(0.35)
+            err = ""
             if cls._proc.poll() is not None:
-                err = ""
                 with suppress(Exception):
-                    err = (cls._proc.stderr.read() or b"").decode("utf-8", "ignore")[:200]
+                    err = (cls._proc.stderr.read() or b"").decode("utf-8", "ignore")[:400]
+                cls._last_error = err.strip() or f"exit {cls._proc.returncode}"
                 print(f"[airplay2] PTP daemon exited immediately "
-                      f"(code={cls._proc.returncode}): {err.strip()}")
+                      f"(code={cls._proc.returncode}): {cls._last_error}")
+                if not binary_has_ptp_cap(binary):
+                    print(
+                        f"[airplay2] {binary} lacks CAP_NET_BIND_SERVICE — "
+                        "Apple TV/HomePod need PTP (UDP 319/320). Run:\n"
+                        f"  sudo setcap 'cap_net_bind_service=+ep' {binary}"
+                    )
                 cls._proc = None
                 return False
+            # Still running — confirm it did not silently fall back to NTP.
+            with suppress(Exception):
+                # Non-blocking peek: if the engine already logged a bind failure
+                # but stayed up, treat as failed.
+                import select
+                if cls._proc.stderr and select.select([cls._proc.stderr], [], [], 0)[0]:
+                    chunk = os.read(cls._proc.stderr.fileno(), 4096)
+                    err = chunk.decode("utf-8", "ignore")
+                    if _STATUS_NTP_FALLBACK_RE.search(err):
+                        cls._last_error = err.strip()[:400]
+                        print(f"[airplay2] PTP daemon fell back to NTP: {cls._last_error}")
+                        cls._stop_unlocked()
+                        return False
             cls._binary = binary
             cls._refs = 1
             print("[airplay2] PTP daemon started")
@@ -362,12 +432,15 @@ class CliAirPlayStream:
         self.use_ptp_shared = use_ptp_shared
         self.binary = binary or find_cliairplay()
         self.defer_start = defer_start
-        # None = let --txt / SupportsPTP decide. Never force NTP on Apple
-        # hardware: Apple TVs/HomePods render silence on NTP-timed realtime
-        # streams (Music Assistant hardware measurement).
         self.timing = timing
+        # Only force --buffered when the receiver advertises SupportsBufferedAudio.
+        # Forcing it without PTP makes Apple TV show nothing (buffered needs PTP).
         self.force_buffered = False
+        self.require_ptp = False  # Apple devices: refuse silent NTP fallback
         self._audio_buffered = threading.Event()
+        self._clock_ready = threading.Event()
+        self._clock_mode: str | None = None
+        self._ntp_fallback = threading.Event()
 
         self._proc: subprocess.Popen | None = None
         self._cmd_fd: int | None = None
@@ -390,6 +463,12 @@ class CliAirPlayStream:
 
         if self.use_ptp_shared:
             self._ptp_held = PtpDaemon.acquire(self.binary)
+            if self.require_ptp and not self._ptp_held:
+                raise RuntimeError(
+                    f"PTP unavailable for {self.name}: {PtpDaemon.last_error() or 'no daemon'}. "
+                    "Apple TV/HomePod need CAP_NET_BIND_SERVICE on cliairplay "
+                    "(see docs/airplay2.md)."
+                )
 
         self._tmpdir = tempfile.TemporaryDirectory(prefix="vs-ap2-")
         self._cmd_path = os.path.join(self._tmpdir.name, "cmdpipe")
@@ -416,21 +495,25 @@ class CliAirPlayStream:
             args += ["--buffered"]
         if self.auth and len(self.auth) == 192:
             args += ["--auth", self.auth]
-        elif self.protocol in ("airplay2", "auto"):
-            # Transient pairing when we have no stored HAP credentials.
+        elif self.protocol in ("airplay2", "auto") and not self.require_ptp:
+            # Transient pairing for third-party AP2. Apple devices set
+            # require_ptp and must use stored HAP credentials (or RAOP).
             args += ["--ap2-native"]
         # Shared PTP clock for multi-room / Apple PTP routes.
         if self._ptp_held and self.timing != "ntp":
             args += ["--ptp-shared"]
         elif self.timing == "ptp" and not self._ptp_held:
-            # In-process PTP engine (needs CAP_NET_BIND_SERVICE on the binary).
-            args += ["--ptp"]
+            # In-process PTP needs the same capability; skip when Apple
+            # already required a working shared daemon (raised above).
+            if not self.require_ptp:
+                args += ["--ptp"]
         args.append(self.host)
 
         print(
             f"[airplay2] Connecting to {self.name} ({self.host}:{self.port}) "
             f"protocol={self.protocol} timing={self.timing or 'auto'} "
-            f"ptp_shared={bool(self._ptp_held)} buffered={getattr(self, 'force_buffered', False)}"
+            f"ptp_shared={bool(self._ptp_held)} buffered={getattr(self, 'force_buffered', False)} "
+            f"auth={'yes' if self.auth else 'no'}"
         )
         self._proc = subprocess.Popen(
             args,
@@ -477,6 +560,14 @@ class CliAirPlayStream:
                 raise RuntimeError(f"cliairplay died connecting to {self.name}")
             print(f"[airplay2] No connected status from {self.name}; continuing")
 
+        if self._ntp_fallback.is_set() and self.require_ptp:
+            self.stop()
+            raise RuntimeError(
+                f"{self.name}: cliairplay fell back to NTP (PTP ports blocked). "
+                "Apple TV shows nothing on NTP realtime — grant CAP_NET_BIND_SERVICE "
+                "or use RAOP."
+            )
+
         if not self.defer_start:
             self.command_start(start_unix_ms=0)
 
@@ -488,6 +579,18 @@ class CliAirPlayStream:
 
     def command_start(self, start_unix_ms: int = 0, join: bool = False) -> None:
         """Anchor (or re-anchor) playback at the given wall-clock instant."""
+        # For PTP routes, wait briefly for clock_ready=ready so we do not
+        # START into a cold clock (Apple TV then shows blank / silence).
+        if self.timing == "ptp" or self._ptp_held:
+            if not self._clock_ready.wait(timeout=4.0):
+                print(
+                    f"[airplay2] No clock_ready from {self.name} "
+                    f"(mode={self._clock_mode or '?'}); starting anyway"
+                )
+            elif self._clock_mode == "ntp" and self.require_ptp:
+                raise RuntimeError(
+                    f"{self.name}: clock_ready reported mode=ntp — refusing Apple NTP silence"
+                )
         self._started.clear()
         lines = [f"START_UNIX_MS={int(start_unix_ms)}"]
         if join:
@@ -631,6 +734,17 @@ class CliAirPlayStream:
             self._started.set()
         if "audio buffered_ms=" in line:
             self._audio_buffered.set()
+        if _STATUS_NTP_FALLBACK_RE.search(line):
+            self._ntp_fallback.set()
+        m = _STATUS_CLOCK_READY_RE.search(line)
+        if m:
+            self._clock_mode = m.group(1)
+            if m.group(2) == "ready":
+                self._clock_ready.set()
+            elif m.group(1) == "ntp":
+                # NTP sessions never become "ready" in the PTP sense; do not block.
+                self._clock_ready.set()
+                self._ntp_fallback.set()
 
 
 def _cmd_escape(value: str) -> str:
@@ -872,11 +986,13 @@ def build_stream_for_conf(
     binary: str,
     use_ptp_shared: bool = True,
     defer_start: bool = False,
+    ptp_available: bool | None = None,
 ) -> CliAirPlayStream:
     device_id = conf.identifier
     creds = get_credentials(device_id)
     props = conf_airplay_properties(conf)
     txt = serialize_txt(props)
+    features = conf_features_value(conf)
     # Prefer features from AirPlay; if missing, graft RAOP ft into txt.
     if "features=" not in txt and "ft=" not in txt:
         try:
@@ -884,21 +1000,41 @@ def build_stream_for_conf(
             raop = conf.get_service(Protocol.RAOP)
             if raop and raop.properties and raop.properties.get("ft"):
                 txt = f"{txt} ft={raop.properties['ft']}".strip()
+                features = features or raop.properties.get("ft")
         except Exception:
             pass
     auth = creds.get("auth") if creds else None
     dacp = (creds.get("dacp_id") if creds else None) or stable_dacp_id(device_id)
     port = conf_airplay_port(conf)
     is_atv = conf_is_apple_tv(conf)
-    protocol = "airplay2" if supports_airplay2(conf_features_value(conf)) or is_atv else "auto"
-    # Apple hardware renders SILENCE on NTP-timed realtime streams (MA
-    # hardware-measured). Always drive Apple TV / HomePod with PTP.
-    if is_atv or conf_is_homepod(conf):
+    is_apple = is_atv or conf_is_homepod(conf)
+    protocol = "airplay2" if supports_airplay2(features) or is_atv else "auto"
+
+    # Apple TV/HomePod: native AP2 + PTP only when the PTP daemon can bind
+    # and we have HAP credentials. Otherwise the jukebox shows "playing"
+    # while the Apple TV stays blank (NTP realtime silence / no MediaRemote).
+    if is_apple:
+        if ptp_available is None:
+            # Best-effort: capability bit; acquire is done at start().
+            ptp_available = binary_has_ptp_cap(binary) or PtpDaemon.ready()
+        if not auth:
+            raise RuntimeError(
+                f"{conf.name}: Apple TV/HomePod need HAP pairing before AirPlay 2 "
+                "(Settings → Pair). Falling back to RAOP is handled by the caller."
+            )
+        if not ptp_available:
+            raise RuntimeError(
+                f"{conf.name}: PTP ports unavailable (need CAP_NET_BIND_SERVICE on "
+                f"{binary}). Caller should fall back to RAOP."
+            )
         timing = "ptp"
         use_shared = True
+        require_ptp = True
     else:
         timing = None
         use_shared = use_ptp_shared
+        require_ptp = False
+
     stream = CliAirPlayStream(
         str(conf.address),
         port=port,
@@ -914,9 +1050,10 @@ def build_stream_for_conf(
         defer_start=defer_start,
         timing=timing,
     )
-    # Prefer the buffered (type 103) stream on Apple TV when the binary
-    # allows it — more reliable than realtime for video-class receivers.
-    if is_atv:
+    stream.require_ptp = require_ptp
+    # Only force buffered when the receiver advertises it — otherwise let
+    # cliairplay auto-select (forced buffered without PTP = blank ATV).
+    if is_atv and supports_buffered_audio(features):
         stream.force_buffered = True
     return stream
 
@@ -926,7 +1063,7 @@ def start_synced_group(streams: list[CliAirPlayStream], lead_ms: int = 2000) -> 
 
     Solo and multi-room both defer START until the binary reports
     ``audio buffered_ms`` (or a short timeout), so we never anchor an empty
-    ring — which on Apple TV shows Now Playing with silence.
+    ring.
     """
     if not streams:
         return
@@ -967,6 +1104,10 @@ def resolve_airplay_outputs(
     AP2 streams are started (including synced multi-room START). Caller owns
     teardown via ``stream.stop()``. Returns empty AP2 list when binary missing
     or start fails (errors are printed; caller may surface them).
+
+    Apple TV / HomePod without a working PTP clock (or without HAP credentials)
+    fall back to pyatv RAOP so the jukebox does not report "playing" to a
+    blank Apple TV.
     """
     id_to_conf = {d.identifier: d for d in found_confs}
     if airplay2_enabled:
@@ -974,16 +1115,52 @@ def resolve_airplay_outputs(
     else:
         binary = None
 
+    ptp_ok = False
+    if binary:
+        # Probe once: acquire holds a ref if successful; release immediately so
+        # stream start re-acquires cleanly.
+        ptp_ok = PtpDaemon.acquire(binary)
+        if ptp_ok:
+            PtpDaemon.release()
+        else:
+            print(
+                "[airplay2] PTP daemon unavailable — Apple TV/HomePod will use "
+                "RAOP when possible (fix CAP_NET_BIND_SERVICE on cliairplay)"
+            )
+
     raop_confs = []
     ap2_confs = []
     for t in airplay_targets:
         conf = id_to_conf.get(t["id"])
         if not conf:
             continue
-        if binary and should_use_airplay2(conf, t["id"], binary_available=True):
-            ap2_confs.append(conf)
-        else:
+        if not (binary and should_use_airplay2(conf, t["id"], binary_available=True)):
             raop_confs.append(conf)
+            continue
+        is_apple = conf_is_apple_tv(conf) or conf_is_homepod(conf)
+        if is_apple:
+            creds = get_credentials(t["id"])
+            if not creds or not ptp_ok:
+                if conf_has_raop(conf):
+                    why = "not paired" if not creds else "PTP unavailable"
+                    print(
+                        f"[airplay2] {conf.name}: {why} — using RAOP so the "
+                        "Apple TV actually plays (jukebox would otherwise show "
+                        "playing with a blank TV)"
+                    )
+                    raop_confs.append(conf)
+                    continue
+                if not creds:
+                    raise RuntimeError(
+                        f"{conf.name} needs Pair from Settings before AirPlay 2 "
+                        "(no RAOP service to fall back to)"
+                    )
+                # Grouped HomePod with no RAOP and no PTP: fail loudly.
+                raise RuntimeError(
+                    f"{conf.name} needs PTP (CAP_NET_BIND_SERVICE on cliairplay) "
+                    "for AirPlay 2; no RAOP fallback available"
+                )
+        ap2_confs.append(conf)
 
     ap2_streams: list[CliAirPlayStream] = []
     if ap2_confs and binary:
@@ -993,6 +1170,7 @@ def resolve_airplay_outputs(
                     c, volume=volume, binary=binary,
                     use_ptp_shared=True,
                     defer_start=len(ap2_confs) > 1,
+                    ptp_available=ptp_ok,
                 )
                 for c in ap2_confs
             ]

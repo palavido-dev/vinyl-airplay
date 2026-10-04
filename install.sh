@@ -171,11 +171,26 @@ if [[ -n "$CLIAIRPLAY_ASSET" ]]; then
   if curl -fsSL -o "$BIN_DIR/cliairplay" "$CLIAIRPLAY_URL"; then
     chmod 755 "$BIN_DIR/cliairplay"
     chown listen:listen "$BIN_DIR/cliairplay" 2>/dev/null || true
+    # Also place a copy next to a home checkout so ~/vinyl-airplay finds a
+    # capability-bearing binary (otherwise AP2 prefers ./bin without setcap
+    # and Apple TV stays blank while the jukebox shows "playing").
+    for EXTRA in /home/listen/vinyl-airplay/bin; do
+      if [[ -d "$(dirname "$EXTRA")" ]]; then
+        mkdir -p "$EXTRA"
+        cp -f "$BIN_DIR/cliairplay" "$EXTRA/cliairplay"
+        chmod 755 "$EXTRA/cliairplay"
+        chown listen:listen "$EXTRA/cliairplay" 2>/dev/null || true
+      fi
+    done
     # PTP multi-room needs UDP 319/320: grant the capability instead of root.
     if command -v setcap >/dev/null 2>&1; then
-      setcap 'cap_net_bind_service=+ep' "$BIN_DIR/cliairplay" \
-        && success "cliairplay installed with CAP_NET_BIND_SERVICE" \
-        || info "cliairplay installed (setcap failed — PTP multi-room may need root)"
+      for CAP_TARGET in "$BIN_DIR/cliairplay" /home/listen/vinyl-airplay/bin/cliairplay; do
+        if [[ -f "$CAP_TARGET" ]]; then
+          setcap 'cap_net_bind_service=+ep' "$CAP_TARGET" \
+            && success "setcap CAP_NET_BIND_SERVICE on $CAP_TARGET" \
+            || info "setcap failed for $CAP_TARGET — Apple TV may stay blank on AP2"
+        fi
+      done
     else
       success "cliairplay installed (setcap unavailable)"
     fi

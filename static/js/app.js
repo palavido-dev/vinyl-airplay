@@ -872,16 +872,20 @@ function renderOutputCards(allDevices){
     var isLocal=dev.type==='local';
     var isBT=dev.type==='bluetooth';
     var isBrowser=dev.type==='browser';
+    var needsPair=dev.needs_pairing&&dev.paired===false;
     var typeBadge=isBrowser?'<div class="device-type-badge browser">This Device</div>'
       :isLocal?'<div class="device-type-badge local">Local</div>'
       :isBT?'<div class="device-type-badge bt">Bluetooth</div>'
       :(dev.airplay2?'<div class="device-type-badge airplay2">AirPlay 2</div>'
         :'<div class="device-type-badge airplay">AirPlay</div>');
-    return '<div class="output-device-card'+(last?' last-used':'')+'" onclick="pickOutput('+idx+')" data-device-id="'+dev.id+'">'
+    return '<div class="output-device-card'+(last?' last-used':'')+(needsPair?'':'')+'" onclick="'
+      +(needsPair?'pairDevice(\''+dev.id+'\')':'pickOutput('+idx+')')
+      +'" data-device-id="'+dev.id+'" style="'+(needsPair?'opacity:0.7;':'')+'">'
       +'<div class="output-device-icon">'+icon+'</div>'
       +'<div class="output-device-name">'+esc(name)+'</div>'
       +(orig?'<div class="output-device-orig">'+esc(orig)+'</div>':'')
       +typeBadge
+      +(needsPair?'<div class="output-device-rename" style="color:var(--amber-dk)">tap to pair</div>':'')
       +'<div class="output-device-rename" onclick="event.stopPropagation();renameDevice(\''+dev.id+'\',\''+esc(name).replace(/'/g,"\\'")+'\')">rename</div>'
       +'<div class="output-device-rename" onclick="event.stopPropagation();hideOutputDevice(\''+dev.id+'\',\''+esc(name).replace(/'/g,"\\'")+'\')">hide</div>'
       +'</div>';
@@ -985,7 +989,7 @@ function closeOutputPicker(){document.getElementById('output-picker-overlay').cl
 async function rescanOutputDevices(){
   var grid=document.getElementById('output-device-grid');
   grid.innerHTML='<div style="color:var(--muted);font-size:0.82rem">Scanning\u2026</div>';
-  try{var d=await apiFetch('/api/scan').then(function(r){return r.json()});renderOutputCards((d.devices||[]).filter(function(dev){return !dev.hidden&&dev.paired!==false}))}
+  try{var d=await apiFetch('/api/scan').then(function(r){return r.json()});renderOutputCards(d.devices||[])}
   catch(e){grid.innerHTML='<div style="color:var(--rust);font-size:0.82rem">Scan failed</div>'}
 }
 async function hideOutputDevice(deviceId,name){
