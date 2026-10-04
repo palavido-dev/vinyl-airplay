@@ -616,17 +616,31 @@ class CliAirPlayStream:
 
     def command_start(self, start_unix_ms: int = 0, join: bool = False) -> None:
         """Anchor (or re-anchor) playback at the given wall-clock instant."""
-        # For PTP routes, wait briefly for clock_ready=ready so we do not
-        # START into a cold clock (Apple TV then shows blank / silence).
+        # For PTP routes, wait for clock_ready=ready. Starting without a lock
+        # is exactly the "jukebox playing, Apple TV blank" failure mode.
         if self.timing == "ptp" or self._ptp_held:
-            if not self._clock_ready.wait(timeout=4.0):
+            if not self._clock_ready.wait(timeout=8.0):
+                if self.require_ptp:
+                    self.stop()
+                    raise RuntimeError(
+                        f"{self.name}: no PTP clock_ready (receiver never locked). "
+                        "Apple TV / speaker groups stay silent in this state — "
+                        "check UDP 319/320, setcap on cliairplay, and that the "
+                        "HomePod group is reachable."
+                    )
                 print(
                     f"[airplay2] No clock_ready from {self.name} "
                     f"(mode={self._clock_mode or '?'}); starting anyway"
                 )
             elif self._clock_mode == "ntp" and self.require_ptp:
+                self.stop()
                 raise RuntimeError(
-                    f"{self.name}: clock_ready reported mode=ntp — refusing Apple NTP silence"
+                    f"{self.name}: clock_ready reported mode=ntp — refusing silent session"
+                )
+            elif self._clock_mode and self._clock_mode != "ptp" and self.require_ptp:
+                self.stop()
+                raise RuntimeError(
+                    f"{self.name}: expected PTP clock, got mode={self._clock_mode}"
                 )
         self._started.clear()
         lines = [f"START_UNIX_MS={int(start_unix_ms)}"]
@@ -636,6 +650,11 @@ class CliAirPlayStream:
         if not self._write_cmd("\n".join(lines) + "\n"):
             raise RuntimeError(f"Failed to send START to {self.name}")
         if not self._started.wait(timeout=self.START_TIMEOUT_SECS):
+            if self.require_ptp:
+                self.stop()
+                raise RuntimeError(
+                    f"{self.name}: no START ack — not marking the jukebox as playing"
+                )
             print(f"[airplay2] No started ack from {self.name} (continuing)")
 
     def put(self, pcm_bytes: bytes) -> None:

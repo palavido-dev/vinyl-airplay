@@ -8,9 +8,9 @@ binary. Classic AirPlay 1 / RAOP devices keep using [pyatv](https://github.com/p
 
 | Target | Transport | Notes |
 |--------|-----------|--------|
-| Ungrouped HomePod, AirPort Express, many third-party RAOP speakers | RAOP (pyatv) | Unchanged |
-| HomePod stereo pairs / multi-room groups | AirPlay 2 (cliairplay) | Shared PTP clock |
-| Apple TV (audio) | AirPlay 2 (cliairplay) | Pair once with the on-screen PIN |
+| Standalone HomePod, AirPort Express, many third-party RAOP speakers | RAOP (pyatv) | Bedroom-style units stay on RAOP |
+| HomePod stereo pairs / multi-room groups | AirPlay 2 + PTP (cliairplay) | RAOP cannot drive groups |
+| Apple TV (incl. HomePod-as-TV-audio) | AirPlay 2 + PTP (cliairplay) | Pair once with the on-screen PIN |
 | Mixed RAOP + AP2 selection | Both | Each target uses its own path; AP2 members share one PTP daemon |
 
 ## Install
@@ -74,11 +74,24 @@ On Play, log should show:
 [airplay2] PTP daemon started
 ```
 
-Standalone HomePods should **not** appear on the AP2 path — they stay RAOP.
+## Honest limits
 
-```bash
-journalctl -u vinyl-airplay -n 100 --no-pager | egrep -i 'airplay2|PTP|RAOP|setcap|pair|error'
-```
+Standalone HomePods on RAOP are solid. **Apple TV (especially with a HomePod
+as its speaker) and paired speaker groups** need a locked PTP clock from a
+third-party sender. Music Assistant’s `cliairplay` is the best open path, but
+if the TV never answers our clock probes the session can look healthy on the
+jukebox while the TV stays blank. We now **refuse to start** that session
+instead of “playing” into silence.
+
+If ATV / groups remain unreliable on your network after `setcap` + Pair, the
+practical options are:
+
+1. Play to the **HomePod / stereo pair directly** (not via the Apple TV)
+2. Keep using **standalone HomePods** on RAOP
+3. Treat ATV-as-speaker as unsupported for now
+
+That is a protocol/network limitation, not something Vinyl Streamer can paper
+over with RAOP.
 
 
 ## License note
