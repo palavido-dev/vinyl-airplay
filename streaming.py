@@ -368,75 +368,108 @@ class CaptureManager:
 capture = CaptureManager()
 
 
+def _open_monitor_stream(device, frames):
+    """Open a long-lived capture InputStream for auto-stream RMS polling.
+
+    Keeping the stream open across polls avoids open/close clicks on combo
+    DAC+ADC cards (HiFiBerry DAC2 ADC Pro shares clocks between sides).
+    """
+    channels = _capture_channels(device)
+    rate = _negotiate_capture_rate(device, channels)
+    block = int(frames * rate / SAMPLE_RATE)
+    stream = sd.InputStream(
+        device=device, samplerate=rate, channels=channels, dtype="float32",
+        blocksize=block,
+    )
+    stream.start()
+    return stream, block
+
+
 async def _auto_stream_watcher():
     """
-    Poll Scarlett RMS while idle; auto-start stream when record plays.
+    Poll capture RMS while idle; auto-start stream when record plays.
 
-    Opens the InputStream only when NOT streaming, and closes it the moment
-    streaming starts: this prevents ALSA 'device busy' errors when run_stream
-    opens its own InputStream.
+    Holds one InputStream open across poll cycles. Opening and closing the
+    HiFiBerry ADC every second was clicking the shared DAC (speakers pop
+    with nothing playing). The monitor is released before run_stream /
+    listen / playback takes the capture device.
     """
     RMS_THRESHOLD = state.settings.get("audio_detect_threshold", 0.006)
     SUSTAIN_SECS  = 2.0
-    POLL_SECS     = 1.0     # longer interval: open/close device each cycle
+    POLL_SECS     = 1.0
     COOLDOWN_SECS = 15.0
-    POLL_FRAMES   = int(44100 * 0.2)   # 0.2s read: hold the capture device only briefly
+    POLL_FRAMES   = int(44100 * 0.2)   # 0.2s read at SAMPLE_RATE units
 
     print("[auto-stream] Watcher started")
     sustained = 0.0
     cooldown  = 0.0
+    monitor = None
+    monitor_frames = POLL_FRAMES
+    holding_lock = False
+
+    def _close_monitor():
+        nonlocal monitor, holding_lock, monitor_frames
+        if monitor is not None:
+            with suppress(Exception):
+                monitor.stop()
+                monitor.close()
+            monitor = None
+        if holding_lock:
+            with suppress(Exception):
+                state.capture_lock.release()
+            holding_lock = False
+        monitor_frames = POLL_FRAMES
+
+    def _busy() -> bool:
+        return bool(
+            state.is_streaming
+            or state.listen_task
+            or (state.album_recorder and state.album_recorder.is_active)
+            or state.player_task
+            or (state.player and state.player.state != "stopped")
+            or capture.active
+        )
 
     try:
         while True:
             await asyncio.sleep(POLL_SECS)
 
-            # While streaming, just count down cooldown: don't touch the device
-            if state.is_streaming:
+            # While another consumer owns capture, release the monitor and wait.
+            if _busy():
+                _close_monitor()
                 sustained = 0.0
-                cooldown  = COOLDOWN_SECS
-                continue
-
-            # Also skip while listen mode or album recording has the device open
-            if state.listen_task or (state.album_recorder and state.album_recorder.is_active):
-                sustained = 0.0
-                cooldown  = COOLDOWN_SECS
-                continue
-
-            # Skip while catalog playback is active (or starting up)
-            if state.player_task or (state.player and state.player.state != "stopped"):
-                sustained = 0.0
-                cooldown  = COOLDOWN_SECS
+                cooldown = COOLDOWN_SECS
                 continue
 
             if cooldown > 0:
                 cooldown = max(0.0, cooldown - POLL_SECS)
                 continue
 
-            # Open device, read one chunk, close immediately: never holds it open
-            # Re-check right before open (race condition: listen/album may have started)
-            if state.listen_task or (state.album_recorder and state.album_recorder.is_active):
-                sustained = 0.0
-                cooldown = COOLDOWN_SECS
-                continue
             audio_idx = _capture_device_index()
-            # Non-blocking grab of the shared capture device: skip this poll if a
-            # stream / listen / recording session holds it. The read runs in a
-            # worker thread so it never stalls the event loop.
-            if not state.capture_lock.acquire(blocking=False):
-                continue
+            if monitor is None:
+                if not state.capture_lock.acquire(blocking=False):
+                    continue
+                holding_lock = True
+                try:
+                    monitor, monitor_frames = await asyncio.to_thread(
+                        _open_monitor_stream, audio_idx, POLL_FRAMES
+                    )
+                except Exception as e:
+                    _close_monitor()
+                    if not _busy():
+                        print(f"[auto-stream] Open error: {e}")
+                    await asyncio.sleep(5.0)
+                    continue
+
             try:
-                data = await asyncio.to_thread(_poll_capture, audio_idx, POLL_FRAMES)
+                data, _ = await asyncio.to_thread(monitor.read, monitor_frames)
             except Exception as e:
-                data = None
-                # Suppress noisy errors when something else has the device
-                if not (state.listen_task or state.is_streaming
-                        or (state.album_recorder and state.album_recorder.is_active)):
+                _close_monitor()
+                if not _busy():
                     print(f"[auto-stream] Read error: {e}")
-            finally:
-                state.capture_lock.release()
-            if data is None:
                 await asyncio.sleep(5.0)
                 continue
+
             rms = float(np.sqrt(np.mean(data[:, :min(2, data.shape[1])] ** 2)))
 
             if rms >= RMS_THRESHOLD:
@@ -457,6 +490,8 @@ async def _auto_stream_watcher():
                         "device":  dev.get("name"),
                         "message": f"Auto-stream: starting to {dev.get('name')}…"
                     })
+                    # Hand the capture device to run_stream.
+                    _close_monitor()
                     state.stream_task = asyncio.create_task(
                         run_stream([dev], aidx, volume)
                     )
@@ -468,6 +503,8 @@ async def _auto_stream_watcher():
         print("[auto-stream] Watcher stopped")
     except Exception as e:
         print(f"[auto-stream] Watcher error: {type(e).__name__}: {e}")
+    finally:
+        _close_monitor()
 
 
 async def _restart_auto_stream_watcher():
@@ -481,7 +518,6 @@ async def _restart_auto_stream_watcher():
         print("[auto-stream] Watcher (re)started")
     else:
         print("[auto-stream] Disabled")
-
 
 
 async def run_stream(targets, audio_device_index, volume):
