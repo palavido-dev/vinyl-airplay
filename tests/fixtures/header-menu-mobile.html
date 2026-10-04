@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=390, initial-scale=1">
+<link rel="stylesheet" href="/static/css/app.css">
+<style>
+  html,body{height:100%;margin:0}
+  /* minimal fonts so page isn't blank */
+  :root{--display-font:Georgia,serif;--body-font:system-ui,sans-serif}
+</style>
+</head>
+<body>
+<div class="frame">
+  <header class="app-header">
+    <span class="brand"><span class="brand-icon"></span>Vinyl Streamer</span>
+    <div class="view-toggle">
+      <button class="view-toggle-btn">Shelves</button>
+      <button class="view-toggle-btn active">Library</button>
+    </div>
+    <button class="header-btn" type="button">↕</button>
+    <button class="header-btn" type="button">+</button>
+    <div class="header-overflow">
+      <button class="header-btn" id="btn-header-more" type="button" aria-expanded="false">⋯</button>
+      <div class="header-menu open" id="header-menu" role="menu">
+        <button type="button" role="menuitem">Stats &amp; history</button>
+        <button type="button" role="menuitem">Playlists</button>
+        <button type="button" role="menuitem">Shuffle albums</button>
+        <button type="button" role="menuitem">Shuffle tracks</button>
+        <button type="button" role="menuitem">Settings</button>
+      </div>
+    </div>
+    <div class="search-wrap"><input class="search-bar" placeholder="Search"></div>
+  </header>
+  <main class="main-content"><div style="padding:1rem;color:#fff">Library grid placeholder</div></main>
+</div>
+<script src="/static/js/app.js"></script>
+<script>
+  // Re-run positioner after load (menu already has .open for visual QA)
+  if (typeof positionHeaderMenu === 'function') {
+    requestAnimationFrame(() => requestAnimationFrame(positionHeaderMenu));
+  }
+  setTimeout(() => {
+    const m = document.getElementById('header-menu');
+    const r = m.getBoundingClientRect();
+    document.title = `left=${Math.round(r.left)} right=${Math.round(r.right)} w=${window.innerWidth}`;
+    console.log({left:r.left, right:r.right, width:r.width, vw:window.innerWidth, clipped:r.left<0||r.right>window.innerWidth});
+  }, 100);
+</script>
+</body>
+</html>

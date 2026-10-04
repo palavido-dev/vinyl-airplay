@@ -3997,6 +3997,34 @@ document.addEventListener('keydown', function(e){
 
 
 /* ── Header overflow / Manage menus ── */
+function positionHeaderMenu(){
+  var m=document.getElementById('header-menu');
+  var btn=document.getElementById('btn-header-more');
+  if(!m||!btn||!m.classList.contains('open'))return;
+  // Reset to CSS defaults, then clamp if still overflowing the viewport.
+  m.style.left='';
+  m.style.right='';
+  var pad=10;
+  var rect=m.getBoundingClientRect();
+  if(rect.left<pad){
+    m.style.right='auto';
+    m.style.left='0';
+    rect=m.getBoundingClientRect();
+  }
+  if(rect.right>window.innerWidth-pad){
+    m.style.left='auto';
+    m.style.right='0';
+    rect=m.getBoundingClientRect();
+  }
+  // Final guard: if both edges still overflow (very narrow), pin to viewport pad.
+  if(rect.left<pad||rect.right>window.innerWidth-pad){
+    var host=btn.closest('.header-overflow')||btn.parentElement;
+    var hostRect=host.getBoundingClientRect();
+    var left=Math.max(pad, Math.min(hostRect.left, window.innerWidth-pad-rect.width));
+    m.style.left=(left-hostRect.left)+'px';
+    m.style.right='auto';
+  }
+}
 function toggleHeaderMenu(e){
   if(e){e.stopPropagation()}
   var m=document.getElementById('header-menu');
@@ -4004,11 +4032,22 @@ function toggleHeaderMenu(e){
   var open=m.classList.toggle('open');
   var btn=document.getElementById('btn-header-more');
   if(btn)btn.setAttribute('aria-expanded', open?'true':'false');
+  if(open){
+    // Double rAF so layout has applied .open before measuring.
+    requestAnimationFrame(function(){requestAnimationFrame(positionHeaderMenu)});
+  }else{
+    m.style.left='';
+    m.style.right='';
+  }
   closeManageMenu();
 }
 function closeHeaderMenu(){
   var m=document.getElementById('header-menu');
-  if(m)m.classList.remove('open');
+  if(m){
+    m.classList.remove('open');
+    m.style.left='';
+    m.style.right='';
+  }
   var btn=document.getElementById('btn-header-more');
   if(btn)btn.setAttribute('aria-expanded','false');
 }
