@@ -24,7 +24,7 @@
       <a href="#watch">Watch</a>
       <a href="#prebuilt">Prebuilt</a>
       <a href="#diy">DIY</a>
-      <a href="#roadmap">Hardware</a>
+      <a href="#hardware">Hardware</a>
       <a class="top-cta" href="#request">Request a unit</a>
     </nav>
   </header>
@@ -67,8 +67,6 @@
 
     <section class="band band-dark" id="watch" aria-label="Product walkthrough">
       <div class="wrap">
-        <h2>See it in the listening room</h2>
-        <p class="support">Needle drop. Recognition. Jukebox. A short walk through the vibe — warm, cozy, no DJ booth required.</p>
         <div class="video-frame">
           <video
             id="product-demo"
@@ -89,7 +87,7 @@
         <p class="support">Low-volume, built and burn-in tested by me. Open source stays free. The paid option is time, assembly, testing, and a working appliance that shows up ready to plug in.</p>
         <div class="sku-grid">
           <article class="sku">
-            <p class="sku-tag">Available now · made to order</p>
+            <p class="sku-tag">Made to order</p>
             <h3>Studio</h3>
             <p>The reference build: Pi 5, HiFiBerry DAC2 ADC Pro, NVMe storage, 10.1&quot; touchscreen. Assembled, imaged, and tested before it ships.</p>
             <ul>
@@ -102,15 +100,15 @@
             <a class="btn btn-primary" href="#request">Request Studio</a>
           </article>
           <article class="sku sku-muted">
-            <p class="sku-tag">In validation</p>
+            <p class="sku-tag">Coming soon</p>
             <h3>Essential</h3>
-            <p>A cost-down candidate: Pi 4 or leaner storage, alternate ADC, and a cheaper display — or headless with phone-only UI. Shipping only after a unit survives real listening.</p>
+            <p>A leaner build with the same software — lower parts cost, optional headless phone-only UI. Join the waitlist if you want early access.</p>
             <ul>
-              <li>Same software, tighter BOM</li>
-              <li>Optional no-touchscreen SKU</li>
-              <li>Target: lower entry price without junk audio</li>
+              <li>Same recognition, recording, and streaming</li>
+              <li>Optional no-touchscreen setup</li>
+              <li>Built for a lower entry price</li>
             </ul>
-            <p class="sku-note">Want one of these first? Say so in your request — early testers help lock the tier.</p>
+            <p class="sku-note">Tell me in your request if Essential is what you’re after.</p>
             <a class="btn btn-ghost" href="#request">Join Essential waitlist</a>
           </article>
         </div>
@@ -133,44 +131,36 @@
       </div>
     </section>
 
-    <section class="band band-paper" id="roadmap">
+    <section class="band band-paper" id="hardware">
       <div class="wrap">
-        <h2>Cheaper parts, same idea</h2>
-        <p class="support">The Studio BOM works. Next is proving what can get cheaper without making the listening experience worse.</p>
+        <h2>What’s in the Studio build</h2>
+        <p class="support">A listening-room appliance, not a pile of spare cables. The reference hardware is chosen for clean capture, reliable storage, and a touchscreen that feels like furniture.</p>
         <div class="tiers">
           <div>
-            <h3>Keep for now</h3>
-            <p>Raspberry Pi ecosystem. Audio HATs, kiosk Chromium, BlueALSA, and AirPlay tooling are already battle-tested here. Jumping platforms early adds driver risk for little gain at this volume.</p>
+            <h3>Compute &amp; audio</h3>
+            <p>Raspberry Pi 5 with a HiFiBerry DAC2 ADC Pro for line-level vinyl capture and local playback.</p>
           </div>
           <div>
-            <h3>Worth testing</h3>
-            <p>Pi 4 · smaller NVMe / quality SD for lighter libraries · class-compliant USB ADCs · 7&quot; displays · headless phone-UI SKU · quieter power and cabling kits.</p>
+            <h3>Storage &amp; display</h3>
+            <p>NVMe storage for your FLAC library, plus a 10.1&quot; touchscreen running the jukebox UI in kiosk mode.</p>
           </div>
           <div>
-            <h3>Maybe later</h3>
-            <p>Custom enclosure, flashable image, Crowd Supply / Kickstarter batch once a handful of hand-built units have paid customers and a settled BOM.</p>
+            <h3>Your room</h3>
+            <p>Works with a turntable that has line-level output (or a phono preamp), and AirPlay or Bluetooth speakers you already own.</p>
           </div>
         </div>
-        <p class="fine"><a href="https://github.com/palavido-dev/vinyl-airplay/blob/main/docs/hardware-tiers.md">Read the hardware tiers plan →</a></p>
+        <p class="fine"><a href="https://github.com/palavido-dev/vinyl-airplay/blob/main/docs/hardware-tiers.md">Full hardware notes →</a></p>
       </div>
     </section>
 
     <section class="band band-dark" id="request">
       <div class="wrap narrow">
         <h2>Request a unit</h2>
-        <p class="support">No cart yet — volume is intentionally small. Open a prebuilt request on GitHub with your country, preferred SKU, and whether you already have a turntable/line-level path. I’ll reply with availability, lead time, and a quote.</p>
+        <p class="support">Made to order in small batches. Open a prebuilt request with your country, preferred option, and turntable setup — I’ll reply with availability, lead time, and a quote.</p>
         <div class="cta-row">
           <a class="btn btn-primary" href="https://github.com/palavido-dev/vinyl-airplay/issues/new?template=prebuilt-request.yml">Open a prebuilt request</a>
           <a class="btn btn-ghost" href="https://github.com/palavido-dev/vinyl-airplay/blob/main/docs/prebuilt.md">What’s included</a>
         </div>
-        <p class="fine">Prefer email? Use the contact details on the prebuilt page after filing a request so nothing gets lost.</p>
-      </div>
-    </section>
-
-    <section class="band" id="crowd">
-      <div class="wrap narrow">
-        <h2>Crowdfunding later — not first</h2>
-        <p class="support">Kickstarter and Crowd Supply are on the table once a few prebuilts have shipped and the Essential BOM is proven. Starting with made-to-order units keeps support manageable and avoids promising a batch before the parts list is settled.</p>
       </div>
     </section>
   </main>
