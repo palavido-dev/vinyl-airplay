@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Vinyl Streamer — Record once. Play forever.</title>
+  <meta name="description" content="A Raspberry Pi vinyl jukebox that records, recognizes, and streams your records to AirPlay and Bluetooth — so you can enjoy them without the wear.">
+  <meta property="og:title" content="Vinyl Streamer">
+  <meta property="og:description" content="Record once. Play forever. A hand-built vinyl jukebox for AirPlay and Bluetooth homes.">
+  <meta property="og:image" content="assets/photos/IMG_0486.jpg">
+  <meta property="og:type" content="website">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=Libre+Baskerville:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+
+  <header class="top">
+    <a class="top-brand" href="#top">Vinyl Streamer</a>
+    <nav class="top-nav" aria-label="Primary">
+      <a href="#how">How it works</a>
+      <a href="#prebuilt">Prebuilt</a>
+      <a href="#diy">DIY</a>
+      <a href="#roadmap">Hardware</a>
+      <a class="top-cta" href="#request">Request a unit</a>
+    </nav>
+  </header>
+
+  <main id="main">
+    <section class="hero" id="top" aria-label="Hero">
+      <div class="hero-media" role="img" aria-label="Vinyl Streamer setup with turntable, touchscreen, and audio interface"></div>
+      <div class="hero-veil"></div>
+      <div class="hero-copy">
+        <p class="brand-mark">Vinyl Streamer</p>
+        <h1>Record once. Play forever.</h1>
+        <p class="lede">A hand-built vinyl jukebox that learns your records, streams them around the house, and keeps the grooves safe on the shelf.</p>
+        <div class="cta-row">
+          <a class="btn btn-primary" href="#request">Request a prebuilt unit</a>
+          <a class="btn btn-ghost" href="https://github.com/palavido-dev/vinyl-airplay">Build it yourself</a>
+        </div>
+      </div>
+    </section>
+
+    <section class="band" id="how">
+      <div class="wrap narrow">
+        <h2>Drop the needle once. After that, it’s a jukebox.</h2>
+        <p class="support">Capture from your turntable, identify the album with local fingerprints, save lossless FLACs, then play from the touchscreen or your phone to AirPlay and Bluetooth speakers.</p>
+      </div>
+      <div class="wrap feature-grid">
+        <figure>
+          <img src="assets/ui/11-nowplaying-hero.jpg" alt="Now playing screen with album artwork and transport controls" width="1400" height="900" loading="lazy">
+          <figcaption>Now playing on the dedicated touchscreen</figcaption>
+        </figure>
+        <figure>
+          <img src="assets/ui/02-shelves-home.jpg" alt="Library shelves view of recorded vinyl albums" width="1400" height="900" loading="lazy">
+          <figcaption>Your collection, browsable like a shelf</figcaption>
+        </figure>
+        <figure>
+          <img src="assets/photos/IMG_0485.jpg" alt="Raspberry Pi mounted on the back of the touchscreen" width="1600" height="1200" loading="lazy">
+          <figcaption>Compact Pi build tucked behind the display</figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <section class="band band-dark" id="prebuilt">
+      <div class="wrap">
+        <h2>Prebuilt by the person who built it</h2>
+        <p class="support">Low-volume, built and burn-in tested by me. Open source stays free. The paid option is time, assembly, testing, and a working appliance that shows up ready to plug in.</p>
+        <div class="sku-grid">
+          <article class="sku">
+            <p class="sku-tag">Available now · made to order</p>
+            <h3>Studio</h3>
+            <p>The reference build: Pi 5, HiFiBerry DAC2 ADC Pro, NVMe storage, 10.1&quot; touchscreen. Assembled, imaged, and tested before it ships.</p>
+            <ul>
+              <li>Lossless vinyl capture + jukebox playback</li>
+              <li>AirPlay + Bluetooth streaming</li>
+              <li>Local fingerprint recognition (no cloud)</li>
+              <li>Discogs metadata + artwork</li>
+            </ul>
+            <p class="sku-note">Turntable, phono preamp (if needed), and speakers not included.</p>
+            <a class="btn btn-primary" href="#request">Request Studio</a>
+          </article>
+          <article class="sku sku-muted">
+            <p class="sku-tag">In validation</p>
+            <h3>Essential</h3>
+            <p>A cost-down candidate: Pi 4 or leaner storage, alternate ADC, and a cheaper display — or headless with phone-only UI. Shipping only after a unit survives real listening.</p>
+            <ul>
+              <li>Same software, tighter BOM</li>
+              <li>Optional no-touchscreen SKU</li>
+              <li>Target: lower entry price without junk audio</li>
+            </ul>
+            <p class="sku-note">Want one of these first? Say so in your request — early testers help lock the tier.</p>
+            <a class="btn btn-ghost" href="#request">Join Essential waitlist</a>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="band" id="diy">
+      <div class="wrap split">
+        <div>
+          <h2>Or build it yourself</h2>
+          <p class="support">Everything is MIT-licensed. The installer, docs, and hardware notes are in the GitHub repo. Prebuilt is optional — DIY is first-class.</p>
+          <div class="cta-row">
+            <a class="btn btn-primary" href="https://github.com/palavido-dev/vinyl-airplay">GitHub repository</a>
+            <a class="btn btn-ghost" href="https://github.com/palavido-dev/vinyl-airplay/blob/main/docs/getting-started.md">Getting started</a>
+          </div>
+        </div>
+        <figure class="split-photo">
+          <img src="assets/photos/catalog.jpg" alt="Vinyl Streamer catalog UI screenshot" width="1200" height="800" loading="lazy">
+        </figure>
+      </div>
+    </section>
+
+    <section class="band band-paper" id="roadmap">
+      <div class="wrap">
+        <h2>Cheaper parts, same idea</h2>
+        <p class="support">The Studio BOM works. Next is proving what can get cheaper without making the listening experience worse.</p>
+        <div class="tiers">
+          <div>
+            <h3>Keep for now</h3>
+            <p>Raspberry Pi ecosystem. Audio HATs, kiosk Chromium, BlueALSA, and AirPlay tooling are already battle-tested here. Jumping platforms early adds driver risk for little gain at this volume.</p>
+          </div>
+          <div>
+            <h3>Worth testing</h3>
+            <p>Pi 4 · smaller NVMe / quality SD for lighter libraries · class-compliant USB ADCs · 7&quot; displays · headless phone-UI SKU · quieter power and cabling kits.</p>
+          </div>
+          <div>
+            <h3>Maybe later</h3>
+            <p>Custom enclosure, flashable image, Crowd Supply / Kickstarter batch once a handful of hand-built units have paid customers and a settled BOM.</p>
+          </div>
+        </div>
+        <p class="fine"><a href="https://github.com/palavido-dev/vinyl-airplay/blob/main/docs/hardware-tiers.md">Read the hardware tiers plan →</a></p>
+      </div>
+    </section>
+
+    <section class="band band-dark" id="request">
+      <div class="wrap narrow">
+        <h2>Request a unit</h2>
+        <p class="support">No cart yet — volume is intentionally small. Open a prebuilt request on GitHub with your country, preferred SKU, and whether you already have a turntable/line-level path. I’ll reply with availability, lead time, and a quote.</p>
+        <div class="cta-row">
+          <a class="btn btn-primary" href="https://github.com/palavido-dev/vinyl-airplay/issues/new?template=prebuilt-request.yml">Open a prebuilt request</a>
+          <a class="btn btn-ghost" href="https://github.com/palavido-dev/vinyl-airplay/blob/main/docs/prebuilt.md">What’s included</a>
+        </div>
+        <p class="fine">Prefer email? Use the contact details on the prebuilt page after filing a request so nothing gets lost.</p>
+      </div>
+    </section>
+
+    <section class="band" id="crowd">
+      <div class="wrap narrow">
+        <h2>Crowdfunding later — not first</h2>
+        <p class="support">Kickstarter and Crowd Supply are on the table once a few prebuilts have shipped and the Essential BOM is proven. Starting with made-to-order units keeps support manageable and avoids promising a batch before the parts list is settled.</p>
+      </div>
+    </section>
+  </main>
+
+  <footer class="foot">
+    <div class="wrap foot-row">
+      <div>
+        <p class="brand-mark">Vinyl Streamer</p>
+        <p>Open source vinyl jukebox. Prebuilts by <a href="https://github.com/palavido-dev">palavido-dev</a>.</p>
+      </div>
+      <div class="foot-links">
+        <a href="https://github.com/palavido-dev/vinyl-airplay">Code</a>
+        <a href="https://github.com/palavido-dev/vinyl-airplay/blob/main/docs/prebuilt.md">Prebuilt</a>
+        <a href="https://github.com/sponsors/palavido-dev">Sponsor</a>
+        <a href="https://paypal.me/palavido">Donate</a>
+      </div>
+    </div>
+  </footer>
+</body>
+</html>

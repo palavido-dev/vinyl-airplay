@@ -15,6 +15,10 @@ Drop the needle once to teach it. After that, play the vinyl or play the recordi
 > - **[Getting Started](docs/getting-started.md)** - 5 minute orientation tour.
 > - **[User Guide](docs/user-guide.md)** - feature by feature walkthrough of the web UI with common workflows.
 > - **[Reference](docs/reference.md)** - exhaustive button level and API level reference.
+> - **[Prebuilt units](docs/prebuilt.md)** - hand-built, tested appliances (low volume, made to order).
+> - **[Hardware tiers](docs/hardware-tiers.md)** - Studio vs Essential BOM validation plan.
+
+> **Want one ready to plug in?** Software stays free and open source. If you’d rather not assemble the Pi stack yourself, I build and test a small number of units to order — see **[Prebuilt](docs/prebuilt.md)** or open a [prebuilt request](https://github.com/palavido-dev/vinyl-airplay/issues/new?template=prebuilt-request.yml). Product page: [palavido-dev.github.io/vinyl-airplay](https://palavido-dev.github.io/vinyl-airplay/).
 
 > **A personal note:** I'm not an audiophile, and I don't pretend to be. This started as a personal project -I just wanted a simple way to play my records on speakers around the house without re-buying everything digitally. I also wanted to preserve my vinyl. Some of my records are irreplaceable, and every play wears the grooves a little more. Now I can record each album once, and from then on play the lossless FLAC recording whenever I want -saving the physical vinyl for when I really want that ritual. I know vinyl purists may have opinions about digitizing analog audio, and that's totally fair. I built this for myself and I'm sharing it in case it's useful to anyone else.
 
@@ -312,7 +316,10 @@ vinyl-airplay/
 │   ├── getting-started.md
 │   ├── user-guide.md
 │   ├── reference.md
+│   ├── prebuilt.md          # Made-to-order appliances
+│   ├── hardware-tiers.md    # Studio / Essential BOM plan
 │   └── images/              # UI screenshots
+├── site/                    # Product landing page (GitHub Pages)
 ├── screenshots/             # Hardware photos
 ├── settings.json            # User configuration (auto created)
 └── data/                    # SQLite database, artwork, FLAC recordings
@@ -353,6 +360,27 @@ For a deeper look at each module and every HTTP API route, see the **[Reference]
 - [x] **One-line install script** - Automated installer for existing Pi setups
 - [x] **Auto-update mechanism** - Check for and install updates directly from the app with automatic rollback on failure
 - [ ] **Flashable Pi image** - Pre-built SD card image for zero-config setup
+- [ ] **Essential hardware tier** - Validated cheaper BOM (Pi 4 / USB ADC / display / headless options)
+- [ ] **Small-batch prebuilts** - Made-to-order Studio units with clear lead times
+- [ ] **Crowdfunding (maybe)** - Kickstarter or Crowd Supply only after paid prebuilts have shipped
+
+---
+
+## Get a Prebuilt Unit
+
+DIY is fully supported. Prebuilts are optional and intentionally low volume.
+
+| Option | What you get |
+|---|---|
+| **Studio** | Reference build (Pi 5 + quality ADC + storage + touchscreen), assembled and burn-in tested by me |
+| **Essential** | Cost-down candidate (Pi 4 / alternate ADC / cheaper display / headless) — waitlist until validated |
+| **DIY** | Free software + [docs](docs/getting-started.md) + [hardware notes](docs/hardware-tiers.md) |
+
+- **[Prebuilt details](docs/prebuilt.md)** — what’s included, what’s not, how quoting works
+- **[Request a unit](https://github.com/palavido-dev/vinyl-airplay/issues/new?template=prebuilt-request.yml)** — GitHub issue form (conversation before payment)
+- **[Product page](https://palavido-dev.github.io/vinyl-airplay/)** — public landing page (GitHub Pages)
+
+Crowdfunding (Kickstarter / Crowd Supply) is on the roadmap only after a few hand-built units have shipped and the Essential BOM has a written pass/fail. See [hardware tiers](docs/hardware-tiers.md).
 
 ---
 
@@ -362,6 +390,7 @@ If you find this useful and want to support continued development, donations are
 
 - **[Donate via PayPal](https://paypal.me/palavido)**
 - **[Sponsor on GitHub](https://github.com/sponsors/palavido-dev)** *(pending approval)*
+- **[Request a prebuilt](docs/prebuilt.md)** — pays for hardware time and keeps the open project fed
 
 ---
 
