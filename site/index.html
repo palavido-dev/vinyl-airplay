@@ -154,13 +154,79 @@
     </section>
 
     <section class="band band-dark" id="request">
-      <div class="wrap narrow">
+      <div class="wrap request-wrap">
         <h2>Request a unit</h2>
-        <p class="support">Made to order in small batches. Open a prebuilt request with your country, preferred option, and turntable setup — I’ll reply with availability, lead time, and a quote.</p>
-        <div class="cta-row">
-          <a class="btn btn-primary" href="https://github.com/palavido-dev/vinyl-airplay/issues/new?template=prebuilt-request.yml">Open a prebuilt request</a>
-          <a class="btn btn-ghost" href="https://github.com/palavido-dev/vinyl-airplay/blob/main/docs/prebuilt.md">What’s included</a>
-        </div>
+        <p class="support">Made to order in small batches. Fill this out and I’ll email you back with availability, lead time, and a quote — no GitHub account needed.</p>
+
+        <form class="request-form" action="https://formsubmit.co/matthew.palavido@gmail.com" method="POST">
+          <input type="hidden" name="_subject" value="Vinyl Streamer prebuilt request">
+          <input type="hidden" name="_template" value="table">
+          <input type="hidden" name="_next" value="https://palavido-dev.github.io/vinyl-airplay/thanks.html">
+          <input type="hidden" name="_captcha" value="false">
+          <input type="text" name="_honey" class="honey" tabindex="-1" autocomplete="off" aria-hidden="true">
+
+          <div class="form-grid">
+            <label>
+              <span>Your name</span>
+              <input type="text" name="name" required autocomplete="name">
+            </label>
+            <label>
+              <span>Email</span>
+              <input type="email" name="email" required autocomplete="email">
+            </label>
+            <label>
+              <span>Which option?</span>
+              <select name="option" required>
+                <option value="" disabled selected>Select one</option>
+                <option>Studio (reference build, made to order)</option>
+                <option>Essential waitlist</option>
+                <option>Not sure — help me choose</option>
+              </select>
+            </label>
+            <label>
+              <span>Country / region for shipping</span>
+              <input type="text" name="country" required placeholder="e.g. United States (CA)">
+            </label>
+            <label>
+              <span>Turntable / line-level setup</span>
+              <select name="turntable" required>
+                <option value="" disabled selected>Select one</option>
+                <option>Turntable with built-in preamp (line out)</option>
+                <option>Turntable + separate phono preamp</option>
+                <option>Need advice on preamp / cabling</option>
+                <option>Playback-only for now</option>
+              </select>
+            </label>
+            <label>
+              <span>Primary speakers</span>
+              <select name="speakers" required>
+                <option value="" disabled selected>Select one</option>
+                <option>AirPlay (HomePod / AirPlay speaker)</option>
+                <option>Bluetooth</option>
+                <option>Local amp / powered speakers from the Pi DAC</option>
+                <option>Mix / not sure yet</option>
+              </select>
+            </label>
+            <label class="full">
+              <span>Anything else</span>
+              <textarea name="notes" rows="4" placeholder="Collection size, timeline, touchscreen vs headless, questions…"></textarea>
+            </label>
+          </div>
+
+          <label class="check">
+            <input type="checkbox" name="understands_open_source" value="yes" required>
+            <span>I understand the software is open source / free, and payment (if any) is for hardware, assembly, and testing.</span>
+          </label>
+          <label class="check">
+            <input type="checkbox" name="understands_made_to_order" value="yes" required>
+            <span>I understand this is low-volume and made to order.</span>
+          </label>
+
+          <div class="cta-row form-actions">
+            <button type="submit" class="btn btn-primary">Send request</button>
+            <a class="btn btn-ghost" href="https://github.com/palavido-dev/vinyl-airplay/blob/main/docs/prebuilt.md">What’s included</a>
+          </div>
+        </form>
       </div>
     </section>
   </main>

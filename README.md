@@ -18,7 +18,7 @@ Drop the needle once to teach it. After that, play the vinyl or play the recordi
 > - **[Prebuilt units](docs/prebuilt.md)** - hand-built, tested appliances (low volume, made to order).
 > - **[Hardware tiers](docs/hardware-tiers.md)** - Studio vs Essential BOM validation plan.
 
-> **Want one ready to plug in?** Software stays free and open source. If you’d rather not assemble the Pi stack yourself, I build and test a small number of units to order — see **[Prebuilt](docs/prebuilt.md)** or open a [prebuilt request](https://github.com/palavido-dev/vinyl-airplay/issues/new?template=prebuilt-request.yml). Product page: [palavido-dev.github.io/vinyl-airplay](https://palavido-dev.github.io/vinyl-airplay/).
+> **Want one ready to plug in?** Software stays free and open source. If you’d rather not assemble the Pi stack yourself, I build and test a small number of units to order — see **[Prebuilt](docs/prebuilt.md)** or use the [request form](https://palavido-dev.github.io/vinyl-airplay/#request). Product page: [palavido-dev.github.io/vinyl-airplay](https://palavido-dev.github.io/vinyl-airplay/).
 
 > **A personal note:** I'm not an audiophile, and I don't pretend to be. This started as a personal project -I just wanted a simple way to play my records on speakers around the house without re-buying everything digitally. I also wanted to preserve my vinyl. Some of my records are irreplaceable, and every play wears the grooves a little more. Now I can record each album once, and from then on play the lossless FLAC recording whenever I want -saving the physical vinyl for when I really want that ritual. I know vinyl purists may have opinions about digitizing analog audio, and that's totally fair. I built this for myself and I'm sharing it in case it's useful to anyone else.
 
@@ -377,7 +377,7 @@ DIY is fully supported. Prebuilts are optional and intentionally low volume.
 | **DIY** | Free software + [docs](docs/getting-started.md) + [hardware notes](docs/hardware-tiers.md) |
 
 - **[Prebuilt details](docs/prebuilt.md)** — what’s included, what’s not, how quoting works
-- **[Request a unit](https://github.com/palavido-dev/vinyl-airplay/issues/new?template=prebuilt-request.yml)** — GitHub issue form (conversation before payment)
+- **[Request a unit](https://palavido-dev.github.io/vinyl-airplay/#request)** — short form on the product page (emails me; no GitHub login)
 - **[Product page](https://palavido-dev.github.io/vinyl-airplay/)** — public landing page (GitHub Pages)
 
 Crowdfunding (Kickstarter / Crowd Supply) is on the roadmap only after a few hand-built units have shipped and the Essential BOM has a written pass/fail. See [hardware tiers](docs/hardware-tiers.md).

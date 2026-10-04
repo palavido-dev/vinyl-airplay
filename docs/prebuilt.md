@@ -23,9 +23,9 @@ This is intentionally **low volume**. If demand spikes, fulfillment slows down r
 
 ## How to request one
 
-1. Open a **[Prebuilt request](https://github.com/palavido-dev/vinyl-airplay/issues/new?template=prebuilt-request.yml)** issue.
-2. Include country/region, preferred SKU (`Studio` or `Essential` waitlist), and whether you already have line-level audio from your turntable.
-3. You’ll get a reply with availability, estimated lead time, and a quote before any payment.
+1. Use the form on the **[product page](https://palavido-dev.github.io/vinyl-airplay/#request)** (no GitHub account needed).
+2. Include country/region, preferred option (`Studio` or `Essential` waitlist), and whether you already have line-level audio from your turntable.
+3. You’ll get an email reply with availability, estimated lead time, and a quote before any payment.
 
 No silent carts. Every unit is a conversation first.
 
