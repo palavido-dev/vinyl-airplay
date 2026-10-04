@@ -42,10 +42,20 @@ shown on the device. Credentials are stored in
 
 Many third-party AirPlay 2 receivers need no pairing (transient HAP).
 
-## Settings
+## Apple TV notes
 
-- `airplay2_enabled` (default `true`): when false, every AirPlay target stays on
-  the legacy pyatv RAOP path even if `cliairplay` is present.
+Apple TVs and HomePods render **silence** on an NTP-timed AirPlay 2 realtime
+stream (Music Assistant hardware measurement). Vinyl Streamer therefore forces
+`--timing ptp` (and prefers `--buffered`) for those devices. The `cliairplay`
+binary needs `CAP_NET_BIND_SERVICE` so it can bind UDP 319/320 for PTP:
+
+```bash
+sudo setcap 'cap_net_bind_service=+ep' /home/listen/vinyl-airplay/bin/cliairplay
+getcap /home/listen/vinyl-airplay/bin/cliairplay
+```
+
+Confirm the stream log shows `timing=ptp` (not `mode=ntp`) when playing to an
+Apple TV.
 
 ## License note
 

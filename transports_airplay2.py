@@ -362,9 +362,12 @@ class CliAirPlayStream:
         self.use_ptp_shared = use_ptp_shared
         self.binary = binary or find_cliairplay()
         self.defer_start = defer_start
-        # Apple TVs often advertise SupportsPTP but never answer clock probes;
-        # force NTP so audio actually renders (cliairplay --timing ntp).
+        # None = let --txt / SupportsPTP decide. Never force NTP on Apple
+        # hardware: Apple TVs/HomePods render silence on NTP-timed realtime
+        # streams (Music Assistant hardware measurement).
         self.timing = timing
+        self.force_buffered = False
+        self._audio_buffered = threading.Event()
 
         self._proc: subprocess.Popen | None = None
         self._cmd_fd: int | None = None
@@ -409,17 +412,26 @@ class CliAirPlayStream:
             args += ["--txt", self.txt]
         if self.timing in ("ptp", "ntp", "auto"):
             args += ["--timing", self.timing]
+        if getattr(self, "force_buffered", False):
+            args += ["--buffered"]
         if self.auth and len(self.auth) == 192:
             args += ["--auth", self.auth]
         elif self.protocol in ("airplay2", "auto"):
             # Transient pairing when we have no stored HAP credentials.
             args += ["--ap2-native"]
-        # Shared PTP only when we are not forcing NTP (Apple TV escape hatch).
+        # Shared PTP clock for multi-room / Apple PTP routes.
         if self._ptp_held and self.timing != "ntp":
             args += ["--ptp-shared"]
+        elif self.timing == "ptp" and not self._ptp_held:
+            # In-process PTP engine (needs CAP_NET_BIND_SERVICE on the binary).
+            args += ["--ptp"]
         args.append(self.host)
 
-        print(f"[airplay2] Connecting to {self.name} ({self.host}:{self.port})…")
+        print(
+            f"[airplay2] Connecting to {self.name} ({self.host}:{self.port}) "
+            f"protocol={self.protocol} timing={self.timing or 'auto'} "
+            f"ptp_shared={bool(self._ptp_held)} buffered={getattr(self, 'force_buffered', False)}"
+        )
         self._proc = subprocess.Popen(
             args,
             stdin=subprocess.PIPE,
@@ -617,6 +629,8 @@ class CliAirPlayStream:
             self._connected.set()
         if _STATUS_STARTED_RE.search(line):
             self._started.set()
+        if "audio buffered_ms=" in line:
+            self._audio_buffered.set()
 
 
 def _cmd_escape(value: str) -> str:
@@ -877,11 +891,15 @@ def build_stream_for_conf(
     port = conf_airplay_port(conf)
     is_atv = conf_is_apple_tv(conf)
     protocol = "airplay2" if supports_airplay2(conf_features_value(conf)) or is_atv else "auto"
-    # Video-class Apple TVs advertise PTP but often never slave to our clock;
-    # audio then plays as silence until the session dies. Force NTP for them.
-    timing = "ntp" if is_atv else None
-    use_shared = use_ptp_shared and timing != "ntp"
-    return CliAirPlayStream(
+    # Apple hardware renders SILENCE on NTP-timed realtime streams (MA
+    # hardware-measured). Always drive Apple TV / HomePod with PTP.
+    if is_atv or conf_is_homepod(conf):
+        timing = "ptp"
+        use_shared = True
+    else:
+        timing = None
+        use_shared = use_ptp_shared
+    stream = CliAirPlayStream(
         str(conf.address),
         port=port,
         volume=volume,
@@ -896,19 +914,40 @@ def build_stream_for_conf(
         defer_start=defer_start,
         timing=timing,
     )
+    # Prefer the buffered (type 103) stream on Apple TV when the binary
+    # allows it — more reliable than realtime for video-class receivers.
+    if is_atv:
+        stream.force_buffered = True
+    return stream
 
 
 def start_synced_group(streams: list[CliAirPlayStream], lead_ms: int = 2000) -> None:
-    """Connect every stream (defer_start), then fire a shared START anchor."""
+    """Connect every stream, then fire a shared START after audio is buffered.
+
+    Solo and multi-room both defer START until the binary reports
+    ``audio buffered_ms`` (or a short timeout), so we never anchor an empty
+    ring — which on Apple TV shows Now Playing with silence.
+    """
     if not streams:
-        return
-    if len(streams) == 1:
-        streams[0].defer_start = False
-        streams[0].start()
         return
     for s in streams:
         s.defer_start = True
         s.start()
+        # Prime the ring so buffered_ms can fire before the player attaches.
+        with suppress(Exception):
+            silence = b"\x00" * (int(SAMPLE_RATE * 0.2) * CHANNELS * 2)
+            s.put(silence)
+
+    # Wait for each stream to report a buffered packet (best-effort).
+    deadline = time.monotonic() + 3.0
+    for s in streams:
+        remaining = max(0.1, deadline - time.monotonic())
+        if not s._audio_buffered.wait(timeout=remaining):
+            print(f"[airplay2] No audio-buffered ack from {s.name}; starting anyway")
+
+    if len(streams) == 1:
+        streams[0].command_start(start_unix_ms=0)
+        return
     anchor = int(time.time() * 1000) + max(500, int(lead_ms))
     for s in streams:
         s.command_start(start_unix_ms=anchor)
