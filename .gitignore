@@ -22,3 +22,6 @@ certs/
 .config/
 *.BAK
 screenshots
+
+# Product video build scratch
+site/assets/video/work/

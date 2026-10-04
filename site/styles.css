@@ -202,6 +202,22 @@ a:hover {
   color: rgba(250, 248, 244, 0.78);
 }
 
+.video-frame {
+  margin-top: 1.75rem;
+  border-radius: 16px;
+  overflow: hidden;
+  border: 1px solid rgba(201, 162, 74, 0.28);
+  background: #140c08;
+  box-shadow: 0 24px 50px rgba(0, 0, 0, 0.35);
+}
+
+.video-frame video {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: #140c08;
+}
+
 .cta-row {
   display: flex;
   flex-wrap: wrap;
