@@ -126,8 +126,36 @@ def _fake_apple_tv(identifier="atv1", name="Living Room TV", has_raop=True):
     return conf
 
 
+def test_standalone_homepod_stays_on_raop(monkeypatch):
+    """Bedroom standalone HomePods work on RAOP — do not force AP2."""
+    conf = MagicMock()
+    conf.identifier = "hp1"
+    conf.name = "Bedroom"
+    monkeypatch.setattr(ap2, "conf_is_homepod", lambda _c: True)
+    monkeypatch.setattr(ap2, "conf_is_apple_tv", lambda _c: False)
+    monkeypatch.setattr(ap2, "conf_looks_grouped", lambda _c: False)
+    monkeypatch.setattr(ap2, "conf_has_raop", lambda _c: True)
+    monkeypatch.setattr(ap2, "get_credentials", lambda _id: {"auth": "a" * 192})
+    monkeypatch.setattr(ap2, "supports_airplay2", lambda _f: True)
+    monkeypatch.setattr(ap2, "conf_features_value", lambda _c: "0x0,0x40")
+    assert ap2.requires_airplay2_ptp(conf) is False
+    assert ap2.should_use_airplay2(conf, "hp1", binary_available=True) is False
+
+
+def test_grouped_homepod_requires_ap2(monkeypatch):
+    conf = MagicMock()
+    conf.identifier = "pair1"
+    conf.name = "Living Room"
+    monkeypatch.setattr(ap2, "conf_is_homepod", lambda _c: True)
+    monkeypatch.setattr(ap2, "conf_is_apple_tv", lambda _c: False)
+    monkeypatch.setattr(ap2, "conf_looks_grouped", lambda _c: True)
+    monkeypatch.setattr(ap2, "conf_has_raop", lambda _c: True)
+    assert ap2.requires_airplay2_ptp(conf) is True
+    assert ap2.should_use_airplay2(conf, "pair1", binary_available=True) is True
+
+
 def test_resolve_fails_closed_without_ptp_for_apple(monkeypatch):
-    """ATV→HomePod audio cannot use RAOP; missing PTP must raise, not RAOP-fallback."""
+    """ATV / groups cannot use RAOP; missing PTP must raise, not RAOP-fallback."""
     conf = _fake_apple_tv()
     monkeypatch.setattr(ap2, "find_cliairplay", lambda: "/bin/fake-cliairplay")
     monkeypatch.setattr(ap2, "conf_is_apple_tv", lambda _c: True)
@@ -150,7 +178,33 @@ def test_resolve_fails_closed_without_ptp_for_apple(monkeypatch):
     except RuntimeError as e:
         msg = str(e).lower()
         assert "ptp" in msg or "setcap" in msg
-        assert "homepod" in msg or "raop" in msg
+
+
+def test_resolve_standalone_homepod_uses_raop(monkeypatch):
+    conf = MagicMock()
+    conf.identifier = "hp1"
+    conf.name = "Bedroom"
+    monkeypatch.setattr(ap2, "find_cliairplay", lambda: "/bin/fake-cliairplay")
+    monkeypatch.setattr(ap2, "conf_is_apple_tv", lambda _c: False)
+    monkeypatch.setattr(ap2, "conf_is_homepod", lambda _c: True)
+    monkeypatch.setattr(ap2, "conf_looks_grouped", lambda _c: False)
+    monkeypatch.setattr(ap2, "conf_has_raop", lambda _c: True)
+    monkeypatch.setattr(ap2, "get_credentials", lambda _id: None)
+    monkeypatch.setattr(ap2, "supports_airplay2", lambda _f: True)
+    monkeypatch.setattr(ap2, "conf_features_value", lambda _c: "0x0,0x40")
+    monkeypatch.setattr(
+        ap2.PtpDaemon, "acquire", classmethod(lambda cls, _b: False)
+    )
+    monkeypatch.setattr(ap2.PtpDaemon, "release", classmethod(lambda cls: None))
+
+    raop, streams = ap2.resolve_airplay_outputs(
+        [{"id": "hp1"}],
+        [conf],
+        volume=50,
+        binary="/bin/fake-cliairplay",
+    )
+    assert streams == []
+    assert raop == [conf]
 
 
 def test_resolve_fails_closed_when_unpaired(monkeypatch):

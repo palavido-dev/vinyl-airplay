@@ -593,21 +593,19 @@ async def _run_stream_inner(targets, audio_device_index, volume):
             ap2_streams = []
             state.ap2_streams = []
             await broadcast("error", {"message": f"AirPlay 2 start failed: {e}"})
-            # Keep pyatv RAOP only for non-Apple / non-grouped targets.
-            # Apple TV with HomePod-as-audio cannot use RAOP.
-            from transports_airplay2 import (
-                conf_is_apple_tv, conf_is_homepod, conf_looks_grouped,
-            )
+            # Keep pyatv RAOP for standalone HomePods / classic speakers.
+            # Apple TV and paired speaker groups need native AP2 + PTP.
+            from transports_airplay2 import requires_airplay2_ptp
             id_to_conf = {d.identifier: d for d in found}
             confs = []
             for t in airplay_targets:
                 c = id_to_conf.get(t["id"])
                 if not c:
                     continue
-                if conf_is_apple_tv(c) or conf_is_homepod(c) or conf_looks_grouped(c):
+                if requires_airplay2_ptp(c):
                     print(
                         f"[airplay2] Not falling back to RAOP for {c.name} "
-                        "(ATV→HomePod / grouped needs native AP2 + PTP)"
+                        "(Apple TV / paired group needs native AP2 + PTP)"
                     )
                     continue
                 confs.append(c)

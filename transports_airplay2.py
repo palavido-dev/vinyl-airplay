@@ -993,18 +993,45 @@ def conf_looks_grouped(conf) -> bool:
     )
 
 
+def requires_airplay2_ptp(conf) -> bool:
+    """True when classic RAOP cannot drive this receiver.
+
+    - Apple TV (including when a HomePod is its audio output)
+    - Stereo pairs / multi-room groups (gid/pgid/gpname/tsid)
+
+    Standalone HomePods work fine on RAOP and must stay there.
+    """
+    if conf_is_apple_tv(conf):
+        return True
+    if conf_looks_grouped(conf):
+        return True
+    return False
+
+
 def should_use_airplay2(conf, device_id: str, *, binary_available: bool) -> bool:
-    """Decide whether this target should stream via cliairplay instead of pyatv."""
+    """Decide whether this target should stream via cliairplay instead of pyatv.
+
+    Standalone HomePods stay on RAOP (pyatv). Apple TV, stereo pairs, and
+    multi-room groups need AirPlay 2 + PTP.
+    """
     if not binary_available:
         return False
+    # Standalone HomePod with RAOP: never force AP2 — bedroom units work on RAOP.
+    if (
+        conf_is_homepod(conf)
+        and not conf_looks_grouped(conf)
+        and conf_has_raop(conf)
+    ):
+        return False
+    if requires_airplay2_ptp(conf):
+        return True
     if get_credentials(device_id):
         return True
     features = conf_features_value(conf)
     if supports_airplay2(features):
-        return True
-    if conf_looks_grouped(conf):
-        return True
-    if conf_is_apple_tv(conf):
+        # Prefer RAOP when the device still advertises it and is not a group/ATV.
+        if conf_has_raop(conf) and not requires_airplay2_ptp(conf):
+            return False
         return True
     # AP2-only receivers: AirPlay service present, no RAOP.
     try:
@@ -1044,33 +1071,32 @@ def build_stream_for_conf(
     dacp = (creds.get("dacp_id") if creds else None) or stable_dacp_id(device_id)
     port = conf_airplay_port(conf)
     is_atv = conf_is_apple_tv(conf)
-    is_apple = is_atv or conf_is_homepod(conf)
-    # Apple TV with a HomePod as its audio output is AP2-only — classic RAOP
-    # and airplay2-compat cannot drive that path.
-    needs_native = is_apple or conf_looks_grouped(conf)
+    needs_native = requires_airplay2_ptp(conf)
 
     if ptp_available is None:
         ptp_available = binary_has_ptp_cap(binary) or PtpDaemon.ready()
 
     if needs_native:
+        kind = "Apple TV" if is_atv else "speaker group"
         if not auth:
             raise RuntimeError(
                 f"{conf.name}: pair from Settings first (HAP PIN). "
-                "Apple TV / HomePod audio needs AirPlay 2 credentials — "
-                "RAOP will not work when a HomePod is the TV's speaker."
+                f"{kind}s need AirPlay 2 — RAOP will not work "
+                "(standalone HomePods still use RAOP)."
             )
         if not ptp_available:
             raise RuntimeError(
                 f"{conf.name}: PTP clock unavailable (UDP 319/320). "
                 f"Run: sudo setcap 'cap_net_bind_service=+ep' {binary} "
                 "then restart the service. "
-                "RAOP cannot play to an Apple TV that uses a HomePod for audio."
+                f"RAOP cannot play to {kind}s "
+                "(standalone HomePods still use RAOP)."
             )
         protocol = "airplay2"
         timing = "ptp"
         use_shared = True
         require_ptp = True
-        print(f"[airplay2] {conf.name}: native AP2 + PTP (required for ATV/HomePod)")
+        print(f"[airplay2] {conf.name}: native AP2 + PTP (required for {kind})")
     else:
         protocol = "airplay2" if supports_airplay2(features) else "auto"
         timing = None
@@ -1142,9 +1168,9 @@ def resolve_airplay_outputs(
 ) -> tuple[list, list]:
     """Split scanned devices into (pyatv_confs, CliAirPlayStream list).
 
-    Apple TV / HomePod / grouped receivers always use cliairplay native AP2 +
-    PTP. They are never placed on the pyatv RAOP list — RAOP cannot drive an
-    Apple TV whose audio output is a paired HomePod.
+    Routing:
+    - Standalone HomePods → pyatv RAOP (works today)
+    - Apple TV / stereo pairs / multi-room groups → cliairplay native AP2 + PTP
     """
     id_to_conf = {d.identifier: d for d in found_confs}
     if airplay2_enabled:
@@ -1159,8 +1185,8 @@ def resolve_airplay_outputs(
             PtpDaemon.release()
         else:
             print(
-                "[airplay2] PTP daemon unavailable — Apple TV/HomePod will fail "
-                "closed (RAOP cannot drive HomePod-as-ATV-audio). Fix with:\n"
+                "[airplay2] PTP daemon unavailable — Apple TV / speaker groups "
+                "will fail closed (standalone HomePods still use RAOP). Fix:\n"
                 f"  sudo setcap 'cap_net_bind_service=+ep' {binary}"
             )
 
@@ -1171,25 +1197,19 @@ def resolve_airplay_outputs(
         if not conf:
             print(f"[airplay2] Target {t.get('name') or t.get('id')} not found in scan")
             continue
-        needs_native = (
-            conf_is_apple_tv(conf)
-            or conf_is_homepod(conf)
-            or conf_looks_grouped(conf)
-        )
-        if binary and (needs_native or should_use_airplay2(
-            conf, t["id"], binary_available=True
-        )):
-            if needs_native and not binary:
+        if binary and should_use_airplay2(conf, t["id"], binary_available=True):
+            if requires_airplay2_ptp(conf) and not binary:
                 raise RuntimeError(
                     f"{conf.name}: AirPlay 2 binary required "
-                    "(RAOP cannot play to ATV→HomePod audio)"
+                    "(RAOP cannot play to Apple TV / paired speaker groups)"
                 )
             ap2_confs.append(conf)
         else:
-            if needs_native:
+            if requires_airplay2_ptp(conf):
                 raise RuntimeError(
                     f"{conf.name}: install cliairplay + CAP_NET_BIND_SERVICE; "
-                    "RAOP will not work when a HomePod is the Apple TV's audio"
+                    "RAOP will not work for Apple TV / paired speaker groups "
+                    "(standalone HomePods are fine on RAOP)"
                 )
             raop_confs.append(conf)
 

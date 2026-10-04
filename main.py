@@ -180,13 +180,13 @@ async def lifespan(app: FastAPI):
             else:
                 print(
                     "[airplay2] WARNING: no CAP_NET_BIND_SERVICE on "
-                    f"{state.cliairplay_path} — Apple TV with HomePod audio will "
-                    "fail until you run:\n"
+                    f"{state.cliairplay_path} — Apple TV / paired speaker groups "
+                    "will fail until you run:\n"
                     f"  sudo setcap 'cap_net_bind_service=+ep' {state.cliairplay_path}"
                 )
         else:
-            print("[airplay2] cliairplay not installed — AP2 devices unavailable "
-                  "(RAOP still works for classic speakers; not for ATV→HomePod)")
+            print("[airplay2] cliairplay not installed — Apple TV / groups unavailable "
+                  "(standalone HomePods still use RAOP)")
     except Exception as e:
         print(f"[airplay2] Binary probe failed: {e}")
         state.cliairplay_path = None
