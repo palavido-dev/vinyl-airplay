@@ -33,6 +33,8 @@ No silent carts. Every unit is a conversation first.
 
 Quotes are given per request so parts prices and shipping can stay honest. Expect a finished Studio appliance to land in enthusiast-audio territory (typically mid–high hundreds USD before shipping), not mass-market gadget pricing. Essential aims lower once validated.
 
+Internal build math (parts, markup, profit per unit): **[Pricing one-pager](pricing.md)**.
+
 ## Support
 
 - For prebuilt hardware problems, reference your order email thread in a reply.
