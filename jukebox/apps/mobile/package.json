@@ -3,11 +3,15 @@
   "version": "1.0.0",
   "main": "index.ts",
   "dependencies": {
-    "expo": "~57.0.26",
-    "react": "19.2.3",
-    "react-native": "0.86.3",
+    "@expo/metro-runtime": "~57.0.16",
     "@vinyl-jukebox/shared": "workspace:*",
-    "expo-linking": "~8.0.8"
+    "expo": "~57.0.26",
+    "expo-linking": "~8.0.8",
+    "expo-modules-core": "~57.0.20",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "react-native": "0.86.3",
+    "react-native-web": "^0.21.2"
   },
   "devDependencies": {
     "@types/react": "~19.2.2",
