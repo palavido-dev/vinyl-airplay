@@ -60,3 +60,5 @@ Do not crowdfund a BOM that has not shipped as a hand-built preorder. Kickstarte
 - packaging, shipping weight, and support load are known
 
 See [Prebuilt](prebuilt.md) for the made-to-order offer that should run before any campaign.
+
+For parts, markup, and **per-unit profit** at suggested quotes, see **[Pricing one-pager](pricing.md)** (internal quoting reference).

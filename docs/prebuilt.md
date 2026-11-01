@@ -33,6 +33,8 @@ No silent carts. Every unit is a conversation first.
 
 Quotes are given per request so parts prices and shipping can stay honest. **Studio typically starts around $750 USD before shipping** (enthusiast-audio territory, not mass-market gadget pricing). Essential aims lower once validated — use the email-only notify form on the product page if you only want waitlist updates.
 
+Internal build math (parts, markup, profit per unit): **[Pricing one-pager](pricing.md)**.
+
 ## Support
 
 - For prebuilt hardware problems, reference your order email thread in a reply.
