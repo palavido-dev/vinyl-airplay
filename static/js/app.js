@@ -4617,7 +4617,7 @@ async function reconfigureWiFi() {
 
     if (data.status === 'portal_started') {
       status.style.display = 'block';
-      status.textContent = 'Portal started. Connect to "VinylStreamer-Setup" WiFi network to configure.';
+      status.textContent = 'WiFi setup is open at http://' + location.hostname + '/. Use Open player there if this Pi is already online.';
       showToast('WiFi portal started');
     } else {
       showError(data.message || 'Failed to start WiFi portal');

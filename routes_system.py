@@ -299,6 +299,12 @@ async def perform_update():
         # Clear rollback marker so an exception during restart does not undo the pull.
         _update_rollback_hash = None
 
+        # wifi_setup.py runs in its own service. Restart it before the app
+        # restart below, which ends this process, so a portal fix actually lands.
+        subprocess.run(
+            ["systemctl", "restart", "vinyl-wifi-setup"],
+            timeout=20,
+        )
         subprocess.run(
             ["systemctl", "restart", "vinyl-airplay"],
             timeout=5
@@ -342,7 +348,7 @@ async def perform_update():
 
         recovery = (
             " On the Pi run: cd ~/vinyl-airplay && git pull origin main "
-            "&& sudo systemctl restart vinyl-airplay"
+            "&& sudo systemctl restart vinyl-wifi-setup vinyl-airplay"
         )
         if "externally-managed" in error_msg or "pip install failed" in error_msg:
             error_msg = error_msg + recovery
@@ -353,9 +359,13 @@ async def perform_update():
 @router.post("/api/wifi/reconfigure")
 async def wifi_reconfigure():
     try:
+        # The portal redirects to the player while a network is up. The flag
+        # asks it to show the form anyway, without dropping the working link.
+        from wifi_setup import request_forced_setup
+        request_forced_setup()
         subprocess.run(
             ["systemctl", "start", "vinyl-wifi-setup"],
-            timeout=5
+            timeout=15
         )
         return {"status": "portal_started"}
     except Exception as e:

@@ -111,7 +111,7 @@ jobs:
       - name: Install Python deps
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install -r requirements.txt httpx
 
       - name: Import top-level modules
         # If a top-level import is broken (missing dep, wrong import
@@ -129,6 +129,11 @@ jobs:
         # Guards issue #57: a side is written to disk as it arrives, and the
         # saved FLAC still matches the audio that was captured.
         run: python tests/test_album_recorder_spill.py
+
+      - name: WiFi portal when already online
+        # Guards vinyl.local opening the setup form on a Pi that is already
+        # on the LAN, and Connect failing because dhclient is not installed.
+        run: python tests/test_wifi_portal.py
 
       - name: Capture rate negotiation
         # Guards issue #76: a capture card that refuses 44100 is opened at a

@@ -50,6 +50,7 @@ else
   echo "No venv pip found; skipping dependency install (code update still applies)."
 fi
 
-echo "Restarting vinyl-airplay..."
+echo "Restarting vinyl-airplay and the WiFi portal..."
+sudo systemctl restart vinyl-wifi-setup || true
 sudo systemctl restart vinyl-airplay
 echo "Done. Hard-refresh the kiosk browser if the UI looks stale."
