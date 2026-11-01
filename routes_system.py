@@ -63,15 +63,46 @@ def _git_env() -> dict[str, str]:
     return env
 
 
-def _git(*args: str, timeout: int = 15) -> subprocess.CompletedProcess:
+def _git(*args: str, timeout: int = 15, config: tuple[str, ...] = ()) -> subprocess.CompletedProcess:
+    cmd = ["git", "-c", "safe.directory=*"]
+    for item in config:
+        cmd.extend(["-c", item])
+    cmd.extend(args)
     return subprocess.run(
-        ["git", "-c", "safe.directory=*", *args],
+        cmd,
         capture_output=True,
         text=True,
         cwd=_repo_dir(),
         timeout=timeout,
         env=_git_env(),
     )
+
+
+# Used only for the merge commit an update may create. Does not change
+# the Pi user's git config.
+_PULL_IDENTITY = (
+    "user.name=Vinyl Streamer",
+    "user.email=listen@localhost",
+)
+
+
+def _integrate_origin_main() -> subprocess.CompletedProcess:
+    """Fast-forward or merge origin/main into the current branch.
+
+    Git 2.27 and newer refuse `git pull` when the histories are not a
+    fast-forward and pull.rebase is unset, which is the "Need to specify
+    how to reconcile divergent branches" failure from Update Now.
+    --no-rebase tells git to merge. A conflict is aborted so the checkout
+    is not left half-merged.
+    """
+    result = _git(
+        "pull", "--no-rebase", "--no-edit", "origin", "main",
+        timeout=60,
+        config=_PULL_IDENTITY,
+    )
+    if result.returncode != 0:
+        _git("merge", "--abort", timeout=15)
+    return result
 
 
 def _get_git_commit() -> str:
@@ -269,9 +300,10 @@ async def perform_update():
             "message": "Fetching latest code..."
         })
 
-        result = _git("pull", "origin", "main", timeout=60)
+        result = _integrate_origin_main()
         if result.returncode != 0:
-            raise Exception(f"git pull failed: {result.stderr}")
+            detail = (result.stderr or result.stdout or "git pull failed").strip()
+            raise Exception(f"git pull failed: {detail}")
 
         await broadcast("update_status", {
             "status": "installing",
@@ -362,7 +394,7 @@ async def perform_update():
                 pass
 
         recovery = (
-            " On the Pi run: cd ~/vinyl-airplay && git pull origin main "
+            " On the Pi run: cd /opt/vinyl-streamer && git pull --no-rebase --no-edit origin main "
             "&& sudo systemctl restart vinyl-wifi-setup vinyl-airplay"
         )
         if "externally-managed" in error_msg or "pip install failed" in error_msg:
