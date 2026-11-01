@@ -29,6 +29,7 @@ from audio_streams import AsyncAudioStream, LocalOutputStream, _browser_streams,
 from device_helpers import _capture_channels, _capture_device_index, _get_local_outputs
 from recognition import _art_jpeg, _make_on_match, _make_on_unknown
 from recording_engine import _auto_finalize_album_side
+from transports_airplay2 import find_cliairplay, resolve_airplay_outputs
 
 SAMPLE_RATE   = 44100
 BLOCK_SIZE    = 8192
@@ -367,75 +368,108 @@ class CaptureManager:
 capture = CaptureManager()
 
 
+def _open_monitor_stream(device, frames):
+    """Open a long-lived capture InputStream for auto-stream RMS polling.
+
+    Keeping the stream open across polls avoids open/close clicks on combo
+    DAC+ADC cards (HiFiBerry DAC2 ADC Pro shares clocks between sides).
+    """
+    channels = _capture_channels(device)
+    rate = _negotiate_capture_rate(device, channels)
+    block = int(frames * rate / SAMPLE_RATE)
+    stream = sd.InputStream(
+        device=device, samplerate=rate, channels=channels, dtype="float32",
+        blocksize=block,
+    )
+    stream.start()
+    return stream, block
+
+
 async def _auto_stream_watcher():
     """
-    Poll Scarlett RMS while idle; auto-start stream when record plays.
+    Poll capture RMS while idle; auto-start stream when record plays.
 
-    Opens the InputStream only when NOT streaming, and closes it the moment
-    streaming starts: this prevents ALSA 'device busy' errors when run_stream
-    opens its own InputStream.
+    Holds one InputStream open across poll cycles. Opening and closing the
+    HiFiBerry ADC every second was clicking the shared DAC (speakers pop
+    with nothing playing). The monitor is released before run_stream /
+    listen / playback takes the capture device.
     """
     RMS_THRESHOLD = state.settings.get("audio_detect_threshold", 0.006)
     SUSTAIN_SECS  = 2.0
-    POLL_SECS     = 1.0     # longer interval: open/close device each cycle
+    POLL_SECS     = 1.0
     COOLDOWN_SECS = 15.0
-    POLL_FRAMES   = int(44100 * 0.2)   # 0.2s read: hold the capture device only briefly
+    POLL_FRAMES   = int(44100 * 0.2)   # 0.2s read at SAMPLE_RATE units
 
     print("[auto-stream] Watcher started")
     sustained = 0.0
     cooldown  = 0.0
+    monitor = None
+    monitor_frames = POLL_FRAMES
+    holding_lock = False
+
+    def _close_monitor():
+        nonlocal monitor, holding_lock, monitor_frames
+        if monitor is not None:
+            with suppress(Exception):
+                monitor.stop()
+                monitor.close()
+            monitor = None
+        if holding_lock:
+            with suppress(Exception):
+                state.capture_lock.release()
+            holding_lock = False
+        monitor_frames = POLL_FRAMES
+
+    def _busy() -> bool:
+        return bool(
+            state.is_streaming
+            or state.listen_task
+            or (state.album_recorder and state.album_recorder.is_active)
+            or state.player_task
+            or (state.player and state.player.state != "stopped")
+            or capture.active
+        )
 
     try:
         while True:
             await asyncio.sleep(POLL_SECS)
 
-            # While streaming, just count down cooldown: don't touch the device
-            if state.is_streaming:
+            # While another consumer owns capture, release the monitor and wait.
+            if _busy():
+                _close_monitor()
                 sustained = 0.0
-                cooldown  = COOLDOWN_SECS
-                continue
-
-            # Also skip while listen mode or album recording has the device open
-            if state.listen_task or (state.album_recorder and state.album_recorder.is_active):
-                sustained = 0.0
-                cooldown  = COOLDOWN_SECS
-                continue
-
-            # Skip while catalog playback is active (or starting up)
-            if state.player_task or (state.player and state.player.state != "stopped"):
-                sustained = 0.0
-                cooldown  = COOLDOWN_SECS
+                cooldown = COOLDOWN_SECS
                 continue
 
             if cooldown > 0:
                 cooldown = max(0.0, cooldown - POLL_SECS)
                 continue
 
-            # Open device, read one chunk, close immediately: never holds it open
-            # Re-check right before open (race condition: listen/album may have started)
-            if state.listen_task or (state.album_recorder and state.album_recorder.is_active):
-                sustained = 0.0
-                cooldown = COOLDOWN_SECS
-                continue
             audio_idx = _capture_device_index()
-            # Non-blocking grab of the shared capture device: skip this poll if a
-            # stream / listen / recording session holds it. The read runs in a
-            # worker thread so it never stalls the event loop.
-            if not state.capture_lock.acquire(blocking=False):
-                continue
+            if monitor is None:
+                if not state.capture_lock.acquire(blocking=False):
+                    continue
+                holding_lock = True
+                try:
+                    monitor, monitor_frames = await asyncio.to_thread(
+                        _open_monitor_stream, audio_idx, POLL_FRAMES
+                    )
+                except Exception as e:
+                    _close_monitor()
+                    if not _busy():
+                        print(f"[auto-stream] Open error: {e}")
+                    await asyncio.sleep(5.0)
+                    continue
+
             try:
-                data = await asyncio.to_thread(_poll_capture, audio_idx, POLL_FRAMES)
+                data, _ = await asyncio.to_thread(monitor.read, monitor_frames)
             except Exception as e:
-                data = None
-                # Suppress noisy errors when something else has the device
-                if not (state.listen_task or state.is_streaming
-                        or (state.album_recorder and state.album_recorder.is_active)):
+                _close_monitor()
+                if not _busy():
                     print(f"[auto-stream] Read error: {e}")
-            finally:
-                state.capture_lock.release()
-            if data is None:
                 await asyncio.sleep(5.0)
                 continue
+
             rms = float(np.sqrt(np.mean(data[:, :min(2, data.shape[1])] ** 2)))
 
             if rms >= RMS_THRESHOLD:
@@ -456,6 +490,8 @@ async def _auto_stream_watcher():
                         "device":  dev.get("name"),
                         "message": f"Auto-stream: starting to {dev.get('name')}…"
                     })
+                    # Hand the capture device to run_stream.
+                    _close_monitor()
                     state.stream_task = asyncio.create_task(
                         run_stream([dev], aidx, volume)
                     )
@@ -467,6 +503,8 @@ async def _auto_stream_watcher():
         print("[auto-stream] Watcher stopped")
     except Exception as e:
         print(f"[auto-stream] Watcher error: {type(e).__name__}: {e}")
+    finally:
+        _close_monitor()
 
 
 async def _restart_auto_stream_watcher():
@@ -480,7 +518,6 @@ async def _restart_auto_stream_watcher():
         print("[auto-stream] Watcher (re)started")
     else:
         print("[auto-stream] Disabled")
-
 
 
 async def run_stream(targets, audio_device_index, volume):
@@ -526,16 +563,52 @@ async def _run_stream_inner(targets, audio_device_index, volume):
 
     # Set up AirPlay devices (if any). storage= attaches saved
     # credentials to the conf services so pyatv.connect doesn't have
-    # to re-pair every time.
+    # to re-pair every time. AP2-capable targets go through cliairplay;
+    # classic RAOP stays on pyatv.
     confs = []
+    ap2_streams = []
     if airplay_targets:
         if state.atv_storage is not None:
             await state.atv_storage.load()
         found = await pyatv.scan(
             main_loop, timeout=7, storage=state.atv_storage,
         )
-        id_to_conf = {d.identifier: d for d in found}
-        confs      = [id_to_conf[t["id"]] for t in airplay_targets if t["id"] in id_to_conf]
+        binary = None
+        if state.settings.get("airplay2_enabled", True):
+            binary = state.cliairplay_path or find_cliairplay()
+            state.cliairplay_path = binary
+        try:
+            confs, ap2_streams = await asyncio.to_thread(
+                resolve_airplay_outputs,
+                airplay_targets,
+                found,
+                volume=volume,
+                airplay2_enabled=state.settings.get("airplay2_enabled", True),
+                binary=binary,
+            )
+            state.ap2_streams = list(ap2_streams)
+        except Exception as e:
+            print(f"[airplay2] Failed to start AP2 streams: {e}")
+            traceback.print_exc()
+            ap2_streams = []
+            state.ap2_streams = []
+            await broadcast("error", {"message": f"AirPlay 2 start failed: {e}"})
+            # Keep pyatv RAOP for standalone HomePods / classic speakers.
+            # Apple TV and paired speaker groups need native AP2 + PTP.
+            from transports_airplay2 import requires_airplay2_ptp
+            id_to_conf = {d.identifier: d for d in found}
+            confs = []
+            for t in airplay_targets:
+                c = id_to_conf.get(t["id"])
+                if not c:
+                    continue
+                if requires_airplay2_ptp(c):
+                    print(
+                        f"[airplay2] Not falling back to RAOP for {c.name} "
+                        "(Apple TV / paired group needs native AP2 + PTP)"
+                    )
+                    continue
+                confs.append(c)
 
     # Set up local output streams. Resolve the ALSA device fresh from the
     # current card enumeration by the target's stable id, so a card reorder (or
@@ -591,7 +664,8 @@ async def _run_stream_inner(targets, audio_device_index, volume):
                   "frontend must call /api/stream/create first")
 
     http_only = False
-    if not confs and not local_streams and not bt_streams and not browser_streams:
+    n_airplay = len(confs) + len(ap2_streams)
+    if not n_airplay and not local_streams and not bt_streams and not browser_streams:
         if state.settings.get("http_stream_enabled"):
             http_only = True
             print("[http-stream] No playback targets selected; running capture for /live.mp3 only")
@@ -614,7 +688,7 @@ async def _run_stream_inner(targets, audio_device_index, volume):
     status_message = (
         "Streaming (HTTP MP3 live URL active)"
         if http_only
-        else f"Streaming to {len(confs) + len(local_streams) + len(bt_streams) + len(browser_streams)} device(s)"
+        else f"Streaming to {n_airplay + len(local_streams) + len(bt_streams) + len(browser_streams)} device(s)"
     )
     await broadcast("status", {
         "streaming": True, "devices": state.active_devices,
@@ -648,7 +722,10 @@ async def _run_stream_inner(targets, audio_device_index, volume):
     # RecordingBuffer and Recogniser) on first attach, otherwise just adds
     # this stream's output sinks to the existing capture.
     token = object()
-    sinks = list(audio_streams.values()) + local_streams + bt_streams + browser_streams
+    sinks = (
+        list(audio_streams.values()) + ap2_streams
+        + local_streams + bt_streams + browser_streams
+    )
     attached = False
     try:
         await capture.attach(token, sinks, audio_device_index)
@@ -660,7 +737,7 @@ async def _run_stream_inner(targets, audio_device_index, volume):
                 [stop_task, threads_task], return_when=asyncio.FIRST_COMPLETED
             )
         else:
-            # Local-only: just wait for stop
+            # Local-only / AP2-only: just wait for stop
             await stop_task
             pending = set()
         for t in pending:
@@ -672,6 +749,10 @@ async def _run_stream_inner(targets, audio_device_index, volume):
             full_stop = await capture.detach(token)
         for s in audio_streams.values():
             s.stop()
+        for s in ap2_streams:
+            with suppress(Exception):
+                s.stop()
+        state.ap2_streams = []
         for lo in local_streams:
             lo.stop()
         for bts in bt_streams:

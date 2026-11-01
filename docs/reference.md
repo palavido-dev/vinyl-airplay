@@ -229,8 +229,8 @@ Grouped into collapsible sections.
 
 | Control | Description |
 |---|---|
-| **Scan for Devices** | Re runs the AirPlay discovery scan. Uses `zeroconf` to find RAOP endpoints on the local network. |
-| AirPlay device list | Each entry has rename, hide, test tone, and pair (when required) buttons. |
+| **Scan for Devices** | Re runs the AirPlay discovery scan. Uses `zeroconf` / pyatv to find RAOP and AirPlay 2 endpoints on the local network. AirPlay 2–capable devices show an AP2 badge. |
+| AirPlay device list | Each entry has rename, hide, test tone, and pair (when required) buttons. Apple TV / HomePod on the AirPlay 2 path pair via HAP (`cliairplay --pair-setup`). |
 | **Scan for Bluetooth** | Runs `bluetoothctl scan on` for a fixed window and lists discovered devices. |
 | Bluetooth device list | Pair, connect, disconnect, remove per device. |
 | **Start Streaming** | Begins the live vinyl pipeline: capture, EQ, stream to selected outputs. |
@@ -616,9 +616,10 @@ sudo journalctl -u vinyl-airplay -f
 | File | Purpose |
 |---|---|
 | `streaming.py` | Live vinyl stream coordinator (auto-stream watcher, capture setup) and listen mode. |
-| `audio_streams.py` | The sounddevice capture callback plus the audio sink classes (AirPlay, local, browser). |
+| `audio_streams.py` | The sounddevice capture callback plus the audio sink classes (AirPlay RAOP, local, browser). |
 | `audio_eq.py` | Real-time 5 band EQ (shelving / peaking filters). |
 | `audio_mp3.py` | MP3 encoder for the browser / HTTP `live.mp3` stream. |
+| `transports_airplay2.py` | AirPlay 2 transport via `cliairplay` (PCM stdin + cmdpipe + shared PTP daemon). |
 | `transports_bluetooth.py` | Bluetooth (BlueALSA / A2DP) output transport. |
 
 **Engines and helpers**

@@ -332,7 +332,7 @@ ALLOWED_SETTINGS_KEYS = {
     "http_stream_bitrate_kbps", "audio_detect_threshold",
     "max_browser_listeners", "app_name", "crossfade_secs",
     "adc_auto_gain_enabled", "adc_gain_db", "eq_bands", "eq_preset",
-    "screensaver_minutes", "resume_playback",
+    "screensaver_minutes", "resume_playback", "airplay2_enabled",
 }
 
 
