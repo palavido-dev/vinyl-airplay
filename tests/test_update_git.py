@@ -122,6 +122,45 @@ def test_divergent_histories_merge_cleanly():
         assert pending.returncode != 0
 
 
+def test_check_update_does_not_treat_ahead_of_main_as_available():
+    """The Pi's AirPlay branch contains main plus local commits. That is not
+    "1 commit behind" and Update Now cannot fast-forward to an older main.
+    """
+
+    def fake_git(*args, timeout=15, config=()):
+        if args[:2] == ("rev-parse", "origin/main"):
+            return subprocess.CompletedProcess(args, 0, stdout="originmain\n", stderr="")
+        if args[:2] == ("rev-list", "--count"):
+            return subprocess.CompletedProcess(args, 0, stdout="0\n", stderr="")
+        return subprocess.CompletedProcess(args, 1, stdout="", stderr="unexpected")
+
+    with patch.object(sysroutes, "_fetch_origin", lambda: (True, "")), \
+         patch.object(sysroutes, "_get_git_commit", lambda: "pi-ahead"), \
+         patch.object(sysroutes, "_git", fake_git):
+        result = sysroutes._check_update_sync()
+
+    assert result["ok"] is True
+    assert result["available"] is False
+    assert result["commits_behind"] == 0
+    assert result["current_commit"] == "pi-ahead"
+    assert result["latest_commit"] == "originmain"
+
+
+def test_check_update_reports_when_rev_list_cannot_compare():
+    def fake_git(*args, timeout=15, config=()):
+        if args[:2] == ("rev-parse", "origin/main"):
+            return subprocess.CompletedProcess(args, 0, stdout="rewritten\n", stderr="")
+        return subprocess.CompletedProcess(args, 1, stdout="", stderr="bad revision")
+
+    with patch.object(sysroutes, "_fetch_origin", lambda: (True, "")), \
+         patch.object(sysroutes, "_get_git_commit", lambda: "local"), \
+         patch.object(sysroutes, "_git", fake_git):
+        result = sysroutes._check_update_sync()
+
+    assert result["available"] is True
+    assert result["commits_behind"] == 1
+
+
 def test_service_worker_lets_the_browser_call_the_api():
     text = (Path(__file__).resolve().parent.parent / "templates" / "service-worker.js").read_text()
     start = text.index("url.pathname.startsWith('/api/')")

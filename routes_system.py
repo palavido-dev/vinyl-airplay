@@ -129,14 +129,20 @@ def _fetch_origin() -> tuple[bool, str]:
         return False, str(e)
 
 
-def _count_commits_behind() -> int:
+def _count_commits_behind() -> int | None:
+    """Commits on origin/main that HEAD does not have.
+
+    None means rev-list failed, which is different from zero. Zero means
+    this checkout already contains origin/main, even when the Pi also has
+    commits main does not (the AirPlay 2 branch).
+    """
     try:
         result = _git("rev-list", "--count", "HEAD..origin/main", timeout=5)
-        if result.returncode == 0:
-            return int(result.stdout.strip() or "0")
-        return 0
+        if result.returncode != 0:
+            return None
+        return int(result.stdout.strip() or "0")
     except Exception:
-        return 0
+        return None
 
 
 @router.get("/api/system/cert")
@@ -251,14 +257,20 @@ def _check_update_sync() -> dict:
     except Exception:
         pass
 
-    behind = _count_commits_behind() if fetched else 0
-    available = fetched and latest != current and behind > 0
-    # Treat any divergence after a successful fetch as an update, even if
-    # rev-list count is weird (e.g. rewritten history).
-    if fetched and latest != current:
+    behind_count = _count_commits_behind() if fetched else 0
+    if not fetched:
+        behind = 0
+        available = False
+    elif behind_count is None and latest != current:
+        # rev-list could not compare the histories. Surface that as an
+        # update so a rewritten main is not reported as up to date.
+        behind = 1
         available = True
-        if behind == 0:
-            behind = 1
+    else:
+        behind = behind_count or 0
+        # Ahead of main is not an update. Update Now pulls origin/main, and
+        # there is nothing there to pull.
+        available = behind > 0
 
     return {
         "ok": fetched,
