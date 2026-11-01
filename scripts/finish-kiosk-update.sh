@@ -19,7 +19,10 @@ done
 
 echo "Updating in $PWD ..."
 git fetch --prune origin
-git pull --ff-only origin main
+# Merge when the Pi has a local commit and GitHub main has moved.
+# A plain pull dies on Git 2.27+ with "divergent branches".
+git -c user.name='Vinyl Streamer' -c user.email='listen@localhost' \
+  pull --no-rebase --no-edit origin main
 
 # Point systemd at the venv PATH so future Update Now clicks use venv pip.
 UNIT=/etc/systemd/system/vinyl-airplay.service
@@ -50,6 +53,7 @@ else
   echo "No venv pip found; skipping dependency install (code update still applies)."
 fi
 
-echo "Restarting vinyl-airplay..."
+echo "Restarting vinyl-airplay and the WiFi portal..."
+sudo systemctl restart vinyl-wifi-setup || true
 sudo systemctl restart vinyl-airplay
 echo "Done. Hard-refresh the kiosk browser if the UI looks stale."

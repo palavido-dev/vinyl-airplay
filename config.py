@@ -37,6 +37,9 @@ def load_settings() -> dict:
         # comfortable on a 4GB Pi 4 that is also recording. Tunable in Settings.
         "max_browser_listeners": 3,
         "app_name": "Vinyl Streamer",
+        # Prefer cliairplay (AirPlay 2) for capable receivers when the binary
+        # is installed. Disable to force the legacy pyatv RAOP path.
+        "airplay2_enabled": True,
     }
     if SETTINGS_FILE.exists():
         s = json.loads(SETTINGS_FILE.read_text())

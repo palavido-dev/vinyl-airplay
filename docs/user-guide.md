@@ -134,7 +134,7 @@ Tapping the cover art in the Now Playing bar opens the current album's [detail m
 The first time you start playback (or when you tap **Switch Output** from the transport), the output picker asks where to send the audio. It lists every known device in three groups:
 
 - **This Device**: plays through the browser you are currently using. Good for listening on headphones at your desk.
-- **AirPlay**: every HomePod, AirPort Express, or AirPlay receiver the Pi has discovered on your network. You can pick more than one for multi room.
+- **AirPlay**: every HomePod, AirPort Express, AirPlay receiver, stereo pair, multi-room group, or Apple TV the Pi has discovered. AirPlay 2 targets show an AP2 badge; pair Apple devices from Settings when prompted. You can pick more than one for multi room.
 - **Bluetooth**: any A2DP speaker or headphones you have paired in Settings. Only one Bluetooth device can stream at a time.
 - **Local**: speakers plugged directly into the Pi's audio output.
 

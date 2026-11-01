@@ -28,6 +28,18 @@ import player as plr
 import recorder as rec
 from app_state import broadcast, spawn_bg, state, ws_heartbeat
 from audio_mp3 import LiveMP3Broadcaster
+from transports_airplay2 import (
+    AirPlay2PairingSession,
+    conf_airplay_port,
+    conf_features_value,
+    conf_is_apple_tv,
+    conf_is_homepod,
+    conf_looks_grouped,
+    find_cliairplay,
+    get_credentials,
+    should_use_airplay2,
+    supports_airplay2,
+)
 from audio_streams import (
     BrowserMP3Stream,
     _browser_streams,
@@ -157,6 +169,28 @@ async def lifespan(app: FastAPI):
         print(f"[pyatv] Could not load credential storage: {e}")
         state.atv_storage = None
 
+    # Resolve cliairplay once at boot so AirPlay 2 routing is cheap later.
+    try:
+        from transports_airplay2 import binary_has_ptp_cap
+        state.cliairplay_path = find_cliairplay()
+        if state.cliairplay_path:
+            print(f"[airplay2] cliairplay ready: {state.cliairplay_path}")
+            if binary_has_ptp_cap(state.cliairplay_path):
+                print("[airplay2] CAP_NET_BIND_SERVICE present — PTP ok for ATV/HomePod")
+            else:
+                print(
+                    "[airplay2] WARNING: no CAP_NET_BIND_SERVICE on "
+                    f"{state.cliairplay_path} — Apple TV / paired speaker groups "
+                    "will fail until you run:\n"
+                    f"  sudo setcap 'cap_net_bind_service=+ep' {state.cliairplay_path}"
+                )
+        else:
+            print("[airplay2] cliairplay not installed — Apple TV / groups unavailable "
+                  "(standalone HomePods still use RAOP)")
+    except Exception as e:
+        print(f"[airplay2] Binary probe failed: {e}")
+        state.cliairplay_path = None
+
     yield
     if state.stop_event:
         state.stop_event.set()
@@ -261,11 +295,22 @@ async def scan_devices():
     hidden = set(state.settings.get("hidden_devices", []))
     custom_names = state.settings.get("device_names", {})
     state.available_devices = []
+    binary = state.cliairplay_path or find_cliairplay()
+    state.cliairplay_path = binary
+    ap2_enabled = state.settings.get("airplay2_enabled", True)
     # Only the audio protocols matter for our use case. Companion is for
     # remote control and is irrelevant to streaming audio, so don't gate
     # "paired" on it even when it reports Mandatory.
     AUDIO_PROTOS = (pyatv.Protocol.RAOP, pyatv.Protocol.AirPlay)
     for d in found:
+        features = conf_features_value(d)
+        ap2_capable = supports_airplay2(features) or conf_is_apple_tv(d) or conf_looks_grouped(d)
+        use_ap2 = (
+            ap2_enabled and binary
+            and should_use_airplay2(d, d.identifier, binary_available=True)
+        )
+        ap2_creds = get_credentials(d.identifier)
+
         # A device needs pairing if RAOP (what we stream with) has
         # Mandatory pairing and we don't already have credentials.
         raop = d.get_service(pyatv.Protocol.RAOP)
@@ -273,6 +318,11 @@ async def scan_devices():
             raop and str(getattr(raop, "pairing", "")).endswith("Mandatory")
             and not raop.credentials
         )
+        # Apple TV / HomePod on the AP2 path: offer HAP pair-setup when we
+        # have no stored credentials yet (transient pairing still works as
+        # a fallback at stream time).
+        if use_ap2 and (conf_is_apple_tv(d) or conf_is_homepod(d)) and not ap2_creds:
+            needs_pair = True
         # "paired" is true if every Mandatory *audio* protocol on this
         # device has credentials. tvOS often requires both RAOP and
         # AirPlay; HomePods often require neither.
@@ -286,6 +336,8 @@ async def scan_devices():
             ):
                 audio_paired = False
                 break
+        if use_ap2 and (conf_is_apple_tv(d) or conf_is_homepod(d)):
+            audio_paired = bool(ap2_creds)
         state.available_devices.append({
             "id":       d.identifier,
             "name":     d.name,
@@ -294,6 +346,13 @@ async def scan_devices():
             "hidden":   d.identifier in hidden,
             "needs_pairing": needs_pair,
             "paired":   audio_paired,
+            "airplay2": bool(ap2_capable),
+            "transport": "airplay2" if use_ap2 else "raop",
+            "grouped":  conf_looks_grouped(d),
+            "pair_protocol": (
+                "airplay2" if use_ap2 and (conf_is_apple_tv(d) or conf_is_homepod(d))
+                else "raop"
+            ),
         })
     return {"devices": state.available_devices + _get_local_outputs()}
 
@@ -305,10 +364,53 @@ async def pair_start(device_id: str, body: dict | None = None):
     If the device shows a PIN on screen, the client should prompt the user to
     enter it and call /pair/pin. If no PIN is needed, pairing completes immediately.
     Pairs RAOP protocol first (required for audio), then AirPlay.
+    protocol=airplay2 uses cliairplay --pair-setup (HAP) instead.
     """
     if body is None:
         body = {}
     protocol_name = body.get("protocol", "raop")
+
+    # ── AirPlay 2 HAP pair-setup via cliairplay ───────────────────────────
+    if protocol_name == "airplay2":
+        loop = asyncio.get_event_loop()
+        if state.atv_storage is not None:
+            await state.atv_storage.load()
+        found = await pyatv.scan(
+            loop, timeout=7, identifier=device_id, storage=state.atv_storage,
+        )
+        if not found:
+            return {"ok": False, "error": "Device not found on network"}
+        conf = found[0]
+        binary = state.cliairplay_path or find_cliairplay()
+        if not binary:
+            return {
+                "ok": False,
+                "error": "AirPlay 2 binary not installed. Re-run install.sh "
+                         "or see docs/airplay2.md",
+            }
+        try:
+            session = AirPlay2PairingSession(
+                str(conf.address),
+                port=conf_airplay_port(conf),
+                device_id=device_id,
+                name=conf.name,
+                binary=binary,
+            )
+            await asyncio.to_thread(session.begin)
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+        state.pairing_sessions[device_id] = {
+            "pairing":  session,
+            "conf":     conf,
+            "protocol": "airplay2",
+            "kind":     "ap2",
+        }
+        return {
+            "ok": True,
+            "device_provides_pin": True,
+            "needs_pin": True,
+        }
+
     proto_map = {
         "raop":    pyatv.Protocol.RAOP,
         "airplay": pyatv.Protocol.AirPlay,
@@ -337,6 +439,7 @@ async def pair_start(device_id: str, body: dict | None = None):
         "pairing":  pairing,
         "conf":     conf,
         "protocol": protocol_name,
+        "kind":     "pyatv",
     }
 
     return {
@@ -358,6 +461,22 @@ async def pair_pin(device_id: str, body: dict | None = None):
     pin = body.get("pin", "")
     pairing = session["pairing"]
     conf    = session["conf"]
+
+    # AirPlay 2 HAP pair-setup
+    if session.get("kind") == "ap2" or session.get("protocol") == "airplay2":
+        try:
+            auth = await asyncio.to_thread(pairing.finish, str(pin))
+        except Exception as e:
+            state.pairing_sessions.pop(device_id, None)
+            return {"ok": False, "error": f"Pairing failed: {e}"}
+        state.pairing_sessions.pop(device_id, None)
+        return {
+            "ok": True,
+            "paired": True,
+            "remaining_protocols": [],
+            "message": "Paired successfully via AirPlay 2 (HAP)",
+            "auth_len": len(auth) if auth else 0,
+        }
 
     try:
         if pin:
@@ -410,8 +529,12 @@ async def pair_cancel(device_id: str):
     """Cancel an in-progress pairing session."""
     session = state.pairing_sessions.pop(device_id, None)
     if session:
+        pairing = session.get("pairing")
         with suppress(Exception):
-            await session["pairing"].finish()
+            if session.get("kind") == "ap2":
+                pairing.close()
+            else:
+                await pairing.finish()
     return {"ok": True}
 
 

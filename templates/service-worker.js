@@ -1,4 +1,4 @@
-const CACHE_NAME = 'vinyl-streamer-v3';
+const CACHE_NAME = 'vinyl-streamer-v4';
 const STATIC_ASSETS = [
   '/manifest.json',
   '/static/css/app.css',
@@ -32,13 +32,14 @@ self.addEventListener('activate', event => {
 self.addEventListener('fetch', event => {
   const url = new URL(event.request.url);
 
-  // Never cache API / auth / websocket upgrades — sessions and CSRF must stay live.
+  // Do not intercept these. Re-fetching them inside the worker turns a slow
+  // git check, a websocket upgrade, or a live stream into "Failed to fetch"
+  // on the page. The browser should talk to the Pi directly.
   if (
     url.pathname.startsWith('/api/') ||
     url.pathname.startsWith('/ws') ||
     url.pathname.startsWith('/live.mp3')
   ) {
-    event.respondWith(fetch(event.request));
     return;
   }
 

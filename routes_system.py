@@ -51,14 +51,58 @@ def _install_requirements() -> subprocess.CompletedProcess:
     )
 
 
-def _git(*args: str, timeout: int = 15) -> subprocess.CompletedProcess:
+def _git_env() -> dict[str, str]:
+    """Env for git calls from the service, which has no terminal.
+
+    GIT_TERMINAL_PROMPT stops a missing credential from sitting forever on
+    an invisible password prompt. safe.directory is applied by the caller
+    so a root-cloned checkout still works when the service runs as listen.
+    """
+    env = os.environ.copy()
+    env["GIT_TERMINAL_PROMPT"] = "0"
+    return env
+
+
+def _git(*args: str, timeout: int = 15, config: tuple[str, ...] = ()) -> subprocess.CompletedProcess:
+    cmd = ["git", "-c", "safe.directory=*"]
+    for item in config:
+        cmd.extend(["-c", item])
+    cmd.extend(args)
     return subprocess.run(
-        ["git", *args],
+        cmd,
         capture_output=True,
         text=True,
         cwd=_repo_dir(),
         timeout=timeout,
+        env=_git_env(),
     )
+
+
+# Used only for the merge commit an update may create. Does not change
+# the Pi user's git config.
+_PULL_IDENTITY = (
+    "user.name=Vinyl Streamer",
+    "user.email=listen@localhost",
+)
+
+
+def _integrate_origin_main() -> subprocess.CompletedProcess:
+    """Fast-forward or merge origin/main into the current branch.
+
+    Git 2.27 and newer refuse `git pull` when the histories are not a
+    fast-forward and pull.rebase is unset, which is the "Need to specify
+    how to reconcile divergent branches" failure from Update Now.
+    --no-rebase tells git to merge. A conflict is aborted so the checkout
+    is not left half-merged.
+    """
+    result = _git(
+        "pull", "--no-rebase", "--no-edit", "origin", "main",
+        timeout=60,
+        config=_PULL_IDENTITY,
+    )
+    if result.returncode != 0:
+        _git("merge", "--abort", timeout=15)
+    return result
 
 
 def _get_git_commit() -> str:
@@ -85,14 +129,20 @@ def _fetch_origin() -> tuple[bool, str]:
         return False, str(e)
 
 
-def _count_commits_behind() -> int:
+def _count_commits_behind() -> int | None:
+    """Commits on origin/main that HEAD does not have.
+
+    None means rev-list failed, which is different from zero. Zero means
+    this checkout already contains origin/main, even when the Pi also has
+    commits main does not (the AirPlay 2 branch).
+    """
     try:
         result = _git("rev-list", "--count", "HEAD..origin/main", timeout=5)
-        if result.returncode == 0:
-            return int(result.stdout.strip() or "0")
-        return 0
+        if result.returncode != 0:
+            return None
+        return int(result.stdout.strip() or "0")
     except Exception:
-        return 0
+        return None
 
 
 @router.get("/api/system/cert")
@@ -207,14 +257,20 @@ def _check_update_sync() -> dict:
     except Exception:
         pass
 
-    behind = _count_commits_behind() if fetched else 0
-    available = fetched and latest != current and behind > 0
-    # Treat any divergence after a successful fetch as an update, even if
-    # rev-list count is weird (e.g. rewritten history).
-    if fetched and latest != current:
+    behind_count = _count_commits_behind() if fetched else 0
+    if not fetched:
+        behind = 0
+        available = False
+    elif behind_count is None and latest != current:
+        # rev-list could not compare the histories. Surface that as an
+        # update so a rewritten main is not reported as up to date.
+        behind = 1
         available = True
-        if behind == 0:
-            behind = 1
+    else:
+        behind = behind_count or 0
+        # Ahead of main is not an update. Update Now pulls origin/main, and
+        # there is nothing there to pull.
+        available = behind > 0
 
     return {
         "ok": fetched,
@@ -228,8 +284,20 @@ def _check_update_sync() -> dict:
 
 @router.get("/api/system/check-update")
 async def check_update():
-    # Git fetch/rev-list block for up to ~20s; keep them off the event loop.
-    return await asyncio.to_thread(_check_update_sync)
+    # Git fetch/rev-list block for up to ~30s; keep them off the event loop.
+    # Always return JSON. A raised error used to drop the connection, and the
+    # page then only knew how to say "Could not reach update server".
+    try:
+        return await asyncio.to_thread(_check_update_sync)
+    except Exception as e:
+        return {
+            "ok": False,
+            "available": False,
+            "current_commit": "unknown",
+            "latest_commit": "unknown",
+            "commits_behind": 0,
+            "fetch_error": str(e),
+        }
 
 
 _update_rollback_hash = None
@@ -244,15 +312,10 @@ async def perform_update():
             "message": "Fetching latest code..."
         })
 
-        result = subprocess.run(
-            ["git", "pull", "origin", "main"],
-            capture_output=True,
-            text=True,
-            cwd=_repo_dir(),
-            timeout=60,
-        )
+        result = _integrate_origin_main()
         if result.returncode != 0:
-            raise Exception(f"git pull failed: {result.stderr}")
+            detail = (result.stderr or result.stdout or "git pull failed").strip()
+            raise Exception(f"git pull failed: {detail}")
 
         await broadcast("update_status", {
             "status": "installing",
@@ -299,6 +362,12 @@ async def perform_update():
         # Clear rollback marker so an exception during restart does not undo the pull.
         _update_rollback_hash = None
 
+        # wifi_setup.py runs in its own service. Restart it before the app
+        # restart below, which ends this process, so a portal fix actually lands.
+        subprocess.run(
+            ["systemctl", "restart", "vinyl-wifi-setup"],
+            timeout=20,
+        )
         subprocess.run(
             ["systemctl", "restart", "vinyl-airplay"],
             timeout=5
@@ -328,11 +397,7 @@ async def perform_update():
             and "git pull failed" in error_msg
         ):
             try:
-                subprocess.run(
-                    ["git", "reset", "--hard", _update_rollback_hash],
-                    cwd=_repo_dir(),
-                    timeout=10
-                )
+                _git("reset", "--hard", _update_rollback_hash, timeout=10)
                 await broadcast("update_status", {
                     "status": "rolled_back",
                     "message": "Rolled back to previous version"
@@ -341,8 +406,8 @@ async def perform_update():
                 pass
 
         recovery = (
-            " On the Pi run: cd ~/vinyl-airplay && git pull origin main "
-            "&& sudo systemctl restart vinyl-airplay"
+            " On the Pi run: cd /opt/vinyl-streamer && git pull --no-rebase --no-edit origin main "
+            "&& sudo systemctl restart vinyl-wifi-setup vinyl-airplay"
         )
         if "externally-managed" in error_msg or "pip install failed" in error_msg:
             error_msg = error_msg + recovery
@@ -353,9 +418,13 @@ async def perform_update():
 @router.post("/api/wifi/reconfigure")
 async def wifi_reconfigure():
     try:
+        # The portal redirects to the player while a network is up. The flag
+        # asks it to show the form anyway, without dropping the working link.
+        from wifi_setup import request_forced_setup
+        request_forced_setup()
         subprocess.run(
             ["systemctl", "start", "vinyl-wifi-setup"],
-            timeout=5
+            timeout=15
         )
         return {"status": "portal_started"}
     except Exception as e:

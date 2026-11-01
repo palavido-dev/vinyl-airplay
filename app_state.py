@@ -67,6 +67,10 @@ class AppState:
         self.player: plr.Player | None = None
         self.player_task: asyncio.Task | None = None
         self.airplay_metadata: MediaMetadata | None = None
+        # Active AirPlay 2 (cliairplay) sinks for the current stream/playback
+        # session. Recognition and the catalog player push now-playing metadata
+        # here; cleared when the session tears down.
+        self.ap2_streams: list = []
         self.bluetooth_manager = None  # initialized after BluetoothManager is defined
         self.available_bt_devices: list = []
         self.loop = None  # event loop ref for background thread broadcasts
@@ -78,6 +82,8 @@ class AppState:
         # so that saved credentials get attached to the conf objects we then
         # pass to pyatv.connect(). Loaded once at startup and reused.
         self.atv_storage: FileStorage | None = None
+        # Path to cliairplay binary once resolved (None = not available).
+        self.cliairplay_path: str | None = None
         self.album_encoding = {
             "in_progress": False,
             "album_id": None,

@@ -18,6 +18,7 @@ from app_state import broadcast, state
 from audio_streams import AsyncAudioStream, LocalOutputStream, _browser_streams, run_device_stream
 from device_helpers import _get_local_outputs
 from recognition import _art_jpeg, _art_url
+from transports_airplay2 import find_cliairplay, push_metadata_to_streams, resolve_airplay_outputs
 
 
 async def _stop_playback():
@@ -96,6 +97,50 @@ def _reset_album_eq_tracking():
     if state.settings.get("volume") is not None:
         state.eq.set_volume(int(state.settings["volume"]))
     print("[eq-auto] Playback ended: restored baseline EQ")
+
+
+async def _resolve_player_airplay(airplay_targets, volume, main_loop):
+    """Scan and open AirPlay sinks for catalog playback (RAOP + AirPlay 2)."""
+    confs, ap2_streams = [], []
+    if not airplay_targets:
+        return confs, ap2_streams
+    if state.atv_storage is not None:
+        await state.atv_storage.load()
+    found = await pyatv.scan(
+        main_loop, timeout=7, storage=state.atv_storage,
+    )
+    binary = None
+    if state.settings.get("airplay2_enabled", True):
+        binary = state.cliairplay_path or find_cliairplay()
+        state.cliairplay_path = binary
+    try:
+        confs, ap2_streams = await asyncio.to_thread(
+            resolve_airplay_outputs,
+            airplay_targets,
+            found,
+            volume=volume,
+            airplay2_enabled=state.settings.get("airplay2_enabled", True),
+            binary=binary,
+        )
+        state.ap2_streams = list(ap2_streams)
+    except Exception as e:
+        print(f"[airplay2] Player AP2 start failed: {e}")
+        state.ap2_streams = []
+        await broadcast("error", {"message": f"AirPlay 2 start failed: {e}"})
+        # Never RAOP-fallback Apple TV / paired groups. Standalone HomePods
+        # remain eligible for pyatv RAOP.
+        from transports_airplay2 import requires_airplay2_ptp
+        id_to_conf = {d.identifier: d for d in found}
+        confs = []
+        for t in airplay_targets:
+            c = id_to_conf.get(t["id"])
+            if not c:
+                continue
+            if requires_airplay2_ptp(c):
+                continue
+            confs.append(c)
+        ap2_streams = []
+    return confs, ap2_streams
 
 
 async def _run_playback(album_id: int, targets: list[dict], volume: int,
@@ -189,17 +234,12 @@ async def _run_playback(album_id: int, targets: list[dict], volume: int,
         bluetooth_targets = bluetooth_targets[:1]
 
     # Scan and connect to AirPlay devices. storage= so saved creds attach.
-    confs = []
-    if airplay_targets:
-        if state.atv_storage is not None:
-            await state.atv_storage.load()
-        found = await pyatv.scan(
-            main_loop, timeout=7, storage=state.atv_storage,
-        )
-        id_to_conf = {d.identifier: d for d in found}
-        confs      = [id_to_conf[t["id"]] for t in airplay_targets if t["id"] in id_to_conf]
+    confs, ap2_streams = await _resolve_player_airplay(
+        airplay_targets, volume, main_loop
+    )
 
-    if not confs and not local_targets and not bluetooth_targets and not browser_targets:
+    if (not confs and not ap2_streams and not local_targets
+            and not bluetooth_targets and not browser_targets):
         await broadcast(
             "error", {"message": "No paired devices found on network"}
         )
@@ -207,7 +247,7 @@ async def _run_playback(album_id: int, targets: list[dict], volume: int,
         return
 
     n_devices = (
-        len(confs) + len(local_targets)
+        len(confs) + len(ap2_streams) + len(local_targets)
         + len(bluetooth_targets) + len(browser_targets)
     )
     await broadcast("player_status", {
@@ -259,7 +299,10 @@ async def _run_playback(album_id: int, targets: list[dict], volume: int,
 
 
     # Always include HTTP MP3 stream if enabled
-    all_streams = list(audio_streams.values()) + local_streams + bt_streams + browser_streams
+    all_streams = (
+        list(audio_streams.values()) + ap2_streams
+        + local_streams + bt_streams + browser_streams
+    )
     if state.settings.get("http_stream_enabled", False):
         all_streams.append(state.live_mp3)
 
@@ -294,13 +337,16 @@ async def _run_playback(album_id: int, targets: list[dict], volume: int,
     def on_track_change(track_info):
         state.now_playing = track_info
         _apply_album_eq_for(track_info.get("album_id"), main_loop)
+        artwork = _art_jpeg(track_info)
         if state.airplay_metadata is not None:
             state.airplay_metadata.title   = track_info.get("track_title")
             state.airplay_metadata.artist  = (
                 track_info.get("track_artist") or track_info.get("album_artist")
             )
             state.airplay_metadata.album   = track_info.get("album_title")
-            state.airplay_metadata.artwork = _art_jpeg(track_info)
+            state.airplay_metadata.artwork = artwork
+        if state.ap2_streams:
+            push_metadata_to_streams(state.ap2_streams, track_info, artwork)
         asyncio.run_coroutine_threadsafe(broadcast("now_playing", {
             "track_title":  track_info.get("track_title"),
             "track_artist": track_info.get("track_artist"),
@@ -359,7 +405,8 @@ async def _run_playback(album_id: int, targets: list[dict], volume: int,
     try:
         # Wait for either: player finishes, devices disconnect, or external stop
         while player.state != "stopped":
-            if threads_done.is_set() and not local_streams and not bt_streams and not browser_streams:
+            if (threads_done.is_set() and not ap2_streams
+                    and not local_streams and not bt_streams and not browser_streams):
                 # All AirPlay devices disconnected and no local/BT/browser fallback
                 player.stop()
                 break
@@ -372,6 +419,10 @@ async def _run_playback(album_id: int, targets: list[dict], volume: int,
         joined = player.joined_streams(all_streams)
         for s in audio_streams.values():
             s.stop()
+        for s in ap2_streams:
+            with suppress(Exception):
+                s.stop()
+        state.ap2_streams = []
         for s in local_streams:
             s.stop()
         for s in bt_streams:
@@ -413,17 +464,12 @@ async def _run_playback_queue(album_id: int, album_info: dict,
     browser_targets    = [t for t in targets if str(t.get("id", "")).startswith("browser:")]
     airplay_targets    = [t for t in targets if not str(t.get("id", "")).startswith(("local:", "bt:", "browser:"))]
 
-    confs = []
-    if airplay_targets:
-        if state.atv_storage is not None:
-            await state.atv_storage.load()
-        found = await pyatv.scan(
-            main_loop, timeout=7, storage=state.atv_storage,
-        )
-        id_to_conf = {d.identifier: d for d in found}
-        confs = [id_to_conf[t["id"]] for t in airplay_targets if t["id"] in id_to_conf]
+    confs, ap2_streams = await _resolve_player_airplay(
+        airplay_targets, volume, main_loop
+    )
 
-    if not confs and not local_targets and not bluetooth_targets and not browser_targets:
+    if (not confs and not ap2_streams and not local_targets
+            and not bluetooth_targets and not browser_targets):
         await broadcast(
             "error", {"message": "No paired devices found on network"}
         )
@@ -472,7 +518,10 @@ async def _run_playback_queue(album_id: int, album_info: dict,
             browser_streams.append(_browser_streams[stream_id])
             print(f"[player-playlist] Added browser stream {stream_id}")
 
-    all_streams = list(audio_streams.values()) + local_streams + bt_streams + browser_streams
+    all_streams = (
+        list(audio_streams.values()) + ap2_streams
+        + local_streams + bt_streams + browser_streams
+    )
     if not all_streams:
         await broadcast("error", {"message": "No output devices available"})
         state.airplay_metadata = None
@@ -502,12 +551,15 @@ async def _run_playback_queue(album_id: int, album_info: dict,
     def on_track_change(track_info):
         state.now_playing = track_info
         _apply_album_eq_for(track_info.get("album_id"), main_loop)
+        artwork = _art_jpeg(track_info)
         if state.airplay_metadata is not None:
             state.airplay_metadata.title = track_info.get("track_title")
             state.airplay_metadata.artist = (
                 track_info.get("track_artist") or track_info.get("album_artist"))
             state.airplay_metadata.album = track_info.get("album_title")
-            state.airplay_metadata.artwork = _art_jpeg(track_info)
+            state.airplay_metadata.artwork = artwork
+        if state.ap2_streams:
+            push_metadata_to_streams(state.ap2_streams, track_info, artwork)
         asyncio.run_coroutine_threadsafe(broadcast("now_playing", {
             "track_title":  track_info.get("track_title"),
             "track_artist": track_info.get("track_artist"),
@@ -545,7 +597,8 @@ async def _run_playback_queue(album_id: int, album_info: dict,
 
     try:
         while player.state != "stopped":
-            if threads_done.is_set() and not local_streams and not bt_streams and not browser_streams:
+            if (threads_done.is_set() and not ap2_streams
+                    and not local_streams and not bt_streams and not browser_streams):
                 player.stop()
                 break
             await asyncio.sleep(0.5)
@@ -557,6 +610,10 @@ async def _run_playback_queue(album_id: int, album_info: dict,
         joined = player.joined_streams(all_streams)
         for s in audio_streams.values():
             s.stop()
+        for s in ap2_streams:
+            with suppress(Exception):
+                s.stop()
+        state.ap2_streams = []
         for s in local_streams:
             s.stop()
         for s in bt_streams:
