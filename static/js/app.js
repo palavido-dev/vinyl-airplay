@@ -4526,8 +4526,17 @@ async function checkForUpdates() {
   status.style.color = 'var(--muted)';
 
   try {
-    const response = await apiFetch('/api/system/check-update');
-    const data = await response.json();
+    const response = await apiFetch('/api/system/check-update', { cache: 'no-store' });
+    const raw = await response.text();
+    let data;
+    try {
+      data = raw ? JSON.parse(raw) : null;
+    } catch (parseErr) {
+      throw new Error('Update check returned ' + response.status + (raw ? ': ' + raw.slice(0, 180) : ' (empty body)'));
+    }
+    if (!data || typeof data !== 'object') {
+      throw new Error('Update check returned ' + response.status + ' with no details');
+    }
     const short = function(h){ return (h && h !== 'unknown') ? h.slice(0, 7) : 'unknown'; };
 
     if (data.fetch_error || data.ok === false) {
@@ -4536,6 +4545,8 @@ async function checkForUpdates() {
       // Still offer Update Now — pull may work even if the check path lied before.
       updateBtn.style.display = 'block';
       showError('Update check failed — you can still try Update Now');
+    } else if (!response.ok) {
+      throw new Error('Update check failed (' + response.status + ')');
     } else if (data.available) {
       status.style.color = 'var(--amber-dk)';
       status.textContent = 'Update available (' + (data.commits_behind || '?') +
@@ -4550,10 +4561,11 @@ async function checkForUpdates() {
     }
   } catch (err) {
     console.error('Check failed:', err);
+    var detail = (err && err.message) ? err.message : 'Could not reach update server';
     status.style.color = 'var(--rust)';
-    status.textContent = 'Failed to check for updates';
+    status.textContent = 'Failed to check for updates: ' + detail;
     updateBtn.style.display = 'block';
-    showError('Could not reach update server');
+    showError(detail);
   } finally {
     btn.disabled = false;
     btn.textContent = 'Check for Updates';

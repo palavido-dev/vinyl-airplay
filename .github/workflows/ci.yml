@@ -130,6 +130,11 @@ jobs:
         # saved FLAC still matches the audio that was captured.
         run: python tests/test_album_recorder_spill.py
 
+      - name: Update check git invocation
+        # Guards the Settings banner "Could not reach update server": git must
+        # not wait on a prompt, and the service worker must not re-fetch /api.
+        run: python tests/test_update_git.py
+
       - name: WiFi portal when already online
         # Guards vinyl.local opening the setup form on a Pi that is already
         # on the LAN, and Connect failing because dhclient is not installed.

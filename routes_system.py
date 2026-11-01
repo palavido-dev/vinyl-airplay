@@ -51,13 +51,26 @@ def _install_requirements() -> subprocess.CompletedProcess:
     )
 
 
+def _git_env() -> dict[str, str]:
+    """Env for git calls from the service, which has no terminal.
+
+    GIT_TERMINAL_PROMPT stops a missing credential from sitting forever on
+    an invisible password prompt. safe.directory is applied by the caller
+    so a root-cloned checkout still works when the service runs as listen.
+    """
+    env = os.environ.copy()
+    env["GIT_TERMINAL_PROMPT"] = "0"
+    return env
+
+
 def _git(*args: str, timeout: int = 15) -> subprocess.CompletedProcess:
     return subprocess.run(
-        ["git", *args],
+        ["git", "-c", "safe.directory=*", *args],
         capture_output=True,
         text=True,
         cwd=_repo_dir(),
         timeout=timeout,
+        env=_git_env(),
     )
 
 
@@ -228,8 +241,20 @@ def _check_update_sync() -> dict:
 
 @router.get("/api/system/check-update")
 async def check_update():
-    # Git fetch/rev-list block for up to ~20s; keep them off the event loop.
-    return await asyncio.to_thread(_check_update_sync)
+    # Git fetch/rev-list block for up to ~30s; keep them off the event loop.
+    # Always return JSON. A raised error used to drop the connection, and the
+    # page then only knew how to say "Could not reach update server".
+    try:
+        return await asyncio.to_thread(_check_update_sync)
+    except Exception as e:
+        return {
+            "ok": False,
+            "available": False,
+            "current_commit": "unknown",
+            "latest_commit": "unknown",
+            "commits_behind": 0,
+            "fetch_error": str(e),
+        }
 
 
 _update_rollback_hash = None
@@ -244,13 +269,7 @@ async def perform_update():
             "message": "Fetching latest code..."
         })
 
-        result = subprocess.run(
-            ["git", "pull", "origin", "main"],
-            capture_output=True,
-            text=True,
-            cwd=_repo_dir(),
-            timeout=60,
-        )
+        result = _git("pull", "origin", "main", timeout=60)
         if result.returncode != 0:
             raise Exception(f"git pull failed: {result.stderr}")
 
@@ -334,11 +353,7 @@ async def perform_update():
             and "git pull failed" in error_msg
         ):
             try:
-                subprocess.run(
-                    ["git", "reset", "--hard", _update_rollback_hash],
-                    cwd=_repo_dir(),
-                    timeout=10
-                )
+                _git("reset", "--hard", _update_rollback_hash, timeout=10)
                 await broadcast("update_status", {
                     "status": "rolled_back",
                     "message": "Rolled back to previous version"
